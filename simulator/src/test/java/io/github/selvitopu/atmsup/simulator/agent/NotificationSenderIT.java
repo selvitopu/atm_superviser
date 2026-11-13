@@ -31,6 +31,9 @@ import io.github.selvitopu.atmsup.simulator.model.DeviceNotification.AlarmCleare
 import io.github.selvitopu.atmsup.simulator.model.DeviceNotification.AlarmRaised;
 import io.github.selvitopu.atmsup.simulator.model.DeviceNotification.StatusChange;
 import io.github.selvitopu.atmsup.simulator.model.DeviceNotification.Switchover;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.InstantSource;
@@ -38,6 +41,7 @@ import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.snmp4j.PDU;
 import org.snmp4j.mp.SnmpConstants;
 import org.snmp4j.smi.Integer32;
@@ -163,6 +167,31 @@ class NotificationSenderIT {
         sender.send(statusChange());
 
         assertThat(receiver.awaitPdus(2, ofSeconds(1))).hasSize(1);
+    }
+
+    @Test
+    void unresolvableTrapHostDoesNotThrowAndWarnsOncePerMinute() {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(NotificationSender.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        boolean additive = logger.isAdditive();
+        logger.setAdditive(false); // keep the expected WARN out of the test console
+        try {
+            NotificationSender lost = new NotificationSender(agent, DEVICE,
+                    new TrapTarget("no-such-host.invalid", 10162), InstantSource.fixed(now));
+
+            lost.send(statusChange());
+            lost.send(statusChange());
+
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.get(0).getLevel()).isEqualTo(Level.WARN);
+            assertThat(appender.list.get(0).getFormattedMessage()).contains("no-such-host.invalid");
+        } finally {
+            logger.setAdditive(additive);
+            logger.detachAppender(appender);
+        }
     }
 
     private static OID row(OID column, int code, int instance) {

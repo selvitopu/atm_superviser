@@ -1,0 +1,6 @@
+server:
+  port: 8090
+
+spring:
+  config:
+    import: optional:file:${ATM_INVENTORY:../config/inventory.yml}

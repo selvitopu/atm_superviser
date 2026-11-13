@@ -12,6 +12,28 @@ public final class FreePorts {
     private FreePorts() {
     }
 
+    /** Returns the first of {@code n} consecutive UDP ports that were all free a moment ago. */
+    public static int udpBlock(int n) {
+        for (int attempt = 0; attempt < 50; attempt++) {
+            int first = udp(1)[0];
+            if (first + n > 65535) {
+                continue;
+            }
+            List<DatagramSocket> sockets = new ArrayList<>(n);
+            try {
+                for (int i = 0; i < n; i++) {
+                    sockets.add(new DatagramSocket(first + i));
+                }
+                return first;
+            } catch (SocketException e) {
+                // a port in the block is taken: try another block
+            } finally {
+                sockets.forEach(DatagramSocket::close);
+            }
+        }
+        throw new IllegalStateException("No free block of " + n + " consecutive UDP ports");
+    }
+
     /** Returns {@code n} distinct UDP ports that were free a moment ago (all held open together, then released). */
     public static int[] udp(int n) {
         List<DatagramSocket> sockets = new ArrayList<>(n);

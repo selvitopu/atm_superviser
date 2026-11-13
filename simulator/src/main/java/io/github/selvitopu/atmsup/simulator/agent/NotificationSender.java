@@ -24,7 +24,10 @@ import io.github.selvitopu.atmsup.simulator.model.DeviceNotification.StatusChang
 import io.github.selvitopu.atmsup.simulator.model.DeviceNotification.Switchover;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.InstantSource;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
@@ -54,25 +57,53 @@ public final class NotificationSender {
     private static final Logger log = LoggerFactory.getLogger(NotificationSender.class);
     private static final long INFORM_TIMEOUT_MS = 2000;
     private static final int INFORM_RETRIES = 3;
+    private static final Duration WARN_INTERVAL = Duration.ofMinutes(1);
 
     private final DeviceAgent agent;
     private final Device device;
-    private final UserTarget<UdpAddress> target = new UserTarget<>();
+    private final TrapTarget trapTarget;
     private final InstantSource clock;
     private final AtomicLong informsAcknowledged = new AtomicLong();
     private final AtomicLong informsFailed = new AtomicLong();
     private volatile boolean dropping;
+    private Instant lastUnresolvedWarning;
 
     public NotificationSender(DeviceAgent agent, Device device, TrapTarget trapTarget, InstantSource clock) {
         this.agent = agent;
         this.device = device;
         this.clock = clock;
-        target.setAddress(new UdpAddress(trapTarget.host() + "/" + trapTarget.port()));
+        this.trapTarget = trapTarget;
+    }
+
+    /**
+     * The target is resolved on every send, so a trap host that does not resolve yet (the supervisor container may
+     * start after the simulator) never fails the sender for good.
+     */
+    private UserTarget<UdpAddress> resolveTarget() {
+        InetAddress address;
+        try {
+            address = InetAddress.getByName(trapTarget.host());
+        } catch (UnknownHostException e) {
+            warnUnresolved();
+            return null;
+        }
+        UserTarget<UdpAddress> target = new UserTarget<>();
+        target.setAddress(new UdpAddress(address, trapTarget.port()));
         target.setVersion(SnmpConstants.version3);
         target.setSecurityLevel(SecurityLevel.AUTH_PRIV);
         target.setSecurityName(new OctetString("monitor"));
         target.setTimeout(INFORM_TIMEOUT_MS);
         target.setRetries(INFORM_RETRIES);
+        return target;
+    }
+
+    private synchronized void warnUnresolved() {
+        Instant now = clock.instant();
+        if (lastUnresolvedWarning == null || now.isAfter(lastUnresolvedWarning.plus(WARN_INTERVAL))) {
+            lastUnresolvedWarning = now;
+            log.warn("Device {} cannot resolve trap target {}; notifications are lost until it resolves",
+                    device.id(), trapTarget.host());
+        }
     }
 
     /** While true, {@link #send} sends nothing. */
@@ -95,6 +126,10 @@ public final class NotificationSender {
         Snmp snmp = agent.snmp();
         if (snmp == null) {
             throw new IllegalStateException("Agent " + device.id() + " is not running");
+        }
+        UserTarget<UdpAddress> target = resolveTarget();
+        if (target == null) {
+            return;
         }
         boolean inform = notification.inform();
         ScopedPDU pdu = pdu(notification, inform);
