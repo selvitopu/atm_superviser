@@ -38,9 +38,8 @@ public final class AlarmEngine {
                                        boolean maintenance, Instant now) {
         var key = new AlarmKey(equipmentId, AlarmCatalogue.LOST_CONTACT, 0);
         if (lost) {
-            return open.containsKey(key) ? List.of()
-                    : raise(open, key, "", AlarmCatalogue.LOST_CONTACT_SEVERITY, AlarmCatalogue.LOST_CONTACT_TEXT,
-                            AlarmSource.SUPERVISOR, Via.SUPERVISOR, maintenance, now);
+            return raise(open, key, "", AlarmCatalogue.LOST_CONTACT_SEVERITY, AlarmCatalogue.LOST_CONTACT_TEXT,
+                    AlarmSource.SUPERVISOR, Via.SUPERVISOR, maintenance, now);
         }
         return clear(open, key, Via.SUPERVISOR, now);
     }
@@ -106,9 +105,7 @@ public final class AlarmEngine {
         }
         var key = new AlarmKey(after.serviceId(), code, 0);
         if (flag) {
-            if (!open.containsKey(key)) {
-                out.addAll(raise(open, key, "", severity, text, AlarmSource.SUPERVISOR, Via.SUPERVISOR, false, now));
-            }
+            out.addAll(raise(open, key, "", severity, text, AlarmSource.SUPERVISOR, Via.SUPERVISOR, false, now));
         } else {
             out.addAll(clear(open, key, Via.SUPERVISOR, now));
         }

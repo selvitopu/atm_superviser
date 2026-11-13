@@ -262,6 +262,43 @@ class AlarmEngineTest {
     }
 
     @Test
+    void contactLostRestoredLostAgainReRaises901() {
+        var raised = engine.onContact(Map.of(), "RAD-N", true, false, T0).get(0).alarm();
+        var cleared = engine.onContact(open(raised), "RAD-N", false, false, T0).get(0).alarm();
+        assertThat(cleared.state()).isEqualTo(CLEARED_UNACK);
+        var again = engine.onContact(open(cleared), "RAD-N", true, false, T1);
+        assertThat(again).extracting(AlarmChange::type).containsExactly(RAISED);
+        assertThat(again.get(0).alarm().id()).isEqualTo(raised.id());
+        assertThat(again.get(0).alarm().state()).isEqualTo(ACTIVE_UNACK);
+        assertThat(again.get(0).alarm().clearedAt()).isNull();
+    }
+
+    @Test
+    void serviceFailClearFailReRaises904() {
+        var failed = new ServiceAlarmInput("SURV", "Surveillance", true, null);
+        var ok = new ServiceAlarmInput("SURV", "Surveillance", false, null);
+        var raised = engine.onServiceTransition(Map.of(), null, failed, T0).get(0).alarm();
+        var cleared = engine.onServiceTransition(open(raised), failed, ok, T0).get(0).alarm();
+        var again = engine.onServiceTransition(open(cleared), ok, failed, T1);
+        assertThat(again).extracting(AlarmChange::type).containsExactly(RAISED);
+        assertThat(again.get(0).alarm().id()).isEqualTo(raised.id());
+        assertThat(again.get(0).alarm().state()).isEqualTo(ACTIVE_UNACK);
+        assertThat(again.get(0).alarm().clearedAt()).isNull();
+    }
+
+    @Test
+    void redundancyLostClearLostReRaises903() {
+        var lost = new ServiceAlarmInput("FD", "Flight Data", false, true);
+        var ok = new ServiceAlarmInput("FD", "Flight Data", false, false);
+        var raised = engine.onServiceTransition(Map.of(), null, lost, T0).get(0).alarm();
+        var cleared = engine.onServiceTransition(open(raised), lost, ok, T0).get(0).alarm();
+        var again = engine.onServiceTransition(open(cleared), ok, lost, T1);
+        assertThat(again).extracting(AlarmChange::type).containsExactly(RAISED);
+        assertThat(again.get(0).alarm().id()).isEqualTo(raised.id());
+        assertThat(again.get(0).alarm().state()).isEqualTo(ACTIVE_UNACK);
+    }
+
+    @Test
     void openKeyFormat() {
         assertThat(new AlarmKey("SDPS-A", 401, 1).openKey()).isEqualTo("SDPS-A|401|1");
     }
