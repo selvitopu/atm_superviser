@@ -1,0 +1,17 @@
+atm:
+  inventory:
+    centre: Demo ACC
+    default-host: ${ATM_SIM_HOST:localhost}
+    default-poll-interval: 5s
+    trap-target: { host: "${ATM_TRAP_HOST:localhost}", port: 10162 }
+    devices:
+      - { id: RAD-N,  type: RADAR, name: Radar North, group: SURVEILLANCE, port: 16101 }
+      - { id: RAD-E,  type: RADAR, name: Radar East,  group: SURVEILLANCE, port: 16102 }
+      - { id: RAD-S,  type: RADAR, name: Radar South, group: SURVEILLANCE, port: 16103 }
+      - { id: SDPS-A, type: SDPS, name: Surveillance Data Processing A, group: SURVEILLANCE, port: 16104, pair: SDPS-B }
+      - { id: SDPS-B, type: SDPS, name: Surveillance Data Processing B, group: SURVEILLANCE, port: 16105, pair: SDPS-A }
+      - { id: FDPS-A, type: FDPS, name: Flight Data Processing A, group: FLIGHT_DATA, port: 16106, pair: FDPS-B }
+      - { id: FDPS-B, type: FDPS, name: Flight Data Processing B, group: FLIGHT_DATA, port: 16107, pair: FDPS-A }
+  snmp:
+    monitor:  { auth-password: "${SNMP_MONITOR_AUTH:monitor-auth-demo}",  priv-password: "${SNMP_MONITOR_PRIV:monitor-priv-demo}" }
+    operator: { auth-password: "${SNMP_OPERATOR_AUTH:operator-auth-demo}", priv-password: "${SNMP_OPERATOR_PRIV:operator-priv-demo}" }
