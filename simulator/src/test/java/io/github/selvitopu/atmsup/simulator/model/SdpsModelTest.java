@@ -97,6 +97,14 @@ class SdpsModelTest {
     }
 
     @Test
+    void sensorLostWithoutTargetIsRejected() {
+        assertThatThrownBy(() -> sdps.applyFault(new FaultRequest(SENSOR_LOST, null), t0))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Fault SENSOR_LOST needs a target");
+        assertThat(sdps.faults()).isEmpty();
+        assertThat(sdps.alarms()).isEmpty();
+    }
+
+    @Test
     void degradeRaisesLatencyAlarm() {
         assertThat(sdps.applyFault(new FaultRequest(DEGRADE, null), t0)).containsExactly(
                 new StatusChange(DEGRADED, ACTIVE),
