@@ -22,6 +22,7 @@
         <module>mib</module>
         <module>inventory</module>
         <module>simulator</module>
+        <module>supervisor</module>
     </modules>
 
     <properties>

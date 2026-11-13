@@ -1,0 +1,36 @@
+server:
+  port: 8080
+  address: ${ATM_SUPERVISOR_HTTP_ADDRESS:127.0.0.1}
+
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+
+spring:
+  config:
+    import: optional:file:${ATM_INVENTORY:../config/inventory.yml}
+  mvc:
+    problemdetails:
+      enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/atmsup?connectionTimeZone=UTC&preserveInstants=true
+    username: ${MYSQL_USER:atmsup}
+    password: ${MYSQL_PASSWORD:atmsup-demo}
+
+springdoc:
+  api-docs:
+    path: /api/v1/openapi.json
+  swagger-ui:
+    path: /api/v1/docs

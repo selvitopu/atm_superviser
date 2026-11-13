@@ -79,6 +79,13 @@
                         <goals>
                             <goal>test-jar</goal>
                         </goals>
+                        <configuration>
+                            <!-- consumers bring their own test configuration; duplicates make logback warn -->
+                            <excludes>
+                                <exclude>logback-test.xml</exclude>
+                                <exclude>application.properties</exclude>
+                            </excludes>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
