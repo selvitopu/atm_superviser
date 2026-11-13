@@ -6,6 +6,10 @@ import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_STATUS;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.scalar;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.AppenderBase;
 import io.github.selvitopu.atmsup.inventory.Device;
 import io.github.selvitopu.atmsup.inventory.DeviceType;
 import io.github.selvitopu.atmsup.inventory.Group;
@@ -14,9 +18,14 @@ import io.github.selvitopu.atmsup.inventory.UserCredentials;
 import io.github.selvitopu.atmsup.mib.AtmTsOids;
 import io.github.selvitopu.atmsup.simulator.fixture.TestManager;
 import java.time.Duration;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.snmp4j.PDU;
 import org.snmp4j.mp.SnmpConstants;
 import org.snmp4j.security.SecurityLevel;
@@ -60,7 +69,11 @@ class DeviceAgentIT {
     }
 
     private static DeviceAgent agent(int boots, int port) {
-        DeviceAgent agent = new DeviceAgent(DEVICE, CREDS, boots, HOST, port, () -> VIEW, SetHandler.READ_ONLY);
+        return agent(boots, port, () -> VIEW);
+    }
+
+    private static DeviceAgent agent(int boots, int port, Supplier<MibView> view) {
+        DeviceAgent agent = new DeviceAgent(DEVICE, CREDS, boots, HOST, port, view, SetHandler.READ_ONLY);
         agent.start();
         return agent;
     }
@@ -161,6 +174,43 @@ class DeviceAgentIT {
             assertThat(r.getErrorIndex()).isZero();
             assertThat(r.get(0).getOid()).isEqualTo(scalar(EQ_STATUS));
             assertThat(r.get(0).getVariable()).isEqualTo(new Null());
+        }
+    }
+
+    @Test
+    void failingViewAnswersGenErrAndLogsTheError() throws InterruptedException {
+        BlockingQueue<ILoggingEvent> logged = new LinkedBlockingQueue<>();
+        Logger responderLog = (Logger) LoggerFactory.getLogger(DeviceResponder.class);
+        AppenderBase<ILoggingEvent> capture = new AppenderBase<>() {
+            @Override
+            protected void append(ILoggingEvent event) {
+                logged.add(event);
+            }
+        };
+        capture.start();
+        responderLog.addAppender(capture);
+        responderLog.setAdditive(false); // the expected error is asserted here, not printed
+        Supplier<MibView> broken = () -> {
+            throw new IllegalStateException("model bug");
+        };
+        try (DeviceAgent failing = agent(1, 0, broken);
+             TestManager failingMgr = new TestManager(HOST, failing.boundPort(), "monitor",
+                     MONITOR.authPassword(), MONITOR.privPassword())) {
+            PDU r = failingMgr.get(scalar(EQ_STATUS));
+
+            assertThat(r.getType()).isEqualTo(PDU.RESPONSE);
+            assertThat(r.getErrorStatus()).isEqualTo(PDU.genErr);
+            assertThat(r.getErrorIndex()).isEqualTo(1);
+            assertThat(r.toArray()).containsExactly(new VariableBinding(scalar(EQ_STATUS)));
+            ILoggingEvent error = logged.poll(1, TimeUnit.SECONDS);
+            assertThat(error).isNotNull();
+            assertThat(error.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(error.getFormattedMessage()).contains("RAD-N", "GET");
+            assertThat(error.getThrowableProxy().getMessage()).isEqualTo("model bug");
+        } finally {
+            responderLog.detachAppender(capture);
+            responderLog.setAdditive(true);
+            capture.stop();
         }
     }
 

@@ -29,11 +29,13 @@ final class DeviceResponder implements CommandResponder {
 
     private static final Logger log = LoggerFactory.getLogger(DeviceResponder.class);
 
+    private final String deviceId;
     private final Supplier<MibView> view;
     private final SetHandler setHandler;
     private volatile boolean responding = true;
 
-    DeviceResponder(Supplier<MibView> view, SetHandler setHandler) {
+    DeviceResponder(String deviceId, Supplier<MibView> view, SetHandler setHandler) {
+        this.deviceId = deviceId;
         this.view = view;
         this.setHandler = setHandler;
     }
@@ -52,13 +54,29 @@ final class DeviceResponder implements CommandResponder {
         if (!responding) {
             return;
         }
-        PDU response = isUsmAuthPriv(event) ? respond(request, event.getMaxSizeResponsePDU()) : unauthorized(request);
+        PDU response = isUsmAuthPriv(event)
+                ? serve(request, event)
+                : errorResponse(request, PDU.authorizationError, 0); // no value is served
         try {
             event.getMessageDispatcher().returnResponsePdu(event.getMessageProcessingModel(),
                     event.getSecurityModel(), event.getSecurityName(), event.getSecurityLevel(), response,
                     event.getMaxSizeResponsePDU(), event.getStateReference(), new StatusInformation());
         } catch (MessageException e) {
-            log.warn("Cannot send response to {}: {}", event.getPeerAddress(), e.getMessage());
+            log.warn("Device {} cannot send response to {}: {}", deviceId, event.getPeerAddress(), e.getMessage());
+        }
+    }
+
+    /**
+     * A failing view or SET handler answers genErr and is logged here: SNMP4J would swallow the exception silently,
+     * and the manager would see a timeout, i.e. a device that looks unreachable.
+     */
+    private PDU serve(PDU request, CommandResponderEvent<?> event) {
+        try {
+            return respond(request, event.getMaxSizeResponsePDU());
+        } catch (RuntimeException e) {
+            log.error("Device {} failed to answer {} from {}; answering genErr", deviceId,
+                    PDU.getTypeString(request.getType()), event.getPeerAddress(), e);
+            return errorResponse(request, PDU.genErr, request.size() > 0 ? 1 : 0);
         }
     }
 
@@ -75,10 +93,11 @@ final class DeviceResponder implements CommandResponder {
                 && event.getSecurityLevel() == SecurityLevel.AUTH_PRIV;
     }
 
-    /** authorizationError, error index 0, the request's bindings echoed: no value is served. */
-    private static PDU unauthorized(PDU request) {
+    /** An error response that echoes the request's bindings. */
+    private static PDU errorResponse(PDU request, int errorStatus, int errorIndex) {
         PDU response = emptyResponse(request);
-        response.setErrorStatus(PDU.authorizationError);
+        response.setErrorStatus(errorStatus);
+        response.setErrorIndex(errorIndex);
         response.addAll(request.getVariableBindings());
         return response;
     }

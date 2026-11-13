@@ -64,7 +64,7 @@ public final class DeviceAgent implements AutoCloseable {
         this.bindHost = bindHost;
         this.port = port;
         this.engineId = new OctetString(EngineIds.of(device.id()));
-        this.responder = new DeviceResponder(view, setHandler);
+        this.responder = new DeviceResponder(device.id(), view, setHandler);
     }
 
     /** Starts the engine once; a restart is a new {@code DeviceAgent} with higher {@code engineBoots}. */
