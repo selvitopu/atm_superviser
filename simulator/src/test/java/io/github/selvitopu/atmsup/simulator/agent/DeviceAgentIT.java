@@ -142,12 +142,12 @@ class DeviceAgentIT {
     }
 
     @Test
-    void setIsRejectedAsNotWritableByTheReadOnlyHandler() {
+    void setByMonitorIsRejectedAsNoAccess() {
         VariableBinding vb = new VariableBinding(scalar(EQ_STATUS), new Integer32(2));
 
         PDU r = mgr.set(vb);
 
-        assertThat(r.getErrorStatus()).isEqualTo(PDU.notWritable);
+        assertThat(r.getErrorStatus()).isEqualTo(PDU.noAccess);
         assertThat(r.getErrorIndex()).isEqualTo(1);
         assertThat(r.toArray()).containsExactly(vb);
         assertThat(mgr.get(scalar(EQ_STATUS)).get(0).getVariable()).isEqualTo(new Integer32(1));
