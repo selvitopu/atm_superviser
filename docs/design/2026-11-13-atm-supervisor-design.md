@@ -2,7 +2,9 @@
 
 *SNMP-based technical supervision for a simulated air traffic control centre.*
 
-Status: draft for approval · Date: 2026-11-13
+Status: approved 2026-11-13 · Date: 2026-11-13
+
+> **Amended by** [`docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md`](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md) (2026-11-13). It adds a per-device circuit breaker with independent probes, single-flight polling with generation checks, crash-safe idempotent commands, SSE backpressure, and 30-second telemetry sampling. **Where this document and the amendment conflict, the amendment wins.**
 
 ---
 
@@ -385,7 +387,7 @@ This has three consequences:
 - **Equipment, service and values:**
   - `EQUIPMENT_STATE_CHANGED`
   - `SERVICE_STATE_CHANGED`
-  - `VALUES_CHANGED`: coalesced, stored only. See the telemetry channel below.
+  - `TELEMETRY_SAMPLED`: a timed sample, stored only (amendment §5). See the telemetry channel below.
 - **Contact:** `CONTACT_LOST`, `CONTACT_RESTORED`
 - **Alarms:** `ALARM_RAISED`, `ALARM_UPDATED` (severity or text changed), `ALARM_ACKNOWLEDGED`, `ALARM_CLEARED`, `ALARM_CLOSED`
 - **Commands:** `COMMAND_ISSUED`, `COMMAND_COMPLETED`
@@ -409,8 +411,8 @@ The replay fidelity test (§11) uses exactly this sequence.
 
 **Live telemetry is not stored.** Every successful poll produces a `telemetry` SSE message: `{equipmentId, lastPollAt, values, serverTime}`. It has **no SSE id**, so it does not move `Last-Event-ID`, and it is not written to `event_log`.
 - **Live board:** values and freshness come from telemetry at poll rate. The UI ticks freshness every second using `lastPollAt`, corrected by the client/server clock offset taken from `serverTime`.
-- **Stored log:** gets `VALUES_CHANGED`, at most one per device every 30 s, and only past a deadband: a change of 5% or more, or any change in a table status column.
-- **What replay shows:** statuses, alarms and commands exactly, but values only at ≤30 s resolution. The replay UI says so.
+- **Stored log:** gets one `TELEMETRY_SAMPLED` event per device every 30 s while successful observations are available. There is **no deadband**, so stable values are sampled too (amendment §5). Missed polls produce no sample, and nothing is ever fabricated.
+- **What replay shows:** statuses, alarms and commands exactly. For values, it shows the most recent real sample at or before T, together with that sample's own timestamp and age, and never interpolates. The replay UI says so.
 - **Not affected:** health, `UNKNOWN` and lost contact are never coalesced. They are stored events.
 
 **On supervisor restart**, it writes `SUPERVISOR_STARTED`, which marks every device `UNKNOWN`. It then rebuilds open alarms from the `alarm` table and resyncs each device on its first successful poll: the alarm table walk for custom-MIB devices, the `ifTable` for the switches.
@@ -533,7 +535,7 @@ The commands are `SWITCHOVER`, `MAINTENANCE_ON`, `MAINTENANCE_OFF`, `RESTART` an
 
 Results:
 - **Inside the window:** a match gives `COMPLETED`.
-- **Window expires:** after `noError` the status becomes `TIMED_OUT`; after `UNCERTAIN` it becomes `FAILED`, because the SET was evidently not applied.
+- **Window expires:** after `noError` the status becomes `TIMED_OUT`. After `UNCERTAIN` it **stays `UNCERTAIN` (unknown outcome)**: the device's command exclusion is kept until an audited manual resolution releases it (amendment §3).
 - **Restart:** when `RESTART` is accepted, the supervisor immediately sets the device's health to `UNKNOWN` with reason `RESTARTING`. Failed polls inside the 30 s window are expected and do not count toward lost contact. The first successful poll then sets real health. A restarting device is therefore never shown with its old, pre-restart state.
 
 ### 8.4 Persistence (MySQL, Flyway)
