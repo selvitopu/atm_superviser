@@ -177,6 +177,29 @@ class RadarModelTest {
     }
 
     @Test
+    void demotionToStandbyClearsSwitchoverAlarm() {
+        radar.setRole(Role.ACTIVE, t0, true);
+        radar.setRole(Role.STANDBY, t0.plusSeconds(10));
+        assertThat(radar.alarms()).isEmpty();
+        radar.setRole(Role.ACTIVE, t0.plusSeconds(20));
+        assertThat(radar.alarms()).isEmpty();
+    }
+
+    @Test
+    void activeWithoutSwitchoverLeavesSwitchoverAlarmUntouched() {
+        radar.setRole(Role.ACTIVE, t0, true);
+        radar.setRole(Role.ACTIVE, t0.plusSeconds(10), false);
+        assertThat(radar.alarms()).extracting(ActiveAlarm::code).containsExactly(104);
+        radar.tick(t0.plusSeconds(60), rnd);
+        assertThat(radar.alarms()).isEmpty();
+    }
+
+    @Test
+    void initialStatusFollowsComputedStatus() {
+        assertThat(radar.status()).isEqualTo(OPERATIONAL);
+    }
+
+    @Test
     void viewContainsSystemEquipmentAlarmAndRadarObjects() {
         radar.applyFault(new FaultRequest(CHANNEL_A_FAIL, null), t0);
         var view = radar.view(t0.plusSeconds(10));

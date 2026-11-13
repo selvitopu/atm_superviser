@@ -43,7 +43,7 @@ public abstract class DeviceModel {
     private final Map<Fault, String> faults = new EnumMap<>(Fault.class);
     private final AlarmTable alarmTable = new AlarmTable();
     private Role role;
-    private EquipmentStatus status = EquipmentStatus.OPERATIONAL;
+    private EquipmentStatus status;
     private Instant statusChangedAt;
     private boolean maintenance;
     private Instant switchoverAt;
@@ -54,6 +54,7 @@ public abstract class DeviceModel {
         this.role = initialRole;
         this.agentStartedAt = now;
         this.statusChangedAt = now;
+        this.status = computeStatus();
     }
 
     // ---- hooks for the concrete model ----
@@ -89,6 +90,10 @@ public abstract class DeviceModel {
 
     public EquipmentStatus status() {
         return status;
+    }
+
+    public Instant statusChangedAt() {
+        return statusChangedAt;
     }
 
     public Role role() {
@@ -161,10 +166,17 @@ public abstract class DeviceModel {
         return setRole(r, now, false);
     }
 
-    /** Sets the role; becoming ACTIVE because of a switchover raises alarm 104 for 60 seconds. */
+    /**
+     * Sets the role. Becoming ACTIVE because of a switchover raises alarm 104 for 60 seconds; a demotion to STANDBY
+     * ends it, since 104 belongs to the unit that is active now; any other change leaves it as it is.
+     */
     public List<DeviceNotification> setRole(Role r, Instant now, boolean bySwitchover) {
         this.role = r;
-        this.switchoverAt = bySwitchover && r == Role.ACTIVE ? now : null;
+        if (r == Role.ACTIVE && bySwitchover) {
+            this.switchoverAt = now;
+        } else if (r == Role.STANDBY) {
+            this.switchoverAt = null;
+        }
         return recompute(now);
     }
 
