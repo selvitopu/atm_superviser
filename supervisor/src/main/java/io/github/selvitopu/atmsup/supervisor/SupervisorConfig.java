@@ -12,7 +12,6 @@ import io.github.selvitopu.atmsup.supervisor.snmp.SnmpSession;
 import java.nio.file.Path;
 import java.time.InstantSource;
 import java.util.List;
-import java.util.SplittableRandom;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +42,8 @@ public class SupervisorConfig {
 
     @Bean
     RandomGenerator randomGenerator() {
-        return new SplittableRandom();
+        // shared across scheduler threads: SplittableRandom is not thread-safe, the default generator is
+        return RandomGenerator.getDefault();
     }
 
     @Bean

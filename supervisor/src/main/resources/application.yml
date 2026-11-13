@@ -5,6 +5,7 @@ server:
 management:
   server:
     port: 8081
+    address: ${ATM_SUPERVISOR_MANAGEMENT_ADDRESS:127.0.0.1}
   endpoints:
     web:
       exposure:

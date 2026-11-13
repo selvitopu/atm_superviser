@@ -78,21 +78,19 @@ public class Snmp4jClient implements SnmpClient {
 
     private PDU send(Device d, PDU pdu) {
         UserTarget<UdpAddress> target = session.target(d);
-        String where = d.host() + "/" + d.port();
+        String where = d.host() + ":" + d.port();
         if (!target.getAddress().isValid()) {
-            throw new SnmpRequestException(Kind.TIMEOUT, "no response from " + where + " (cannot resolve host)");
+            throw new SnmpRequestException(Kind.TIMEOUT, "cannot resolve host " + d.host());
         }
         ResponseEvent<UdpAddress> event;
         try {
             event = session.snmp().send(pdu, target);
         } catch (IOException e) {
-            throw new SnmpRequestException(Kind.TIMEOUT, "no response from " + where + " (" + e.getMessage() + ")");
+            throw new SnmpRequestException(Kind.TIMEOUT, "send to " + where + " failed: " + e.getMessage());
         }
         PDU response = event == null ? null : event.getResponse();
         if (response == null) {
-            Exception error = event == null ? null : event.getError();
-            throw new SnmpRequestException(Kind.TIMEOUT, "no response from " + where
-                    + (error == null ? "" : " (" + error.getMessage() + ")"));
+            throw new SnmpRequestException(Kind.TIMEOUT, "no response from " + where);
         }
         if (response.getType() == PDU.REPORT) {
             String name = response.size() == 0 ? "empty report" : reportName(response.get(0).getOid());

@@ -105,7 +105,7 @@ class SnmpClientIT {
 
         assertThatThrownBy(() -> client.get(inv.device("RAD-N"), List.of(scalar(EQ_STATUS))))
                 .isInstanceOf(SnmpRequestException.class)
-                .hasMessageStartingWith("TIMEOUT: no response from 127.0.0.1/");
+                .hasMessage("TIMEOUT: no response from 127.0.0.1:" + inv.device("RAD-N").port());
     }
 
     @Test
