@@ -8,6 +8,7 @@ import io.github.selvitopu.atmsup.inventory.UserCredentials;
 import io.github.selvitopu.atmsup.simulator.agent.AgentHost;
 import io.github.selvitopu.atmsup.simulator.centre.Centre;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.InstantSource;
 import java.util.List;
 import java.util.SplittableRandom;
@@ -45,8 +46,9 @@ public class SimulatorConfig {
     }
 
     @Bean
-    Centre centre(Inventory inventory, InstantSource clock, RandomGenerator rnd) {
-        return new Centre(inventory, clock, rnd);
+    Centre centre(Inventory inventory, InstantSource clock, RandomGenerator rnd,
+                  @Value("${atm.simulator.restart-duration:8s}") Duration restartDuration) {
+        return new Centre(inventory, clock, rnd, restartDuration);
     }
 
     @Bean

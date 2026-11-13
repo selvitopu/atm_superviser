@@ -39,7 +39,7 @@ public abstract class DeviceModel {
     private static final Duration SWITCHOVER_ALARM_DURATION = Duration.ofSeconds(60);
 
     private final Device device;
-    private final Instant agentStartedAt;
+    private Instant agentStartedAt;
     private final Map<Fault, String> faults = new EnumMap<>(Fault.class);
     private final AlarmTable alarmTable = new AlarmTable();
     private Role role;
@@ -48,6 +48,7 @@ public abstract class DeviceModel {
     private boolean maintenance;
     private Instant switchoverAt;
     private CommandResult commandResult = CommandResult.NONE;
+    private Instant restartingUntil;
 
     protected DeviceModel(Device device, Role initialRole, Instant now) {
         this.device = device;
@@ -186,8 +187,43 @@ public abstract class DeviceModel {
         return recompute(now);
     }
 
-    protected void setCommandResult(CommandResult result) {
+    public void setCommandResult(CommandResult result) {
         this.commandResult = result;
+    }
+
+    /** True while a restart is under way: from {@link #startRestart} until {@link #completeRestart}. */
+    public boolean restarting() {
+        return restartingUntil != null;
+    }
+
+    /** True when a restart is under way and {@code now} has reached its end. */
+    public boolean restartDue(Instant now) {
+        return restartingUntil != null && !now.isBefore(restartingUntil);
+    }
+
+    /** True while a restart is under way and has not yet reached its end at {@code now}. */
+    public boolean restartInProgress(Instant now) {
+        return restartingUntil != null && now.isBefore(restartingUntil);
+    }
+
+    /** Marks the device as restarting until {@code until}; the command result reads IN_PROGRESS meanwhile. */
+    public void startRestart(Instant until) {
+        this.restartingUntil = until;
+        this.commandResult = CommandResult.IN_PROGRESS;
+    }
+
+    /**
+     * Finishes a restart: faults are cleared, the role is set (without a switchover alarm), the agent's uptime starts
+     * again, the command result becomes SUCCESS and status and alarms are recomputed. Maintenance mode is kept.
+     */
+    public List<DeviceNotification> completeRestart(Role newRole, Instant now) {
+        faults.clear();
+        this.role = newRole;
+        this.switchoverAt = null;
+        this.agentStartedAt = now;
+        this.restartingUntil = null;
+        this.commandResult = CommandResult.SUCCESS;
+        return recompute(now);
     }
 
     /**

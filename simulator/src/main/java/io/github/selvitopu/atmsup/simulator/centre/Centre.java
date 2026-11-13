@@ -3,14 +3,19 @@ package io.github.selvitopu.atmsup.simulator.centre;
 import io.github.selvitopu.atmsup.inventory.Device;
 import io.github.selvitopu.atmsup.inventory.DeviceType;
 import io.github.selvitopu.atmsup.inventory.Inventory;
+import io.github.selvitopu.atmsup.mib.AtmTsOids;
+import io.github.selvitopu.atmsup.mib.CommandResult;
 import io.github.selvitopu.atmsup.mib.EquipmentStatus;
 import io.github.selvitopu.atmsup.mib.Role;
 import io.github.selvitopu.atmsup.simulator.agent.MibView;
+import io.github.selvitopu.atmsup.simulator.agent.SetCheck;
 import io.github.selvitopu.atmsup.simulator.agent.SetHandler;
 import io.github.selvitopu.atmsup.simulator.api.DeviceStateDto;
 import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.DropTraps;
 import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.Notify;
 import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.Responding;
+import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.RestartCompleted;
+import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.RestartStarted;
 import io.github.selvitopu.atmsup.simulator.model.DeviceModel;
 import io.github.selvitopu.atmsup.simulator.model.DeviceNotification;
 import io.github.selvitopu.atmsup.simulator.model.DeviceNotification.Switchover;
@@ -21,6 +26,7 @@ import io.github.selvitopu.atmsup.simulator.model.FdpsModel;
 import io.github.selvitopu.atmsup.simulator.model.RadarModel;
 import io.github.selvitopu.atmsup.simulator.model.RedundantPair;
 import io.github.selvitopu.atmsup.simulator.model.SdpsModel;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.InstantSource;
 import java.util.ArrayList;
@@ -29,26 +35,36 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.snmp4j.PDU;
+import org.snmp4j.smi.Integer32;
+import org.snmp4j.smi.OID;
+import org.snmp4j.smi.Variable;
 
 /**
  * The simulated centre: every device model and redundant pair, behind one lock. Mutators change the models, recompute
  * the SDPS sensor feeds from the radars, rebuild every {@link MibView} (agents only read the volatile view map), and
  * only after releasing the lock hand the resulting events to the listeners, in order: {@link Responding} and
- * {@link DropTraps} flags first, then notifications in emission order (restart completions, which come first, are
- * added with the SET logic). Batches reach the listeners in the order they were produced, one at a time; a listener
+ * {@link DropTraps} flags first, then notifications in emission order; {@link RestartCompleted} events come before
+ * both, so a fresh agent exists when the flags and notifications of the same batch reach it. Batches reach the listeners in the order they were produced, one at a time; a listener
  * may read the centre but must not mutate it.
  */
 public final class Centre {
 
     private static final Logger log = LoggerFactory.getLogger(Centre.class);
 
+    private static final int CMD_BECOME_ACTIVE = 2;
+    private static final int CMD_RESTART = 3;
+    private static final int CMD_RESET_COUNTERS = 4;
+
     private final InstantSource clock;
+    private final Duration restartDuration;
     private final RandomGenerator rnd;
     private final Map<String, DeviceModel> models = new LinkedHashMap<>();
     private final List<SdpsModel> sdpsModels = new ArrayList<>();
@@ -62,11 +78,18 @@ public final class Centre {
     private long nowServing;
     private volatile Map<String, MibView> views = Map.of();
 
+    /** A centre whose restarts last 8 seconds. */
+    public Centre(Inventory inv, InstantSource clock, RandomGenerator rnd) {
+        this(inv, clock, rnd, Duration.ofSeconds(8));
+    }
+
     /**
+     * @param restartDuration how long a device stays down after a {@code restart} command
      * @throws IllegalStateException if the inventory has a device type this version does not simulate
      */
-    public Centre(Inventory inv, InstantSource clock, RandomGenerator rnd) {
+    public Centre(Inventory inv, InstantSource clock, RandomGenerator rnd, Duration restartDuration) {
         this.clock = clock;
+        this.restartDuration = restartDuration;
         this.rnd = rnd;
         Instant now = clock.instant();
         for (Device d : inv.devices()) {
@@ -175,6 +198,11 @@ public final class Centre {
         mutate(batch -> {
             Instant now = clock.instant();
             for (DeviceModel m : models.values()) {
+                if (m.restartDue(now)) {
+                    completeRestart(m, batch, now);
+                }
+            }
+            for (DeviceModel m : models.values()) {
                 batch.notifies(m.id(), m.tick(now, rnd));
             }
             for (PairUnits units : pairs) {
@@ -196,10 +224,26 @@ public final class Centre {
         return view;
     }
 
-    /** The writable objects of a device; read-only until the SET logic is wired in. */
+    /**
+     * The writable objects of a device. {@code check} and {@code apply} run under the centre lock. A failed command
+     * check sets the device's last command result to REJECTED, so the reason can be read back.
+     */
     public SetHandler setHandler(String id) {
         model(id);
-        return SetHandler.READ_ONLY;
+        return new SetHandler() {
+            @Override
+            public SetCheck check(OID oid, Variable value) {
+                return mutate(batch -> checkSet(model(id), oid, value));
+            }
+
+            @Override
+            public void apply(OID oid, Variable value) {
+                mutate(batch -> {
+                    applySet(model(id), oid, value, batch);
+                    return null;
+                });
+            }
+        };
     }
 
     // ---- internals ----
@@ -210,6 +254,74 @@ public final class Centre {
             throw new NoSuchElementException("Unknown equipment " + id);
         }
         return m;
+    }
+
+    private SetCheck checkSet(DeviceModel m, OID oid, Variable value) {
+        if (!oid.equals(AtmTsOids.scalar(AtmTsOids.EQ_COMMAND))) {
+            return SetCheck.OK; // maintenance mode accepts both truth values
+        }
+        SetCheck check = switch (command(value)) {
+            case CMD_BECOME_ACTIVE -> pairOf(m.id())
+                    .map(units -> units.pair().checkBecomeActive(m.id()))
+                    .orElse(new SetCheck(PDU.inconsistentValue, "not redundant"));
+            case CMD_RESTART -> {
+                if (!m.maintenance()) {
+                    yield new SetCheck(PDU.inconsistentValue, "restart requires maintenance mode");
+                }
+                yield m.restartInProgress(clock.instant())
+                        ? new SetCheck(PDU.inconsistentValue, "restart already in progress")
+                        : SetCheck.OK;
+            }
+            default -> SetCheck.OK;
+        };
+        if (check.errorStatus() != PDU.noError) {
+            m.setCommandResult(CommandResult.REJECTED);
+        }
+        return check;
+    }
+
+    private void applySet(DeviceModel m, OID oid, Variable value, Batch batch) {
+        Instant now = clock.instant();
+        if (!oid.equals(AtmTsOids.scalar(AtmTsOids.EQ_COMMAND))) {
+            batch.notifies(m.id(), m.setMaintenance(value.toInt() == 1, now));
+            syncFeeds(batch, now);
+            return;
+        }
+        switch (command(value)) {
+            case CMD_BECOME_ACTIVE -> {
+                PairUnits units = pairOf(m.id()).orElseThrow(() -> new IllegalStateException("not redundant"));
+                units.pair().becomeActive(m.id(), now).forEach(e -> batch.add(e.deviceId(), e.notification()));
+                m.setCommandResult(CommandResult.SUCCESS);
+            }
+            case CMD_RESTART -> {
+                m.startRestart(now.plus(restartDuration));
+                batch.flags.add(new RestartStarted(m.id()));
+            }
+            case CMD_RESET_COUNTERS -> m.setCommandResult(CommandResult.SUCCESS); // v0.1 has no counters: a no-op
+            default -> throw new IllegalArgumentException("Unsupported command " + value);
+        }
+        syncFeeds(batch, now);
+    }
+
+    private static int command(Variable value) {
+        return value instanceof Integer32 i ? i.getValue() : -1;
+    }
+
+    private Optional<PairUnits> pairOf(String id) {
+        return pairs.stream().filter(u -> u.pair().partnerOf(id).isPresent()).findFirst();
+    }
+
+    /** Role after a restart: standby if the partner is active, otherwise active; a standalone device stays so. */
+    private void completeRestart(DeviceModel m, Batch batch, Instant now) {
+        Role role = pairOf(m.id())
+                .flatMap(units -> units.pair().partnerOf(m.id()))
+                .map(partner -> partner.role() == Role.ACTIVE ? Role.STANDBY : Role.ACTIVE)
+                .orElse(Role.STANDALONE);
+        boolean wasUnreachable = m.unreachable();
+        boolean wasDropping = m.dropTraps();
+        batch.restarts.add(new RestartCompleted(m.id()));
+        batch.notifies(m.id(), m.completeRestart(role, now));
+        batch.flagChanges(m, wasUnreachable, wasDropping);
     }
 
     private void restoreFirstActive(PairUnits units, Batch batch, Instant now) {
@@ -300,6 +412,7 @@ public final class Centre {
 
     /** Events of one mutation, grouped by the delivery order. */
     private static final class Batch {
+        private final List<CentreEvent> restarts = new ArrayList<>();
         private final List<CentreEvent> flags = new ArrayList<>();
         private final List<CentreEvent> notifications = new ArrayList<>();
 
@@ -321,7 +434,8 @@ public final class Centre {
         }
 
         List<CentreEvent> events() {
-            List<CentreEvent> all = new ArrayList<>(flags);
+            List<CentreEvent> all = new ArrayList<>(restarts);
+            all.addAll(flags);
             all.addAll(notifications);
             return all;
         }

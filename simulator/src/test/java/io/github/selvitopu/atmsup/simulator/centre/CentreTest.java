@@ -21,7 +21,6 @@ import io.github.selvitopu.atmsup.inventory.InventoryProperties;
 import io.github.selvitopu.atmsup.inventory.TrapTarget;
 import io.github.selvitopu.atmsup.mib.EquipmentStatus;
 import io.github.selvitopu.atmsup.mib.Role;
-import io.github.selvitopu.atmsup.simulator.agent.SetHandler;
 import io.github.selvitopu.atmsup.simulator.api.DeviceStateDto;
 import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.DropTraps;
 import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.Notify;
@@ -238,11 +237,6 @@ class CentreTest {
         assertThatThrownBy(() -> centre.applyFault("X-1", new FaultRequest(FAIL, null)))
                 .isInstanceOf(NoSuchElementException.class);
         assertThatThrownBy(() -> centre.view("X-1")).isInstanceOf(NoSuchElementException.class);
-    }
-
-    @Test
-    void setHandlerIsReadOnlyForNow() {
-        assertThat(centre.setHandler("RAD-N")).isSameAs(SetHandler.READ_ONLY);
     }
 
     @Test

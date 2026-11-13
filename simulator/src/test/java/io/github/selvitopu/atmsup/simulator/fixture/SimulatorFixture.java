@@ -6,6 +6,7 @@ import io.github.selvitopu.atmsup.inventory.SnmpProperties;
 import io.github.selvitopu.atmsup.simulator.agent.AgentHost;
 import io.github.selvitopu.atmsup.simulator.centre.Centre;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.InstantSource;
 import java.util.SplittableRandom;
 
@@ -25,8 +26,14 @@ public final class SimulatorFixture implements AutoCloseable {
 
     /** Starts every agent of {@code inv}; engine boots are kept in {@code dataDir/engine-boots.json}. */
     public static SimulatorFixture start(Inventory inv, SnmpProperties creds, Path dataDir) {
+        return start(inv, creds, dataDir, Duration.ofSeconds(8));
+    }
+
+    /** As above, with restarts commanded over SNMP lasting {@code restartDuration}. */
+    public static SimulatorFixture start(Inventory inv, SnmpProperties creds, Path dataDir,
+                                         Duration restartDuration) {
         InstantSource clock = InstantSource.system();
-        Centre centre = new Centre(inv, clock, new SplittableRandom());
+        Centre centre = new Centre(inv, clock, new SplittableRandom(), restartDuration);
         AgentHost host = new AgentHost(inv, creds, centre, new EngineBootsStore(dataDir.resolve("engine-boots.json")),
                 TestInventories.HOST, clock);
         host.start();
