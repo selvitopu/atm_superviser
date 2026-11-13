@@ -21,6 +21,7 @@
     <modules>
         <module>mib</module>
         <module>inventory</module>
+        <module>simulator</module>
     </modules>
 
     <properties>
@@ -46,7 +47,7 @@
             </dependency>
             <dependency>
                 <groupId>io.github.selvitopu</groupId>
-                <artifactId>mib</artifactId>
+                <artifactId>atm-mib</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -56,4 +57,31 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <build>
+        <plugins>
+            <!--
+              *IT classes run in the integration-test phase; select them with -Dit.test=...
+              (modules without a matching IT, e.g. those pulled in by -am, are not a failure)
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                    </includes>
+                    <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

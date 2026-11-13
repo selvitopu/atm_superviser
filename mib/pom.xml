@@ -10,7 +10,7 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>mib</artifactId>
+    <artifactId>atm-mib</artifactId>
     <name>ATM Supervisor MIB</name>
     <description>DEMO-ATM-TECHSUP-MIB and the shared OID constants and enums</description>
 
