@@ -1,5 +1,6 @@
 server:
   port: 8090
+  address: ${ATM_SIMULATOR_HTTP_ADDRESS:127.0.0.1}
 
 spring:
   config:

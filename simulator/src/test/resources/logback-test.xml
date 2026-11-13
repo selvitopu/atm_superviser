@@ -5,6 +5,8 @@
             <pattern>%d{HH:mm:ss.SSS} %-5level %logger{20} - %msg%n</pattern>
         </encoder>
     </appender>
+    <!-- the expected demo-credentials WARN of the Spring ITs; SimulatorConfigTest asserts it -->
+    <logger name="io.github.selvitopu.atmsup.simulator.SimulatorConfig" level="ERROR"/>
     <root level="WARN">
         <appender-ref ref="CONSOLE"/>
     </root>

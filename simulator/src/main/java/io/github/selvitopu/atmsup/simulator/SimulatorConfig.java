@@ -56,19 +56,20 @@ public class SimulatorConfig {
 
     @Bean
     AgentHost agentHost(Inventory inventory, SnmpProperties creds, Centre centre, EngineBootsStore boots,
-                        InstantSource clock, @Value("${atm.simulator.bind-host:0.0.0.0}") String bindHost) {
+                        InstantSource clock, @Value("${atm.simulator.bind-host:127.0.0.1}") String bindHost,
+                        @Value("${atm.demo-mode:false}") boolean demoMode) {
+        checkDemoCredentials(creds, demoMode);
         return new AgentHost(inventory, creds, centre, boots, bindHost, clock);
     }
 
     /** Starts the agents once the context is ready and stops them first on shutdown. */
     @Bean
-    SmartLifecycle agentHostLifecycle(AgentHost host, SnmpProperties creds) {
+    SmartLifecycle agentHostLifecycle(AgentHost host) {
         return new SmartLifecycle() {
             private volatile boolean running;
 
             @Override
             public void start() {
-                warnOnDemoCredentials(creds);
                 host.start();
                 running = true;
             }
@@ -86,12 +87,19 @@ public class SimulatorConfig {
         };
     }
 
-    /** Logs one warning when any configured SNMPv3 password is still its shipped demo default. */
-    static void warnOnDemoCredentials(SnmpProperties creds) {
-        boolean demo = isDemo(creds.monitor()) || isDemo(creds.operator());
-        if (demo) {
-            log.warn("Using demo SNMPv3 credentials; set SNMP_* environment variables for anything beyond a local demo");
+    /**
+     * Demo passwords are refused unless {@code atm.demo-mode} is true; then one warning is logged.
+     *
+     * @throws IllegalStateException if a configured password is a shipped demo default and demo mode is off
+     */
+    static void checkDemoCredentials(SnmpProperties creds, boolean demoMode) {
+        if (!isDemo(creds.monitor()) && !isDemo(creds.operator())) {
+            return;
         }
+        if (!demoMode) {
+            throw new IllegalStateException("Demo SNMPv3 credentials are only allowed with atm.demo-mode=true");
+        }
+        log.warn("Using demo SNMPv3 credentials; set SNMP_* environment variables for anything beyond a local demo");
     }
 
     private static boolean isDemo(UserCredentials user) {
