@@ -12,6 +12,7 @@ import io.github.selvitopu.atmsup.supervisor.snmp.SnmpSession;
 import java.nio.file.Path;
 import java.time.InstantSource;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,8 +43,19 @@ public class SupervisorConfig {
 
     @Bean
     RandomGenerator randomGenerator() {
-        // shared across scheduler threads: SplittableRandom is not thread-safe, the default generator is
-        return RandomGenerator.getDefault();
+        // Shared across scheduler threads. Neither SplittableRandom nor RandomGenerator.getDefault() (a new
+        // non-thread-safe LXM instance) is safe to share, so every call goes to the calling thread's ThreadLocalRandom.
+        return new RandomGenerator() {
+            @Override
+            public long nextLong() {
+                return ThreadLocalRandom.current().nextLong();
+            }
+
+            @Override
+            public double nextDouble() {
+                return ThreadLocalRandom.current().nextDouble();
+            }
+        };
     }
 
     @Bean

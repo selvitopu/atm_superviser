@@ -36,6 +36,35 @@ class SupervisorConfigTest {
     }
 
     @Test
+    void sharedRandomIsSafeUnderConcurrency() throws Exception {
+        java.util.random.RandomGenerator random = new SupervisorConfig().randomGenerator();
+        int threads = 8;
+        int perThread = 200_000;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            List<java.util.concurrent.Future<long[]>> futures = new java.util.ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                futures.add(pool.submit(() -> {
+                    long[] out = new long[perThread];
+                    for (int i = 0; i < perThread; i++) {
+                        out[i] = random.nextLong();
+                    }
+                    return out;
+                }));
+            }
+            java.util.Set<Long> unique = new java.util.HashSet<>();
+            for (var f : futures) {
+                for (long v : f.get()) {
+                    unique.add(v);
+                }
+            }
+            assertThat(threads * perThread - unique.size()).isLessThan(10);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
     void demoCredentialsWarnExactlyOnce() {
         List<ILoggingEvent> events = logged(TestInventories.demoCredentials(), true);
 
