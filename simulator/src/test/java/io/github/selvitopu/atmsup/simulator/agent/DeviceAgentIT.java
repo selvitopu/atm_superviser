@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.snmp4j.PDU;
 import org.snmp4j.mp.SnmpConstants;
+import org.snmp4j.security.SecurityLevel;
 import org.snmp4j.smi.Integer32;
 import org.snmp4j.smi.Null;
 import org.snmp4j.smi.OID;
@@ -146,6 +147,20 @@ class DeviceAgentIT {
 
             assertThat(r.getType()).isEqualTo(PDU.REPORT);
             assertThat(r.get(0).getOid()).isEqualTo(SnmpConstants.usmStatsWrongDigests);
+        }
+    }
+
+    @Test
+    void noAuthNoPrivRequestIsRejected() {
+        try (TestManager noAuthMgr = new TestManager(HOST, agent.boundPort(), "monitor", MONITOR.authPassword(),
+                MONITOR.privPassword(), 0, SecurityLevel.NOAUTH_NOPRIV)) {
+            PDU r = noAuthMgr.get(scalar(EQ_STATUS));
+
+            assertThat(r.getType()).isEqualTo(PDU.RESPONSE);
+            assertThat(r.getErrorStatus()).isEqualTo(PDU.authorizationError);
+            assertThat(r.getErrorIndex()).isZero();
+            assertThat(r.get(0).getOid()).isEqualTo(scalar(EQ_STATUS));
+            assertThat(r.get(0).getVariable()).isEqualTo(new Null());
         }
     }
 

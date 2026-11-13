@@ -10,13 +10,18 @@ import org.snmp4j.CommandResponderEvent;
 import org.snmp4j.MessageException;
 import org.snmp4j.PDU;
 import org.snmp4j.mp.StatusInformation;
+import org.snmp4j.security.SecurityLevel;
+import org.snmp4j.security.SecurityModel;
 import org.snmp4j.smi.Address;
 import org.snmp4j.smi.Null;
 import org.snmp4j.smi.OID;
 import org.snmp4j.smi.SMIConstants;
 import org.snmp4j.smi.VariableBinding;
 
-/** Answers GET, GETNEXT, GETBULK and SET requests of one agent from its current {@link MibView}. */
+/**
+ * Answers GET, GETNEXT, GETBULK and SET requests of one agent from its current {@link MibView}; only USM authPriv
+ * requests are served.
+ */
 final class DeviceResponder implements CommandResponder {
 
     /** Upper bound of a GETBULK response PDU: the UDP payload of one 1500-byte Ethernet frame (minus IP and UDP). */
@@ -47,7 +52,7 @@ final class DeviceResponder implements CommandResponder {
         if (!responding) {
             return;
         }
-        PDU response = respond(request, event.getMaxSizeResponsePDU());
+        PDU response = isUsmAuthPriv(event) ? respond(request, event.getMaxSizeResponsePDU()) : unauthorized(request);
         try {
             event.getMessageDispatcher().returnResponsePdu(event.getMessageProcessingModel(),
                     event.getSecurityModel(), event.getSecurityName(), event.getSecurityLevel(), response,
@@ -61,7 +66,24 @@ final class DeviceResponder implements CommandResponder {
         return type == PDU.GET || type == PDU.GETNEXT || type == PDU.GETBULK || type == PDU.SET;
     }
 
-    private PDU respond(PDU request, int maxSizeResponsePdu) {
+    /**
+     * A user configured for authPriv still passes the USM at a lower requested level, so the level is enforced here:
+     * only USM authPriv requests are served.
+     */
+    private static boolean isUsmAuthPriv(CommandResponderEvent<?> event) {
+        return event.getSecurityModel() == SecurityModel.SECURITY_MODEL_USM
+                && event.getSecurityLevel() == SecurityLevel.AUTH_PRIV;
+    }
+
+    /** authorizationError, error index 0, the request's bindings echoed: no value is served. */
+    private static PDU unauthorized(PDU request) {
+        PDU response = emptyResponse(request);
+        response.setErrorStatus(PDU.authorizationError);
+        response.addAll(request.getVariableBindings());
+        return response;
+    }
+
+    private static PDU emptyResponse(PDU request) {
         // a copy keeps the scoped PDU's context engine ID and name; GETBULK's non-repeaters and max-repetitions
         // share the error status and index fields, so those are reset explicitly
         PDU response = (PDU) request.clone();
@@ -70,6 +92,11 @@ final class DeviceResponder implements CommandResponder {
         response.setRequestID(request.getRequestID());
         response.setErrorStatus(PDU.noError);
         response.setErrorIndex(0);
+        return response;
+    }
+
+    private PDU respond(PDU request, int maxSizeResponsePdu) {
+        PDU response = emptyResponse(request);
         MibView mib = view.get();
         switch (request.getType()) {
             case PDU.GET -> request.getVariableBindings().forEach(vb -> response.add(get(mib, vb.getOid())));

@@ -26,9 +26,10 @@ import org.snmp4j.smi.VariableBinding;
 import org.snmp4j.transport.DefaultUdpTransportMapping;
 
 /**
- * A minimal SNMPv3 authPriv (SHA-256, AES-128) manager for tests. Like the agents, it builds its own engine stack and
- * never touches the SNMP4J singletons, so several managers and agents can share one JVM. Every request method returns
- * the response PDU (which may be a REPORT), or {@code null} on timeout.
+ * A minimal SNMPv3 manager for tests: authPriv (SHA-256, AES-128) unless another security level is asked for. Like
+ * the agents, it builds its own engine stack and never touches the SNMP4J singletons, so several managers and agents
+ * can share one JVM. Every request method returns the response PDU (which may be a REPORT), or {@code null} on
+ * timeout.
  */
 public final class TestManager implements AutoCloseable {
 
@@ -42,6 +43,12 @@ public final class TestManager implements AutoCloseable {
     }
 
     public TestManager(String host, int port, String user, String authPw, String privPw, int retries) {
+        this(host, port, user, authPw, privPw, retries, SecurityLevel.AUTH_PRIV);
+    }
+
+    /** {@code securityLevel} is a {@link SecurityLevel} constant such as {@code SecurityLevel.NOAUTH_NOPRIV}. */
+    public TestManager(String host, int port, String user, String authPw, String privPw, int retries,
+                       int securityLevel) {
         SecurityProtocols protocols = new SecurityProtocols(SecurityProtocols.SecurityProtocolSet.none);
         protocols.addAuthenticationProtocol(new AuthHMAC192SHA256());
         protocols.addPrivacyProtocol(new PrivAES128());
@@ -63,7 +70,7 @@ public final class TestManager implements AutoCloseable {
         target = new UserTarget<>();
         target.setAddress(new UdpAddress(host + "/" + port));
         target.setVersion(SnmpConstants.version3);
-        target.setSecurityLevel(SecurityLevel.AUTH_PRIV);
+        target.setSecurityLevel(securityLevel);
         target.setSecurityName(new OctetString(user));
         target.setTimeout(TIMEOUT_MS);
         target.setRetries(retries);
