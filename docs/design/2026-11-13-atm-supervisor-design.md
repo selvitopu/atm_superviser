@@ -248,7 +248,7 @@ A shared Maven module `mib` holds the MIB file and the Java constants (`AtmTsOid
 - **Traps and informs:** critical alarms are sent as **INFORMs** (acknowledged and retried). Everything else is sent as TRAPs.
 - **Polling is the source of truth.** Traps are low-latency hints: a trap triggers an immediate re-poll of that device. After contact is restored, or after the supervisor starts, it walks each device's `atmTsAlarmTable` and reconciles its own alarm state with it. This covers lost traps.
 - **Ports:**
-  - Each agent listens on UDP `10161 + n` inside the simulator container, so the apps run as non-root.
+  - Each agent listens on UDP `16101 + n` (n = 0…14, so 16101–16115) inside the simulator container, so the apps run as non-root. This range was chosen so that no agent collides with the trap port 10162 when everything runs on one host.
   - The supervisor's trap receiver listens on UDP `10162`.
   - Agent ports are published to the host so the author can run `snmpwalk` live in the demo.
 - **Poll timing:** default interval 5 s with ±10% jitter, timeout 1500 ms, 1 retry. Tables are read with GETBULK.
@@ -266,7 +266,7 @@ A shared Maven module `mib` holds the MIB file and the Java constants (`AtmTsOid
 Skipping SNMP4J-Agent avoids its sparsely documented API and keeps every line of the agent explainable.
 
 **Per device:**
-- **SNMP stack:** one SNMP4J `Snmp` instance with its own UDP transport (port `10161 + n`). It has its own `MPv3` with the device's fixed local engine ID and persisted boots counter (§6.1), and its own `USM` holding the users `monitor` and `operator`. The switches use a v2c community instead.
+- **SNMP stack:** one SNMP4J `Snmp` instance with its own UDP transport (port `16101 + n`). It has its own `MPv3` with the device's fixed local engine ID and persisted boots counter (§6.1), and its own `USM` holding the users `monitor` and `operator`. The switches use a v2c community instead.
 - **`MibView`:** an immutable `NavigableMap<OID, Variable>` snapshot.
   - **Rebuilt on change:** the device model builds a new snapshot on every change and swaps it in atomically (copy-on-write). A device has about 50–150 entries, so rebuilding is cheap.
   - **Tables are plain map entries** of the form `column.index`. Adding or removing an alarm row just means the next snapshot has or lacks those entries.
@@ -720,7 +720,7 @@ Host ports:
 | `8080` | UI (nginx) |
 | `3000` | Grafana |
 | `9090` | Prometheus |
-| `10161–10175/udp` | The agents, published for `snmpwalk` in the demo |
+| `16101–16115/udp` | The agents, published for `snmpwalk` in the demo |
 
 **CI** (GitHub Actions on push and PR) has these jobs:
 - `backend`: Temurin 25, `mvn -B verify`, including Testcontainers
