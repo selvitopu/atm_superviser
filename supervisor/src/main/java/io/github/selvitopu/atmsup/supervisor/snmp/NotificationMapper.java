@@ -12,6 +12,7 @@ import static io.github.selvitopu.atmsup.mib.AtmTsOids.NOTIF_EQ_STATUS_CHANGE;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.NOTIF_SWITCHOVER;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.scalar;
 
+import io.github.selvitopu.atmsup.inventory.EngineIds;
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.mib.Severity;
 import io.github.selvitopu.atmsup.mib.SnmpEnum;
@@ -20,11 +21,13 @@ import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmRaisedNotifi
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.StatusChangeNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.SwitchoverNotification;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.snmp4j.PDU;
+import org.snmp4j.ScopedPDU;
 import org.snmp4j.mp.SnmpConstants;
 import org.snmp4j.smi.Integer32;
 import org.snmp4j.smi.OID;
@@ -78,7 +81,11 @@ public final class NotificationMapper {
         }
         String equipmentId = id.toString();
         if (inventory.find(equipmentId).isEmpty()) {
-            throw new Malformed("unknown equipment '" + equipmentId + "'");
+            throw new Malformed("unknown equipment " + quote(equipmentId));
+        }
+        if (!(pdu instanceof ScopedPDU scoped) || scoped.getContextEngineID() == null
+                || !Arrays.equals(scoped.getContextEngineID().getValue(), EngineIds.of(equipmentId))) {
+            throw new Malformed("engine ID does not match equipment " + quote(equipmentId));
         }
         if (trapOid.equals(NOTIF_EQ_STATUS_CHANGE)) {
             return new StatusChangeNotification(equipmentId, at);
@@ -101,6 +108,12 @@ public final class NotificationMapper {
         String name = pdu.getVariable(row(ALARM_INSTANCE_NAME, code, instance)) instanceof OctetString s
                 ? s.toString() : "";
         return new AlarmRaisedNotification(equipmentId, at, code, instance, name, severity, text);
+    }
+
+    /** Quotes a peer-supplied value for a log line and strips CR/LF so it cannot forge log entries. */
+    private static String quote(String value) {
+        String clean = value.replaceAll("[\\r\\n]", " ");
+        return "'" + (clean.length() > 64 ? clean.substring(0, 64) + "..." : clean) + "'";
     }
 
     private static OID row(OID column, int code, int instance) {

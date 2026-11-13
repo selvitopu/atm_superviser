@@ -14,6 +14,7 @@ import static io.github.selvitopu.atmsup.mib.AtmTsOids.scalar;
 import static io.github.selvitopu.atmsup.mib.Severity.MINOR;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.selvitopu.atmsup.inventory.EngineIds;
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.simulator.fixture.TestInventories;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmClearedNotification;
@@ -101,6 +102,41 @@ class NotificationMapperTest {
     }
 
     @Test
+    void contextEngineIdOfAnotherDeviceIsRejected() {
+        ScopedPDU pdu = (ScopedPDU) notification(NOTIF_EQ_STATUS_CHANGE, "RAD-N");
+        pdu.setContextEngineID(new OctetString(EngineIds.of("RAD-E")));
+        try (CapturedLogs logs = new CapturedLogs(NotificationMapper.class)) {
+            assertThat(mapper.map(pdu, T0)).isEmpty();
+            assertThat(mapper.rejected()).isEqualTo(1);
+            assertThat(logs.warnings()).singleElement().asString()
+                    .contains("engine ID does not match equipment 'RAD-N'");
+        }
+    }
+
+    @Test
+    void emptyContextEngineIdAndPlainPduAreRejected() {
+        ScopedPDU empty = (ScopedPDU) notification(NOTIF_EQ_STATUS_CHANGE, "RAD-N");
+        empty.setContextEngineID(new OctetString());
+        PDU plain = new PDU();
+        plain.add(new VariableBinding(SnmpConstants.snmpTrapOID, NOTIF_EQ_STATUS_CHANGE));
+        plain.add(new VariableBinding(scalar(EQ_ID), new OctetString("RAD-N")));
+        try (CapturedLogs logs = new CapturedLogs(NotificationMapper.class)) {
+            assertThat(mapper.map(empty, T0)).isEmpty();
+            assertThat(mapper.map(plain, T0)).isEmpty();
+            assertThat(mapper.rejected()).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void peerSuppliedIdIsQuotedAndLineBreaksStripped() {
+        try (CapturedLogs logs = new CapturedLogs(NotificationMapper.class)) {
+            mapper.map(raised("X\r\nWARN forged", 101, 0, "", 3, "x"), T0);
+            assertThat(logs.warnings()).singleElement().asString()
+                    .contains("'X  WARN forged'").doesNotContain("\n").doesNotContain("\r");
+        }
+    }
+
+    @Test
     void unknownSeverityCodeIsDropped() {
         try (CapturedLogs logs = new CapturedLogs(NotificationMapper.class)) {
             assertThat(mapper.map(raised("RAD-N", 101, 0, "", 99, "x"), T0)).isEmpty();
@@ -125,7 +161,8 @@ class NotificationMapperTest {
     }
 
     private static PDU notification(OID trapOid, String eqId) {
-        PDU pdu = new ScopedPDU();
+        ScopedPDU pdu = new ScopedPDU();
+        pdu.setContextEngineID(new OctetString(EngineIds.of(eqId)));
         pdu.setType(PDU.TRAP);
         pdu.add(new VariableBinding(SnmpConstants.sysUpTime, new TimeTicks(100)));
         pdu.add(new VariableBinding(SnmpConstants.snmpTrapOID, trapOid));

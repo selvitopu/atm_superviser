@@ -1,5 +1,7 @@
 package io.github.selvitopu.atmsup.supervisor.snmp;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.InstantSource;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
@@ -8,20 +10,26 @@ import org.snmp4j.CommandResponder;
 import org.snmp4j.CommandResponderEvent;
 import org.snmp4j.PDU;
 import org.snmp4j.mp.StatusInformation;
+import org.snmp4j.security.SecurityLevel;
+import org.snmp4j.security.SecurityModel;
 import org.snmp4j.smi.Address;
 
 /**
  * Receives v3 TRAPs and INFORMs on the session's transport. It runs on SNMP4J's single listener thread, which also
  * delivers poll responses, so it only maps, hands the result to the sink and (for an INFORM) returns the RESPONSE:
- * no blocking work. Every INFORM is acknowledged, even if mapping fails or the sink throws. It never throws.
+ * no blocking work. Only authPriv USM notifications are accepted; others are dropped without a response. Every
+ * authenticated INFORM is acknowledged, even if mapping fails or the sink throws. It never throws.
  */
 public final class TrapReceiver implements CommandResponder {
 
     private static final Logger log = LoggerFactory.getLogger(TrapReceiver.class);
 
+    private static final Duration WARN_INTERVAL = Duration.ofMinutes(1);
+
     private final NotificationMapper mapper;
     private final Consumer<Notification> sink;
     private final InstantSource clock;
+    private Instant lastUnauthenticatedWarning;
 
     public TrapReceiver(NotificationMapper mapper, Consumer<Notification> sink, InstantSource clock) {
         this.mapper = mapper;
@@ -36,6 +44,12 @@ public final class TrapReceiver implements CommandResponder {
             if (pdu == null || (pdu.getType() != PDU.TRAP && pdu.getType() != PDU.INFORM)) {
                 return;
             }
+            if (event.getSecurityModel() != SecurityModel.SECURITY_MODEL_USM
+                    || event.getSecurityLevel() != SecurityLevel.AUTH_PRIV) {
+                warnUnauthenticated(event);
+                event.setProcessed(true);
+                return;
+            }
             try {
                 mapper.map(pdu, clock.instant()).ifPresent(sink);
             } catch (RuntimeException e) {
@@ -47,6 +61,14 @@ public final class TrapReceiver implements CommandResponder {
             event.setProcessed(true);
         } catch (RuntimeException e) {
             log.warn("Trap receiver failed", e);
+        }
+    }
+
+    private synchronized <A extends Address> void warnUnauthenticated(CommandResponderEvent<A> event) {
+        Instant now = clock.instant();
+        if (lastUnauthenticatedWarning == null || now.isAfter(lastUnauthenticatedWarning.plus(WARN_INTERVAL))) {
+            lastUnauthenticatedWarning = now;
+            log.warn("Unauthenticated notification from {} dropped", event.getPeerAddress());
         }
     }
 

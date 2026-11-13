@@ -121,6 +121,32 @@ class TrapReceiverIT {
     }
 
     @Test
+    void noAuthNoPrivNotificationsAreDropped() {
+        try (CapturedLogs logs = new CapturedLogs(TrapReceiver.class);
+             InformSender sender = new InformSender("RAD-N", SecurityLevel.NOAUTH_NOPRIV)) {
+            assertThat(sender.sendInform(new OctetString("RAD-N"))).isNull();
+            assertThat(sender.send(PDU.TRAP, new OctetString("RAD-N"))).isNull();
+            assertThat(logs.warnings()).hasSize(1).first().asString().contains("Unauthenticated notification");
+        }
+        assertThat(received).isEmpty();
+        assertThat(mapper.rejected()).isZero();
+    }
+
+    @Test
+    void spoofedEquipmentIdIsRejected() {
+        try (CapturedLogs logs = new CapturedLogs(NotificationMapper.class);
+             InformSender sender = new InformSender("RAD-E")) {
+            PDU response = sender.sendInform(new OctetString("RAD-N"));
+
+            assertThat(response).isNotNull(); // authenticated, so acknowledged even though rejected
+            assertThat(received).isEmpty();
+            assertThat(mapper.rejected()).isEqualTo(1);
+            assertThat(logs.warnings()).singleElement().asString()
+                    .contains("engine ID does not match equipment 'RAD-N'");
+        }
+    }
+
+    @Test
     void trapsStillAcceptedAfterDeviceRestart() throws Exception {
         fixture = SimulatorFixture.start(inv, creds, dataDir, Duration.ofSeconds(1));
         DeviceAgent before = fixture.host().agent("RAD-N");
@@ -151,6 +177,10 @@ class TrapReceiverIT {
         private final UserTarget<UdpAddress> target = new UserTarget<>();
 
         InformSender(String deviceId) {
+            this(deviceId, SecurityLevel.AUTH_PRIV);
+        }
+
+        InformSender(String deviceId, int securityLevel) {
             SecurityProtocols protocols = new SecurityProtocols(SecurityProtocols.SecurityProtocolSet.none);
             protocols.addAuthenticationProtocol(new AuthHMAC192SHA256());
             protocols.addPrivacyProtocol(new PrivAES128());
@@ -171,21 +201,25 @@ class TrapReceiverIT {
             }
             target.setAddress(new UdpAddress(TestInventories.HOST + "/" + trapPort));
             target.setVersion(SnmpConstants.version3);
-            target.setSecurityLevel(SecurityLevel.AUTH_PRIV);
+            target.setSecurityLevel(securityLevel);
             target.setSecurityName(new OctetString("monitor"));
             target.setTimeout(2000);
             target.setRetries(0);
         }
 
         PDU sendInform(OctetString eqId) {
+            return send(PDU.INFORM, eqId);
+        }
+
+        PDU send(int type, OctetString eqId) {
             ScopedPDU pdu = new ScopedPDU();
-            pdu.setType(PDU.INFORM);
+            pdu.setType(type);
             pdu.add(new VariableBinding(SnmpConstants.sysUpTime, new TimeTicks(100)));
             pdu.add(new VariableBinding(SnmpConstants.snmpTrapOID, NOTIF_EQ_STATUS_CHANGE));
             pdu.add(new VariableBinding(scalar(EQ_ID), eqId));
             try {
                 ResponseEvent<UdpAddress> event = snmp.send(pdu, target);
-                return event.getResponse();
+                return event == null ? null : event.getResponse();
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
