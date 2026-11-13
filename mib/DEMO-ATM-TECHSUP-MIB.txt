@@ -1,0 +1,852 @@
+DEMO-ATM-TECHSUP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    Unsigned32, Gauge32, enterprises
+        FROM SNMPv2-SMI
+    DisplayString, TruthValue, DateAndTime, TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF;
+
+atmTechSupMIB MODULE-IDENTITY
+    LAST-UPDATED "202611130000Z"
+    ORGANIZATION "Demo ACC (fictional)"
+    CONTACT-INFO
+        "Demo ACC technical supervision project.
+         This is a demonstration MIB under the documentation
+         enterprise number 32473 (RFC 5612). It does not describe
+         any real organisation or equipment."
+    DESCRIPTION
+        "Technical supervision of air traffic control equipment:
+         equipment health and role, active alarms, and the main
+         operational values of radar, ADS-B, surveillance data
+         processing, flight data processing, voice communication,
+         radio and recording systems."
+    REVISION "202611130000Z"
+    DESCRIPTION
+        "First version, used by the v0.1 simulator and supervisor."
+    ::= { enterprises 32473 1 }
+
+--
+-- Textual conventions
+--
+
+AtmTsEquipmentStatus ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "The health of a piece of equipment. This is health only.
+         Maintenance is a separate flag (atmTsEqMaintenanceMode)."
+    SYNTAX INTEGER {
+        operational(1),
+        degraded(2),
+        failed(3)
+    }
+
+AtmTsSeverity ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "The severity of an alarm, following ITU X.733 and RFC 3877.
+         The numbers are identifiers, not an ordering. In order of
+         seriousness: critical, major, minor, warning, indeterminate,
+         cleared."
+    SYNTAX INTEGER {
+        cleared(1),
+        indeterminate(2),
+        critical(3),
+        major(4),
+        minor(5),
+        warning(6)
+    }
+
+--
+-- Structure
+--
+
+atmTsObjects       OBJECT IDENTIFIER ::= { atmTechSupMIB 1 }
+atmTsNotifications OBJECT IDENTIFIER ::= { atmTechSupMIB 2 }
+atmTsConformance   OBJECT IDENTIFIER ::= { atmTechSupMIB 3 }
+
+atmTsEquipment OBJECT IDENTIFIER ::= { atmTsObjects 1 }
+atmTsAlarms    OBJECT IDENTIFIER ::= { atmTsObjects 2 }
+atmTsRadar     OBJECT IDENTIFIER ::= { atmTsObjects 3 }
+atmTsAdsb      OBJECT IDENTIFIER ::= { atmTsObjects 4 }
+atmTsSdps      OBJECT IDENTIFIER ::= { atmTsObjects 5 }
+atmTsFdps      OBJECT IDENTIFIER ::= { atmTsObjects 6 }
+atmTsVcs       OBJECT IDENTIFIER ::= { atmTsObjects 7 }
+atmTsRadio     OBJECT IDENTIFIER ::= { atmTsObjects 8 }
+atmTsRecorder  OBJECT IDENTIFIER ::= { atmTsObjects 9 }
+
+--
+-- Equipment group: present on every device that implements this MIB
+--
+
+atmTsEqId OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The identifier of this equipment, for example RAD-N."
+    ::= { atmTsEquipment 1 }
+
+atmTsEqType OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    radar(1),
+                    adsb(2),
+                    sdps(3),
+                    fdps(4),
+                    vcs(5),
+                    radio(6),
+                    recorder(7)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The kind of equipment. It tells a manager which of the
+         type-specific groups of this MIB the device implements."
+    ::= { atmTsEquipment 2 }
+
+atmTsEqStatus OBJECT-TYPE
+    SYNTAX      AtmTsEquipmentStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The health of this equipment: operational, degraded
+         (working with reduced capability or redundancy) or failed."
+    ::= { atmTsEquipment 3 }
+
+atmTsEqRole OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    standalone(1),
+                    active(2),
+                    standby(3)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The role of this unit. A unit with no redundant partner is
+         standalone. In a redundant pair one unit is active and the
+         other is standby."
+    ::= { atmTsEquipment 4 }
+
+atmTsEqStatusChangedAt OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time at which atmTsEqStatus last changed."
+    ::= { atmTsEquipment 5 }
+
+atmTsEqSwVersion OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The version of the software running on this equipment."
+    ::= { atmTsEquipment 6 }
+
+atmTsEqMaintenanceMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Set to true while the equipment is under maintenance, so
+         that operators know its alarms and outages are expected."
+    ::= { atmTsEquipment 7 }
+
+atmTsEqCommand OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    none(1),
+                    becomeActive(2),
+                    restart(3),
+                    resetCounters(4)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Writing a value other than none asks the equipment to carry
+         out that command. Reading always returns none. The outcome
+         is reported in atmTsEqLastCommandResult. The command
+         becomeActive is idempotent: on the standby unit of a pair it
+         swaps the roles of the pair, and on the unit that is already
+         active it succeeds without doing anything."
+    ::= { atmTsEquipment 8 }
+
+atmTsEqLastCommandResult OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    none(1),
+                    inProgress(2),
+                    success(3),
+                    rejected(4)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The outcome of the most recent command written to
+         atmTsEqCommand, or none if no command has been given."
+    ::= { atmTsEquipment 9 }
+
+--
+-- Alarms: the table of active alarms, and the objects that carry an
+-- alarm identity in notifications
+--
+
+atmTsAlarmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF AtmTsAlarmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The alarms that are active on this equipment right now. A
+         manager reads this table to learn the current alarm state,
+         for example after it has missed notifications."
+    ::= { atmTsAlarms 1 }
+
+atmTsAlarmEntry OBJECT-TYPE
+    SYNTAX      AtmTsAlarmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "One active alarm. An alarm is identified by its code and its
+         instance together, so the same alarm can be active for
+         several sensors or frequencies at the same time."
+    INDEX       { atmTsAlarmCode, atmTsAlarmInstance }
+    ::= { atmTsAlarmTable 1 }
+
+AtmTsAlarmEntry ::= SEQUENCE {
+    atmTsAlarmCode          Unsigned32,
+    atmTsAlarmInstance      Unsigned32,
+    atmTsAlarmInstanceName  DisplayString,
+    atmTsAlarmSeverity      AtmTsSeverity,
+    atmTsAlarmText          DisplayString,
+    atmTsAlarmRaisedAt      DateAndTime
+}
+
+atmTsAlarmCode OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The code that identifies the kind of alarm."
+    ::= { atmTsAlarmEntry 1 }
+
+atmTsAlarmInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Which part of the equipment the alarm is about. The value 0
+         means the whole equipment. Otherwise it is a sensor index,
+         a frequency index or a channel number, depending on the
+         kind of equipment."
+    ::= { atmTsAlarmEntry 2 }
+
+atmTsAlarmInstanceName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "A readable name for the alarm instance, for example RAD-N
+         for a sensor or 132.855 for a frequency. It is empty when the
+         instance is 0."
+    ::= { atmTsAlarmEntry 3 }
+
+atmTsAlarmSeverity OBJECT-TYPE
+    SYNTAX      AtmTsSeverity
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The severity of the alarm."
+    ::= { atmTsAlarmEntry 4 }
+
+atmTsAlarmText OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "A short description of the alarm for the operator."
+    ::= { atmTsAlarmEntry 5 }
+
+atmTsAlarmRaisedAt OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time at which the alarm was raised."
+    ::= { atmTsAlarmEntry 6 }
+
+atmTsNotifAlarmCode OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "The alarm code, as carried in an alarm notification. It has
+         the same meaning as atmTsAlarmCode. It exists because the
+         index columns of the alarm table cannot be read."
+    ::= { atmTsAlarms 2 }
+
+atmTsNotifAlarmInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "The alarm instance, as carried in an alarm notification. It
+         has the same meaning as atmTsAlarmInstance."
+    ::= { atmTsAlarms 3 }
+
+--
+-- Radar
+--
+
+atmTsRadarRotationPeriodMs OBJECT-TYPE
+    SYNTAX      Unsigned32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time the antenna takes for one full rotation."
+    ::= { atmTsRadar 1 }
+
+atmTsRadarPlotsPerScan OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of radar plots produced in the last full
+         rotation."
+    ::= { atmTsRadar 2 }
+
+atmTsRadarActiveChannel OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    channelA(1),
+                    channelB(2)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The processing channel whose output is currently used."
+    ::= { atmTsRadar 3 }
+
+atmTsRadarChannelAStatus OBJECT-TYPE
+    SYNTAX      AtmTsEquipmentStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The health of processing channel A."
+    ::= { atmTsRadar 4 }
+
+atmTsRadarChannelBStatus OBJECT-TYPE
+    SYNTAX      AtmTsEquipmentStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The health of processing channel B."
+    ::= { atmTsRadar 5 }
+
+--
+-- ADS-B
+--
+
+atmTsAdsbTargetsPerSecond OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of ADS-B target reports received per second."
+    ::= { atmTsAdsb 1 }
+
+atmTsAdsbStationsUp OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of ADS-B ground stations that are working."
+    ::= { atmTsAdsb 2 }
+
+atmTsAdsbStationsTotal OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of ADS-B ground stations that are configured."
+    ::= { atmTsAdsb 3 }
+
+--
+-- Surveillance data processing (SDPS)
+--
+
+atmTsSdpsTrackCount OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of aircraft tracks currently maintained."
+    ::= { atmTsSdps 1 }
+
+atmTsSdpsLatencyMs OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time the system takes to turn a sensor report into an
+         updated track."
+    ::= { atmTsSdps 2 }
+
+atmTsSdpsSensorTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF AtmTsSdpsSensorEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The surveillance sensors that feed this system."
+    ::= { atmTsSdps 3 }
+
+atmTsSdpsSensorEntry OBJECT-TYPE
+    SYNTAX      AtmTsSdpsSensorEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "One surveillance sensor."
+    INDEX       { atmTsSdpsSensorIndex }
+    ::= { atmTsSdpsSensorTable 1 }
+
+AtmTsSdpsSensorEntry ::= SEQUENCE {
+    atmTsSdpsSensorIndex        Unsigned32,
+    atmTsSdpsSensorName         DisplayString,
+    atmTsSdpsSensorInputStatus  INTEGER
+}
+
+atmTsSdpsSensorIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The index of the sensor. It is also the alarm instance used
+         for alarms about this sensor."
+    ::= { atmTsSdpsSensorEntry 1 }
+
+atmTsSdpsSensorName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The name of the sensor, for example RAD-N."
+    ::= { atmTsSdpsSensorEntry 2 }
+
+atmTsSdpsSensorInputStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    receiving(1),
+                    lost(2),
+                    excluded(3)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Whether the system is receiving data from the sensor:
+         receiving, lost, or excluded on purpose."
+    ::= { atmTsSdpsSensorEntry 3 }
+
+--
+-- Flight data processing (FDPS)
+--
+
+atmTsFdpsFlightPlanCount OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of flight plans currently held."
+    ::= { atmTsFdps 1 }
+
+atmTsFdpsQueueDepth OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of flight plan messages waiting to be processed."
+    ::= { atmTsFdps 2 }
+
+atmTsFdpsLatencyMs OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time the system takes to process a flight plan message."
+    ::= { atmTsFdps 3 }
+
+--
+-- Voice communication system (VCS)
+--
+
+atmTsVcsPositionsActive OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of controller positions that are in use."
+    ::= { atmTsVcs 1 }
+
+atmTsVcsPositionsTotal OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of controller positions that are configured."
+    ::= { atmTsVcs 2 }
+
+atmTsVcsRadioLinkTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF AtmTsVcsRadioLinkEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The links between the voice system and the remote radio
+         sites."
+    ::= { atmTsVcs 3 }
+
+atmTsVcsRadioLinkEntry OBJECT-TYPE
+    SYNTAX      AtmTsVcsRadioLinkEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "One link to a remote radio site."
+    INDEX       { atmTsVcsRadioLinkIndex }
+    ::= { atmTsVcsRadioLinkTable 1 }
+
+AtmTsVcsRadioLinkEntry ::= SEQUENCE {
+    atmTsVcsRadioLinkIndex     Unsigned32,
+    atmTsVcsRadioLinkSiteName  DisplayString,
+    atmTsVcsRadioLinkStatus    INTEGER
+}
+
+atmTsVcsRadioLinkIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The index of the radio link."
+    ::= { atmTsVcsRadioLinkEntry 1 }
+
+atmTsVcsRadioLinkSiteName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The name of the remote radio site."
+    ::= { atmTsVcsRadioLinkEntry 2 }
+
+atmTsVcsRadioLinkStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    up(1),
+                    down(2)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Whether the link to the radio site is up or down."
+    ::= { atmTsVcsRadioLinkEntry 3 }
+
+--
+-- Radio sites
+--
+
+atmTsRadioFreqTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF AtmTsRadioFreqEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The frequencies served by this radio site."
+    ::= { atmTsRadio 1 }
+
+atmTsRadioFreqEntry OBJECT-TYPE
+    SYNTAX      AtmTsRadioFreqEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "One frequency, with its main and standby transmitters and
+         its receiver."
+    INDEX       { atmTsRadioFreqIndex }
+    ::= { atmTsRadioFreqTable 1 }
+
+AtmTsRadioFreqEntry ::= SEQUENCE {
+    atmTsRadioFreqIndex         Unsigned32,
+    atmTsRadioFreqMHz           DisplayString,
+    atmTsRadioFreqSector        DisplayString,
+    atmTsRadioMainTxStatus      INTEGER,
+    atmTsRadioStandbyTxStatus   INTEGER,
+    atmTsRadioActiveTx          INTEGER,
+    atmTsRadioRxStatus          INTEGER
+}
+
+atmTsRadioFreqIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The index of the frequency. It is also the alarm instance
+         used for alarms about this frequency."
+    ::= { atmTsRadioFreqEntry 1 }
+
+atmTsRadioFreqMHz OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The frequency in megahertz, written as text with three
+         decimals, for example 132.855."
+    ::= { atmTsRadioFreqEntry 2 }
+
+atmTsRadioFreqSector OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The name of the airspace sector that uses this frequency."
+    ::= { atmTsRadioFreqEntry 3 }
+
+atmTsRadioMainTxStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    up(1),
+                    down(2)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Whether the main transmitter is working."
+    ::= { atmTsRadioFreqEntry 4 }
+
+atmTsRadioStandbyTxStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    up(1),
+                    down(2)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Whether the standby transmitter is working."
+    ::= { atmTsRadioFreqEntry 5 }
+
+atmTsRadioActiveTx OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    main(1),
+                    standby(2)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The transmitter that is currently on the air."
+    ::= { atmTsRadioFreqEntry 6 }
+
+atmTsRadioRxStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    up(1),
+                    down(2)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Whether the receiver is working."
+    ::= { atmTsRadioFreqEntry 7 }
+
+--
+-- Voice and data recorder
+--
+
+atmTsRecorderChannelsRecording OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of channels that are being recorded now."
+    ::= { atmTsRecorder 1 }
+
+atmTsRecorderChannelsTotal OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of channels that should be recorded."
+    ::= { atmTsRecorder 2 }
+
+atmTsRecorderDiskUsagePercent OBJECT-TYPE
+    SYNTAX      Gauge32 (0..100)
+    UNITS       "percent"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The share of the recording storage that is used."
+    ::= { atmTsRecorder 3 }
+
+atmTsRecorderLastArchiveAt OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time of the last successful archive run."
+    ::= { atmTsRecorder 4 }
+
+--
+-- Notifications
+--
+
+atmTsNotificationsPrefix OBJECT IDENTIFIER ::= { atmTsNotifications 0 }
+
+atmTsEqStatusChange NOTIFICATION-TYPE
+    OBJECTS     { atmTsEqId, atmTsEqStatus, atmTsEqRole }
+    STATUS      current
+    DESCRIPTION
+        "The health status of the equipment changed. The new status
+         and the current role are given."
+    ::= { atmTsNotificationsPrefix 1 }
+
+atmTsAlarmRaised NOTIFICATION-TYPE
+    OBJECTS     { atmTsEqId, atmTsNotifAlarmCode, atmTsNotifAlarmInstance,
+                  atmTsAlarmInstanceName, atmTsAlarmSeverity, atmTsAlarmText }
+    STATUS      current
+    DESCRIPTION
+        "An alarm was raised. The alarm is identified by the
+         equipment, the alarm code and the alarm instance."
+    ::= { atmTsNotificationsPrefix 2 }
+
+atmTsAlarmCleared NOTIFICATION-TYPE
+    OBJECTS     { atmTsEqId, atmTsNotifAlarmCode, atmTsNotifAlarmInstance }
+    STATUS      current
+    DESCRIPTION
+        "An alarm was cleared. The alarm is identified by the
+         equipment, the alarm code and the alarm instance."
+    ::= { atmTsNotificationsPrefix 3 }
+
+atmTsSwitchover NOTIFICATION-TYPE
+    OBJECTS     { atmTsEqId, atmTsEqRole }
+    STATUS      current
+    DESCRIPTION
+        "The role of the equipment changed, for example because the
+         standby unit took over from the active unit. The new role
+         is given."
+    ::= { atmTsNotificationsPrefix 4 }
+
+--
+-- Conformance
+--
+
+atmTsCompliances OBJECT IDENTIFIER ::= { atmTsConformance 1 }
+atmTsGroups      OBJECT IDENTIFIER ::= { atmTsConformance 2 }
+
+atmTsEquipmentGroup OBJECT-GROUP
+    OBJECTS     { atmTsEqId, atmTsEqType, atmTsEqStatus, atmTsEqRole,
+                  atmTsEqStatusChangedAt, atmTsEqSwVersion,
+                  atmTsEqMaintenanceMode, atmTsEqCommand,
+                  atmTsEqLastCommandResult }
+    STATUS      current
+    DESCRIPTION
+        "The equipment objects, implemented by every device."
+    ::= { atmTsGroups 1 }
+
+atmTsAlarmGroup OBJECT-GROUP
+    OBJECTS     { atmTsAlarmInstanceName, atmTsAlarmSeverity,
+                  atmTsAlarmText, atmTsAlarmRaisedAt,
+                  atmTsNotifAlarmCode, atmTsNotifAlarmInstance }
+    STATUS      current
+    DESCRIPTION
+        "The active alarm table and the alarm identity objects used
+         in notifications, implemented by every device."
+    ::= { atmTsGroups 2 }
+
+atmTsRadarGroup OBJECT-GROUP
+    OBJECTS     { atmTsRadarRotationPeriodMs, atmTsRadarPlotsPerScan,
+                  atmTsRadarActiveChannel, atmTsRadarChannelAStatus,
+                  atmTsRadarChannelBStatus }
+    STATUS      current
+    DESCRIPTION
+        "The radar objects."
+    ::= { atmTsGroups 3 }
+
+atmTsAdsbGroup OBJECT-GROUP
+    OBJECTS     { atmTsAdsbTargetsPerSecond, atmTsAdsbStationsUp,
+                  atmTsAdsbStationsTotal }
+    STATUS      current
+    DESCRIPTION
+        "The ADS-B objects."
+    ::= { atmTsGroups 4 }
+
+atmTsSdpsGroup OBJECT-GROUP
+    OBJECTS     { atmTsSdpsTrackCount, atmTsSdpsLatencyMs,
+                  atmTsSdpsSensorName, atmTsSdpsSensorInputStatus }
+    STATUS      current
+    DESCRIPTION
+        "The surveillance data processing objects."
+    ::= { atmTsGroups 5 }
+
+atmTsFdpsGroup OBJECT-GROUP
+    OBJECTS     { atmTsFdpsFlightPlanCount, atmTsFdpsQueueDepth,
+                  atmTsFdpsLatencyMs }
+    STATUS      current
+    DESCRIPTION
+        "The flight data processing objects."
+    ::= { atmTsGroups 6 }
+
+atmTsVcsGroup OBJECT-GROUP
+    OBJECTS     { atmTsVcsPositionsActive, atmTsVcsPositionsTotal,
+                  atmTsVcsRadioLinkSiteName, atmTsVcsRadioLinkStatus }
+    STATUS      current
+    DESCRIPTION
+        "The voice communication system objects."
+    ::= { atmTsGroups 7 }
+
+atmTsRadioGroup OBJECT-GROUP
+    OBJECTS     { atmTsRadioFreqMHz, atmTsRadioFreqSector,
+                  atmTsRadioMainTxStatus, atmTsRadioStandbyTxStatus,
+                  atmTsRadioActiveTx, atmTsRadioRxStatus }
+    STATUS      current
+    DESCRIPTION
+        "The radio site objects."
+    ::= { atmTsGroups 8 }
+
+atmTsRecorderGroup OBJECT-GROUP
+    OBJECTS     { atmTsRecorderChannelsRecording, atmTsRecorderChannelsTotal,
+                  atmTsRecorderDiskUsagePercent, atmTsRecorderLastArchiveAt }
+    STATUS      current
+    DESCRIPTION
+        "The recorder objects."
+    ::= { atmTsGroups 9 }
+
+atmTsNotificationGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { atmTsEqStatusChange, atmTsAlarmRaised,
+                    atmTsAlarmCleared, atmTsSwitchover }
+    STATUS      current
+    DESCRIPTION
+        "The notifications sent by the equipment."
+    ::= { atmTsGroups 10 }
+
+atmTsCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for equipment that implements this
+         MIB. Every device implements the equipment, alarm and
+         notification groups, and the group for its own type."
+    MODULE -- this module
+        MANDATORY-GROUPS { atmTsEquipmentGroup, atmTsAlarmGroup,
+                           atmTsNotificationGroup }
+        GROUP atmTsRadarGroup
+        DESCRIPTION
+            "Required on radar equipment only."
+        GROUP atmTsAdsbGroup
+        DESCRIPTION
+            "Required on ADS-B equipment only."
+        GROUP atmTsSdpsGroup
+        DESCRIPTION
+            "Required on surveillance data processing equipment only."
+        GROUP atmTsFdpsGroup
+        DESCRIPTION
+            "Required on flight data processing equipment only."
+        GROUP atmTsVcsGroup
+        DESCRIPTION
+            "Required on voice communication systems only."
+        GROUP atmTsRadioGroup
+        DESCRIPTION
+            "Required on radio sites only."
+        GROUP atmTsRecorderGroup
+        DESCRIPTION
+            "Required on recorders only."
+    ::= { atmTsCompliances 1 }
+
+END
