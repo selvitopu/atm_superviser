@@ -6,9 +6,11 @@ import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.inventory.InventoryProperties;
 import io.github.selvitopu.atmsup.inventory.SnmpProperties;
 import io.github.selvitopu.atmsup.inventory.UserCredentials;
+import io.github.selvitopu.atmsup.supervisor.snmp.NotificationMapper;
 import io.github.selvitopu.atmsup.supervisor.snmp.ObservationMapper;
 import io.github.selvitopu.atmsup.supervisor.snmp.Snmp4jClient;
 import io.github.selvitopu.atmsup.supervisor.snmp.SnmpSession;
+import io.github.selvitopu.atmsup.supervisor.snmp.TrapReceiver;
 import java.nio.file.Path;
 import java.time.InstantSource;
 import java.util.List;
@@ -18,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -63,7 +66,7 @@ public class SupervisorConfig {
         return new EngineBootsStore(Path.of(dataDir, "engine-boots.json"));
     }
 
-    /** The engine is built here and started and closed by {@link #snmpSessionLifecycle(SnmpSession)}. */
+    /** The engine is built here and started and closed by {@link #snmpSessionLifecycle(SnmpSession, TrapReceiver)}. */
     @Bean
     SnmpSession snmpSession(Inventory inventory, SnmpProperties creds, EngineBootsStore boots,
                             @Value("${atm.supervisor.bind-host:127.0.0.1}") String bindHost,
@@ -74,12 +77,13 @@ public class SupervisorConfig {
     }
 
     @Bean
-    SmartLifecycle snmpSessionLifecycle(SnmpSession session) {
+    SmartLifecycle snmpSessionLifecycle(SnmpSession session, TrapReceiver trapReceiver) {
         return new SmartLifecycle() {
             private volatile boolean running;
 
             @Override
             public void start() {
+                session.snmp().addCommandResponder(trapReceiver);
                 session.start();
                 running = true;
             }
@@ -100,6 +104,17 @@ public class SupervisorConfig {
     @Bean
     Snmp4jClient snmpClient(SnmpSession session) {
         return new Snmp4jClient(session);
+    }
+
+    @Bean
+    NotificationMapper notificationMapper(Inventory inventory) {
+        return new NotificationMapper(inventory);
+    }
+
+    /** Notifications are published as Spring events; a listener forwards them to the board writer asynchronously. */
+    @Bean
+    TrapReceiver trapReceiver(NotificationMapper mapper, ApplicationEventPublisher events, InstantSource clock) {
+        return new TrapReceiver(mapper, events::publishEvent, clock);
     }
 
     @Bean
