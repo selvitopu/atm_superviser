@@ -21,6 +21,7 @@ import io.github.selvitopu.atmsup.inventory.InventoryProperties;
 import io.github.selvitopu.atmsup.inventory.TrapTarget;
 import io.github.selvitopu.atmsup.mib.Role;
 import io.github.selvitopu.atmsup.mib.Severity;
+import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
@@ -137,6 +138,27 @@ class AlarmControllerTest {
         mvc.perform(post("/api/v1/alarms/ack").contentType(APPLICATION_JSON).content("{\"ids\":[\"a1\"]}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.title").value("Board update failed"));
+    }
+
+    @Test
+    void everySubmitFailureIs503AndIsLogged() throws Exception {
+        var failed = new CompletableFuture<BoardResult>();
+        failed.completeExceptionally(new IllegalStateException("writer exploded"));
+        var cancelled = new CompletableFuture<BoardResult>();
+        cancelled.cancel(true);
+        given(writer.submit(any())).willReturn(failed).willReturn(cancelled)
+                .willThrow(new java.util.concurrent.RejectedExecutionException("queue full"));
+
+        try (CapturedLogs logs = new CapturedLogs(AlarmController.class)) {
+            for (int i = 0; i < 3; i++) {
+                mvc.perform(post("/api/v1/alarms/a1/ack").contentType(APPLICATION_JSON).content("{}"))
+                        .andExpect(status().isServiceUnavailable())
+                        .andExpect(jsonPath("$.title").value("Board update failed"));
+            }
+            assertThat(logs.events()).hasSize(3);
+            assertThat(logs.events().get(0).getThrowableProxy().getMessage()).isEqualTo("writer exploded");
+            assertThat(logs.events().get(2).getThrowableProxy().getMessage()).isEqualTo("queue full");
+        }
     }
 
     @Test

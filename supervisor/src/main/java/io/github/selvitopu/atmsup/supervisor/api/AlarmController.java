@@ -19,8 +19,13 @@ import jakarta.validation.constraints.Pattern;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.concurrent.CompletionException;
+import java.time.Duration;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -39,16 +44,19 @@ public class AlarmController {
     /** Until v0.3 adds security, every acknowledgement is made by this actor. */
     static final String ACTOR = "demo-user";
     static final int MAX_PAGE_SIZE = 500;
-    private static final long BOARD_TIMEOUT_SECONDS = 10;
+    private static final Logger log = LoggerFactory.getLogger(AlarmController.class);
 
     private final BoardWriter writer;
     private final EventQueries queries;
     private final DtoMapper mapper;
+    private final Duration submitTimeout;
 
-    public AlarmController(BoardWriter writer, EventQueries queries, DtoMapper mapper) {
+    public AlarmController(BoardWriter writer, EventQueries queries, DtoMapper mapper,
+                           @Value("${atm.supervisor.api.submit-timeout:10s}") Duration submitTimeout) {
         this.writer = writer;
         this.queries = queries;
         this.mapper = mapper;
+        this.submitTimeout = submitTimeout;
     }
 
     /** {@code state} is {@code open} (every alarm that is not CLOSED) or {@code all}. */
@@ -87,10 +95,20 @@ public class AlarmController {
     private BoardResult submit(List<String> ids, String comment) {
         BoardResult result;
         try {
+            // get(timeout) leaves the writer's own future untouched
             result = writer.submit(new AcknowledgeAlarms(ids, comment, ACTOR))
-                    .orTimeout(BOARD_TIMEOUT_SECONDS, TimeUnit.SECONDS).join();
-        } catch (CompletionException e) {
-            throw new BoardUpdateFailedException("The board did not answer in time");
+                    .get(submitTimeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            log.warn("The board writer did not answer an acknowledgement within {}", submitTimeout, e);
+            throw new BoardUpdateFailedException("The board did not answer in time", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while waiting for the board writer", e);
+            throw new BoardUpdateFailedException("Interrupted while waiting for the board", e);
+        } catch (ExecutionException | RuntimeException e) { // RuntimeException covers cancellation and a synchronous throw
+            Throwable cause = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
+            log.error("The board writer failed an acknowledgement", cause);
+            throw new BoardUpdateFailedException("The acknowledgement could not be processed; try again", cause);
         }
         if (!result.committed()) {
             throw new BoardUpdateFailedException("The acknowledgement could not be stored; try again");

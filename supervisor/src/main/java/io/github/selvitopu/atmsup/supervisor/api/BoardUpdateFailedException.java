@@ -6,4 +6,8 @@ class BoardUpdateFailedException extends RuntimeException {
     BoardUpdateFailedException(String message) {
         super(message);
     }
+
+    BoardUpdateFailedException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }
