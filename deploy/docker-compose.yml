@@ -1,0 +1,82 @@
+name: atm-supervisor
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      TZ: UTC
+      MYSQL_DATABASE: atmsup
+      MYSQL_USER: atmsup
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-atmsup-demo}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-demo}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  simulator:
+    build:
+      context: ..
+      dockerfile: simulator/Dockerfile
+    environment:
+      TZ: UTC
+      ATM_DEMOMODE: "true"
+      ATM_INVENTORY: /config/inventory.yml
+      ATM_SIM_HOST: simulator
+      ATM_TRAP_HOST: supervisor
+      ATM_SIMULATOR_HTTP_ADDRESS: 0.0.0.0
+      ATM_SIMULATOR_BINDHOST: 0.0.0.0
+      ATM_SIMULATOR_DATA_DIR: /data
+      SNMP_MONITOR_AUTH: ${SNMP_MONITOR_AUTH:-monitor-auth-demo}
+      SNMP_MONITOR_PRIV: ${SNMP_MONITOR_PRIV:-monitor-priv-demo}
+      SNMP_OPERATOR_AUTH: ${SNMP_OPERATOR_AUTH:-operator-auth-demo}
+      SNMP_OPERATOR_PRIV: ${SNMP_OPERATOR_PRIV:-operator-priv-demo}
+    volumes:
+      - ../config:/config:ro
+      - simulator-data:/data
+    ports:
+      - "127.0.0.1:16101-16107:16101-16107/udp"
+
+  supervisor:
+    build:
+      context: ..
+      dockerfile: supervisor/Dockerfile
+    environment:
+      TZ: UTC
+      ATM_DEMOMODE: "true"
+      ATM_INVENTORY: /config/inventory.yml
+      ATM_SIM_HOST: simulator
+      ATM_SUPERVISOR_HTTP_ADDRESS: 0.0.0.0
+      ATM_SUPERVISOR_BINDHOST: 0.0.0.0
+      ATM_SUPERVISOR_DATA_DIR: /data
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-atmsup-demo}
+      SNMP_MONITOR_AUTH: ${SNMP_MONITOR_AUTH:-monitor-auth-demo}
+      SNMP_MONITOR_PRIV: ${SNMP_MONITOR_PRIV:-monitor-priv-demo}
+      SNMP_OPERATOR_AUTH: ${SNMP_OPERATOR_AUTH:-operator-auth-demo}
+      SNMP_OPERATOR_PRIV: ${SNMP_OPERATOR_PRIV:-operator-priv-demo}
+    volumes:
+      - ../config:/config:ro
+      - supervisor-data:/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      simulator:
+        condition: service_started
+
+  ui:
+    build:
+      context: ..
+      dockerfile: ui/Dockerfile
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - supervisor
+
+volumes:
+  mysql-data:
+  simulator-data:
+  supervisor-data:

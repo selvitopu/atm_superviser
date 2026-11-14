@@ -1,0 +1,8 @@
+**/target
+**/node_modules
+.git
+**/data
+ui/.angular
+.superpowers
+.worktrees
+.idea
