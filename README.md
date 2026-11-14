@@ -66,9 +66,27 @@ curl -X POST localhost:8080/sim/api/devices/RAD-N/faults -H 'Content-Type: appli
 curl -X POST localhost:8080/sim/api/devices/RAD-N/faults -H 'Content-Type: application/json' -d '{"fault":"RECOVER"}'
 ```
 
-Fault kinds: `FAIL`, `DEGRADE`, `RECOVER`, `CHANNEL_A_FAIL`, `CHANNEL_B_FAIL`, `SENSOR_LOST`,
-`UNREACHABLE`, `DROP_TRAPS`. A request may also carry a `target`, naming the part concerned (for
-example a sensor). `POST localhost:8080/sim/api/reset` clears all faults.
+Faults add up until `RECOVER` clears every fault of the device. Not every fault applies to every
+device type; the simulator refuses the others with `400 Bad Request`:
+
+| Fault | RADAR | SDPS | FDPS | Effect |
+|---|:-:|:-:|:-:|---|
+| `FAIL` | yes | yes | yes | The device fails (a radar loses both channels). |
+| `DEGRADE` | yes | yes | yes | The device is degraded. |
+| `RECOVER` | yes | yes | yes | Clears every fault of the device. |
+| `CHANNEL_A_FAIL`, `CHANNEL_B_FAIL` | yes | | | One radar channel fails; the radar is degraded. |
+| `SENSOR_LOST` | | yes | | One sensor input is lost. Needs a `target`. |
+| `UNREACHABLE` | yes | yes | yes | The agent stops answering SNMP requests. |
+| `DROP_TRAPS` | yes | yes | yes | The agent stops sending traps and informs. |
+
+`SENSOR_LOST` needs a `target` naming the sensor, which is one of the radars `RAD-N`, `RAD-E` or
+`RAD-S` (a second `SENSOR_LOST` replaces the first):
+
+```sh
+curl -X POST localhost:8080/sim/api/devices/SDPS-A/faults -H 'Content-Type: application/json' -d '{"fault":"SENSOR_LOST","target":"RAD-E"}'
+```
+
+`POST localhost:8080/sim/api/reset` clears all faults of all devices.
 
 Stop the stack with `docker compose -f deploy/docker-compose.yml down` (add `-v` to drop the data volumes).
 
@@ -80,13 +98,63 @@ Stop the stack with `docker compose -f deploy/docker-compose.yml down` (add `-v`
 - The SNMP passwords can be overridden with the environment variables `SNMP_MONITOR_AUTH`,
   `SNMP_MONITOR_PRIV`, `SNMP_OPERATOR_AUTH` and `SNMP_OPERATOR_PRIV`.
 
+### Management port (Actuator)
+
+The supervisor serves Actuator `health` and `metrics` on port 8081, bound to loopback inside its
+container. Compose does not publish it. The runtime image has no `curl`, so ask from inside the
+container with bash:
+
+```sh
+docker compose -f deploy/docker-compose.yml exec supervisor bash -c 'exec 3<>/dev/tcp/127.0.0.1/8081 && printf "GET /actuator/metrics HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3 && cat <&3'
+```
+
+Replace `/actuator/metrics` with `/actuator/health`, or with a metric such as
+`/actuator/metrics/atmsup.sse.clients`. When the supervisor runs outside Docker (see below), it is
+simply <http://localhost:8081/actuator/metrics>.
+
 ### Talking to an agent with net-snmp
+
+The agents use SHA-256 authentication, which needs **net-snmp 5.8 or later**. The `snmpget` that
+ships with macOS is 5.6 and fails with `Invalid authentication protocol specified after -a flag:
+SHA-256`. Use Homebrew's net-snmp (`brew install net-snmp`; it is keg-only, so call
+`$(brew --prefix net-snmp)/bin/snmpget`) or a container.
 
 With the stack up, read `sysUpTime` from the first agent (RAD-N, UDP 16101):
 
 ```sh
 snmpget -v3 -l authPriv -u monitor -a SHA-256 -A monitor-auth-demo -x AES -X monitor-priv-demo localhost:16101 1.3.6.1.2.1.1.3.0
 ```
+
+The same from a throwaway Alpine container on the Compose network, with nothing installed locally:
+
+```sh
+docker run --rm --network atm-supervisor_default alpine:3.22 sh -c 'apk add -q net-snmp-tools && snmpget -v3 -l authPriv -u monitor -a SHA-256 -A monitor-auth-demo -x AES -X monitor-priv-demo simulator:16101 1.3.6.1.2.1.1.3.0'
+```
+
+## Run without Docker
+
+Stop the Compose stack first: it uses the same ports. You need JDK 25, Node 26 and a MySQL 8.4,
+here in a container:
+
+```sh
+docker run -d --name atmsup-mysql -p 127.0.0.1:3306:3306 -e TZ=UTC -e MYSQL_DATABASE=atmsup -e MYSQL_USER=atmsup -e MYSQL_PASSWORD=atmsup-demo -e MYSQL_ROOT_PASSWORD=root-demo mysql:8.4
+./mvnw -B -DskipTests package
+```
+
+Then start each application from its module directory, in its own terminal. The default inventory
+path, `../config/inventory.yml`, and the default data directory, `./data`, are relative to the
+working directory; from anywhere else, set `ATM_INVENTORY` to the inventory file and give each
+application its own data directory (`ATM_SIMULATOR_DATA_DIR`, `ATM_SUPERVISOR_DATA_DIR`).
+
+```sh
+cd simulator && java -jar target/*-exec.jar --atm.demo-mode=true    # SNMP agents on UDP 16101-16107, fault API on :8090
+cd supervisor && java -jar target/*-exec.jar --atm.demo-mode=true   # REST and SSE on :8080, Actuator on :8081
+cd ui && npm ci && npx ng serve                                     # http://localhost:4200
+```
+
+`ng serve` proxies `/api` to the supervisor on 8080 and `/sim/api` to the simulator on 8090, so the
+fault commands above work with `localhost:4200` in place of `localhost:8080`. Remove the database with
+`docker rm -f atmsup-mysql`.
 
 ## Development
 

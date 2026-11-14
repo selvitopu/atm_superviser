@@ -1,59 +1,18 @@
-# AtmSupervisorUi
+# ATM Supervisor UI
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.2.7.
+The operator board of ATM Supervisor, in Angular 22: services, equipment tiles, a detail panel and the alarm list,
+fed by the supervisor's REST API and its Server-Sent Events stream. See the [root README](../README.md) for the
+project, the Docker Compose stack and how to inject faults.
 
-## Development server
+## Development
 
-To start a local development server, run:
+Requires Node 26. Install the dependencies once with `npm ci`.
 
-```bash
-ng serve
+```sh
+npx ng serve              # http://localhost:4200, proxying /api to localhost:8080 and /sim/api to localhost:8090
+npx ng test --watch=false # unit tests
+npx ng build              # production build into dist/atm-supervisor-ui/browser
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
-```
-
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+`npx ng serve` needs a supervisor on port 8080 and a simulator on port 8090 (see "Run without Docker" in the root
+README); the proxy is configured in `proxy.conf.json`.
