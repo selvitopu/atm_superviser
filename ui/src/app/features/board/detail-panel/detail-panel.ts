@@ -1,0 +1,124 @@
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { catchError, of, switchMap } from 'rxjs';
+import { BoardApi } from '../../../core/api/board-api';
+import { EquipmentDetailDto, EquipmentDto } from '../../../core/api/models';
+import { BoardSource } from '../../../core/state/board-source';
+import { Clock } from '../../../core/state/clock';
+import { freshness } from '../../../core/state/freshness';
+import { display, formatUtc } from '../../../shared/format';
+import { StatusBadge } from '../status-badge/status-badge';
+
+const FIELDS: Record<string, [string, string][]> = {
+  RADAR: [
+    ['Rotation (ms)', 'rotationPeriodMs'], ['Plots/scan', 'plotsPerScan'], ['Active channel', 'activeChannel'],
+    ['Channel A', 'channelAStatus'], ['Channel B', 'channelBStatus'],
+  ],
+  SDPS: [['Tracks', 'trackCount'], ['Latency (ms)', 'latencyMs']],
+  FDPS: [['Flight plans', 'flightPlanCount'], ['Queue depth', 'queueDepth'], ['Latency (ms)', 'latencyMs']],
+};
+
+@Component({
+  selector: 'app-detail-panel',
+  imports: [StatusBadge],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    @if (equipment(); as e) {
+      <h2>{{ e.name }} <span class="id">{{ e.id }}</span></h2>
+      <p class="line">
+        <app-status-badge [status]="e.health" />
+        <span class="mono">since {{ since() }}</span>
+      </p>
+      <dl>
+        <dt>Role</dt><dd>{{ display(e.role) }}</dd>
+        <dt>Maintenance</dt><dd>{{ e.maintenance ? 'MAINT' : 'no' }}</dd>
+        @for (f of fields(); track f.label) {
+          <dt>{{ f.label }}</dt><dd>{{ f.value }}</dd>
+        }
+      </dl>
+      <p class="poll mono">Last poll {{ lastPoll() }}</p>
+      @if (sensors().length > 0) {
+        <table class="sensors">
+          <thead><tr><th>Sensor</th><th>Input</th></tr></thead>
+          <tbody>
+            @for (s of sensors(); track s['index'] ?? $index) {
+              <tr><td>{{ display(s['name']) }}</td><td>{{ display(s['inputStatus']) }}</td></tr>
+            }
+          </tbody>
+        </table>
+      }
+      <h3>Recent events</h3>
+      <ul class="events">
+        @for (ev of detail()?.recentEvents ?? []; track ev.id) {
+          <li><span class="mono">{{ time(ev.occurredAt) }}</span> {{ ev.type }} · {{ ev.summary }}</li>
+        } @empty {
+          <li class="muted">none</li>
+        }
+      </ul>
+    } @else {
+      <p class="muted">{{ equipmentId() ? 'Loading ' + equipmentId() + '…' : 'Select equipment' }}</p>
+    }
+  `,
+  styles: `
+    :host { display: block; padding: 12px 16px; font-size: 13px; }
+    h2 { margin: 0 0 8px; font-size: 15px; }
+    h3 { margin: 16px 0 6px; font: 600 12px var(--font-ui); letter-spacing: 0.1em; color: var(--muted); }
+    .id, .mono { font-family: var(--font-mono); }
+    .id { color: var(--muted); font-size: 12px; }
+    .line { display: flex; gap: 10px; align-items: center; margin: 0 0 8px; }
+    dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 8px; margin: 0; }
+    dt { color: var(--muted); }
+    dd { margin: 0; font-family: var(--font-mono); }
+    table { width: 100%; margin-top: 10px; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }
+    th { text-align: left; color: var(--muted); font-weight: 600; }
+    th, td { padding: 2px 4px; border-bottom: 1px solid var(--panel-2); }
+    .events { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+    .events li { padding: 2px 0; }
+    .poll { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+    .muted { color: var(--muted); }
+  `,
+})
+export class DetailPanel {
+  readonly equipmentId = input<string | null>(null);
+
+  private readonly source = inject(BoardSource);
+  private readonly api = inject(BoardApi);
+  private readonly clock = inject(Clock);
+
+  protected readonly display = display;
+  protected readonly time = formatUtc;
+
+  private readonly live = computed(() => this.source.board()?.equipment.find(e => e.id === this.equipmentId()));
+
+  /** Primitive key: telemetry changes leave it equal, so only a real change refetches the detail. */
+  private readonly refetchKey = computed(() => {
+    const id = this.equipmentId();
+    if (!id) {
+      return null;
+    }
+    const e = this.live();
+    const alarms = this.source.board()?.alarms.filter(a => a.equipmentId === id).length ?? 0;
+    return `${id}|${e?.health}|${e?.maintenance}|${e?.role}|${alarms}`;
+  });
+
+  protected readonly detail = toSignal(
+    toObservable(this.refetchKey).pipe(
+      switchMap(key => key === null ? of(null)
+        : this.api.equipment(this.equipmentId()!).pipe(catchError(() => of(null)))),
+    ),
+    { initialValue: null as EquipmentDetailDto | null },
+  );
+
+  protected readonly equipment = computed<EquipmentDto | null>(() => this.live() ?? this.detail()?.equipment ?? null);
+  protected readonly since = computed(() => formatUtc(this.equipment()?.healthSince));
+  protected readonly lastPoll = computed(() => {
+    const c = this.equipment()?.contact;
+    const f = c ? freshness(c.lastPollAt, c.pollIntervalMs, this.clock.serverNow()) : null;
+    return f?.ageMs == null ? '—' : `${Math.round(f.ageMs / 1000)} s ago`;
+  });
+  protected readonly fields = computed(() => {
+    const e = this.equipment();
+    return e ? (FIELDS[e.type] ?? []).map(([label, key]) => ({ label, value: display(e.values[key]) })) : [];
+  });
+  protected readonly sensors = computed(() => this.equipment()?.tables['sensors'] ?? []);
+}
