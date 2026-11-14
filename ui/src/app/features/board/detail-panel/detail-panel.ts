@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
-import { catchError, of, switchMap } from 'rxjs';
+import { catchError, map, of, switchMap } from 'rxjs';
 import { BoardApi } from '../../../core/api/board-api';
 import { EquipmentDetailDto, EquipmentDto } from '../../../core/api/models';
 import { BoardSource } from '../../../core/state/board-source';
@@ -49,10 +49,16 @@ const FIELDS: Record<string, [string, string][]> = {
       }
       <h3>Recent events</h3>
       <ul class="events">
-        @for (ev of detail()?.recentEvents ?? []; track ev.id) {
-          <li><span class="mono">{{ time(ev.occurredAt) }}</span> {{ ev.type }} · {{ ev.summary }}</li>
-        } @empty {
-          <li class="muted">none</li>
+        @if (detail(); as d) {
+          @for (ev of d.recentEvents; track ev.id) {
+            <li><span class="mono">{{ time(ev.occurredAt) }}</span> {{ ev.type }} · {{ ev.summary }}</li>
+          } @empty {
+            <li class="muted">none</li>
+          }
+        } @else if (loadFailed()) {
+          <li class="muted unavailable">Events unavailable</li>
+        } @else {
+          <li class="muted">Loading…</li>
         }
       </ul>
     } @else {
@@ -66,7 +72,7 @@ const FIELDS: Record<string, [string, string][]> = {
     .id, .mono { font-family: var(--font-mono); }
     .id { color: var(--muted); font-size: 12px; }
     .line { display: flex; gap: 10px; align-items: center; margin: 0 0 8px; }
-    dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 8px; margin: 0; }
+    dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; margin: 0; }
     dt { color: var(--muted); }
     dd { margin: 0; font-family: var(--font-mono); }
     table { width: 100%; margin-top: 10px; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }
@@ -101,13 +107,31 @@ export class DetailPanel {
     return `${id}|${e?.health}|${e?.maintenance}|${e?.role}|${alarms}`;
   });
 
-  protected readonly detail = toSignal(
+  /** Latest fetch result tagged with the id it was for, so a stale result is never shown for another unit. */
+  private readonly fetched = toSignal(
     toObservable(this.refetchKey).pipe(
-      switchMap(key => key === null ? of(null)
-        : this.api.equipment(this.equipmentId()!).pipe(catchError(() => of(null)))),
+      switchMap(key => {
+        if (key === null) {
+          return of(null);
+        }
+        const id = this.equipmentId()!;
+        return this.api.equipment(id).pipe(
+          map(detail => ({ id, detail })),
+          catchError(() => of({ id, detail: null })),
+        );
+      }),
     ),
-    { initialValue: null as EquipmentDetailDto | null },
+    { initialValue: null as { id: string; detail: EquipmentDetailDto | null } | null },
   );
+
+  protected readonly detail = computed(() => {
+    const f = this.fetched();
+    return f && f.id === this.equipmentId() ? f.detail : null;
+  });
+  protected readonly loadFailed = computed(() => {
+    const f = this.fetched();
+    return !!f && f.id === this.equipmentId() && f.detail === null;
+  });
 
   protected readonly equipment = computed<EquipmentDto | null>(() => this.live() ?? this.detail()?.equipment ?? null);
   protected readonly since = computed(() => formatUtc(this.equipment()?.healthSince));

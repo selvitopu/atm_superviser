@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
-import { map } from 'rxjs';
+import { NavigationEnd, Router } from '@angular/router';
+import { filter, map, startWith } from 'rxjs';
 import { LiveBoardStore } from '../../../core/state/live-board-store';
 import { AlarmList } from '../../alarms/alarm-list/alarm-list';
 import { AppHeader } from '../app-header/app-header';
@@ -35,9 +35,24 @@ import { ServiceStrip } from '../service-strip/service-strip';
 })
 export class BoardPage {
   private readonly store = inject(LiveBoardStore);
+  private readonly router = inject(Router);
 
+  /** The page is one reused parent route; the selected unit is the param of its child route. */
   protected readonly equipmentId = toSignal(
-    inject(ActivatedRoute).paramMap.pipe(map(p => p.get('equipmentId'))), { initialValue: null });
+    this.router.events.pipe(
+      filter(e => e instanceof NavigationEnd),
+      startWith(null),
+      map(() => this.selectedId()),
+    ),
+    { initialValue: null });
+
+  private selectedId(): string | null {
+    let route = this.router.routerState.snapshot.root;
+    while (route.firstChild) {
+      route = route.firstChild;
+    }
+    return route.paramMap.get('equipmentId');
+  }
 
   constructor() {
     this.store.start();

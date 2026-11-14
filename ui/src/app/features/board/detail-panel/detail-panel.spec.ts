@@ -1,4 +1,4 @@
-import { Observable, of } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 import { BoardApi } from '../../../core/api/board-api';
 import { EquipmentDetailDto } from '../../../core/api/models';
 import { alarm, board, eq } from '../../../core/state/test-fixtures';
@@ -7,8 +7,16 @@ import { DetailPanel } from './detail-panel';
 
 class FakeApi {
   calls: string[] = [];
+  pending = new Map<string, Subject<EquipmentDetailDto>>();
+  failing = false;
   equipment(id: string): Observable<EquipmentDetailDto> {
     this.calls.push(id);
+    if (this.failing) {
+      return throwError(() => new Error('down'));
+    }
+    if (this.pending.has(id)) {
+      return this.pending.get(id)!;
+    }
     return of({
       equipment: eq(id),
       recentEvents: [{ id: 1, occurredAt: '2026-11-13T13:58:00Z', type: 'HEALTH_CHANGED', summary: 'went FAILED' }],
@@ -26,10 +34,11 @@ const sdps = () => eq('SDPS-A', {
   ] },
 });
 
-async function setup(equipment = sdps(), id: string | null = 'SDPS-A') {
+async function setup(equipment = sdps(), id: string | null = 'SDPS-A', configure: (api: FakeApi) => void = () => {}) {
   const store = new FakeStore();
   store.board.set(board({ equipment: [equipment] }));
   const api = new FakeApi();
+  configure(api);
   const f = render(DetailPanel, { equipmentId: id }, [
     ...storeProviders(store), clockProvider('2026-11-13T14:00:07Z'), { provide: BoardApi, useValue: api },
   ]);
@@ -107,5 +116,30 @@ describe('DetailPanel', () => {
     const { f, api } = await setup(sdps(), null);
     expect(f.text()).toContain('Select equipment');
     expect(api.calls).toEqual([]);
+  });
+
+  it('does not show the previous equipment events while the next fetch is pending', async () => {
+    const store = new FakeStore();
+    store.board.set(board({ equipment: [eq('RAD-N'), eq('RAD-E')] }));
+    const api = new FakeApi();
+    const f = render(DetailPanel, { equipmentId: 'RAD-N' }, [
+      ...storeProviders(store), clockProvider('2026-11-13T14:00:07Z'), { provide: BoardApi, useValue: api },
+    ]);
+    await f.fixture.whenStable();
+    f.fixture.detectChanges();
+    expect(f.text()).toContain('went FAILED');
+    api.pending.set('RAD-E', new Subject());
+    f.fixture.componentRef.setInput('equipmentId', 'RAD-E');
+    f.fixture.detectChanges();
+    await f.fixture.whenStable();
+    f.fixture.detectChanges();
+    expect(f.text()).not.toContain('went FAILED');
+    expect(f.text()).toContain('Loading');
+  });
+
+  it('shows Events unavailable when the fetch fails, distinct from an empty list', async () => {
+    const { f } = await setup(sdps(), 'SDPS-A', api => (api.failing = true));
+    expect(f.text()).toContain('Events unavailable');
+    expect(f.text()).not.toContain('none');
   });
 });

@@ -48,7 +48,7 @@ const SUMMARY: Record<string, [string, string][]> = {
       }
       <span class="values" [class.dim]="dimmed()">
         @for (v of summary(); track v.label) {
-          <span class="value"><span class="k">{{ v.label }}</span> <span class="v">{{ v.value }}</span></span>
+          <span class="value"><span class="k">{{ v.label }}</span><span class="v">{{ v.value }}</span></span>
         }
       </span>
     </a>
@@ -73,6 +73,7 @@ const SUMMARY: Record<string, [string, string][]> = {
     .note, .age { font: 12px var(--font-mono); color: var(--muted); }
     .age.degraded { color: var(--degraded); }
     .values { display: flex; flex-direction: column; gap: 2px; font: 12px var(--font-mono); }
+    .value { display: flex; justify-content: space-between; gap: 12px; }
     .values.dim { opacity: 0.4; }
     .k { color: var(--muted); }
   `,
