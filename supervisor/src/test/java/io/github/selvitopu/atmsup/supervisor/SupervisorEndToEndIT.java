@@ -260,6 +260,8 @@ class SupervisorEndToEndIT {
 
             await().atMost(ofSeconds(10)).until(() -> sse.has("telemetry", m -> m.id() == null
                     && m.data().contains("\"equipmentId\":\"RAD-N\"")));
+            await().atMost(ofSeconds(20)).until(() -> sse.has("heartbeat", m -> m.id() == null // every 15 s
+                    && m.data().contains("\"serverTime\"")));
             List<Long> ids = sse.ids();
             assertThat(ids).isNotEmpty().isSorted().doesNotHaveDuplicates();
             assertThat(ids.getFirst()).isGreaterThan(resumeFrom);
