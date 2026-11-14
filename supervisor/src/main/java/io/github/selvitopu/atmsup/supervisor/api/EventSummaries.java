@@ -1,0 +1,74 @@
+package io.github.selvitopu.atmsup.supervisor.api;
+
+import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.TelemetrySampleEvent;
+import io.github.selvitopu.atmsup.supervisor.board.EquipmentState;
+import io.github.selvitopu.atmsup.supervisor.board.ServiceState;
+import io.github.selvitopu.atmsup.supervisor.board.StoredEvent;
+
+/** One-line English summaries of stored events, for the equipment detail view. */
+public final class EventSummaries {
+
+    private EventSummaries() {
+    }
+
+    public static String describe(StoredEvent stored) {
+        return switch (stored.event()) {
+            case EquipmentEvent e -> equipment(e);
+            case ServiceEvent e -> service(e.state());
+            case AlarmEvent e -> alarm(e);
+            case SupervisorEvent e -> supervisor(e);
+            case TelemetrySampleEvent e -> "Telemetry sampled";
+        };
+    }
+
+    private static String equipment(EquipmentEvent e) {
+        return switch (e.type()) {
+            case CONTACT_LOST -> "Lost contact";
+            case CONTACT_RESTORED -> "Contact restored";
+            default -> state(e.state());
+        };
+    }
+
+    private static String state(EquipmentState s) {
+        String health = s.unknownReason() == null ? s.health().name()
+                : s.health().name() + " (" + s.unknownReason().name() + ")";
+        return "Health " + health + " · role " + s.role().name()
+                + " · maintenance " + (s.maintenance() ? "on" : "off");
+    }
+
+    private static String service(ServiceState s) {
+        return s.id().label() + " " + s.status().name();
+    }
+
+    private static String alarm(AlarmEvent e) {
+        Alarm a = e.alarm();
+        int code = a.key().code();
+        return switch (e.type()) {
+            case ALARM_RAISED -> "Alarm raised: " + detail(a);
+            case ALARM_UPDATED -> "Alarm updated: " + detail(a);
+            case ALARM_ACKNOWLEDGED -> "Alarm acknowledged by " + e.actor() + ": " + code;
+            case ALARM_CLEARED -> "Alarm cleared: " + code;
+            case ALARM_CLOSED -> "Alarm closed: " + code;
+            default -> throw new IllegalStateException("Not an alarm event: " + e.type());
+        };
+    }
+
+    private static String detail(Alarm a) {
+        return a.key().code() + " " + a.text() + " (" + a.key().equipmentId() + "), " + a.severity().name();
+    }
+
+    private static String supervisor(SupervisorEvent e) {
+        return switch (e.type()) {
+            case SUPERVISOR_STARTED -> "Supervisor started";
+            case SUPERVISOR_HEARTBEAT -> "Supervisor heartbeat";
+            case SUPERVISOR_STOPPING -> "Supervisor stopping";
+            default -> throw new IllegalStateException("Not a supervisor event: " + e.type());
+        };
+    }
+}
