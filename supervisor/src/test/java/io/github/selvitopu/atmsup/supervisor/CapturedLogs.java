@@ -1,4 +1,4 @@
-package io.github.selvitopu.atmsup.supervisor.snmp;
+package io.github.selvitopu.atmsup.supervisor;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -8,23 +8,27 @@ import java.util.List;
 import org.slf4j.LoggerFactory;
 
 /** Captures a class's log events and keeps them off the console (the logger stops propagating while captured). */
-final class CapturedLogs implements AutoCloseable {
+public final class CapturedLogs implements AutoCloseable {
 
     private final Logger logger;
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
-    CapturedLogs(Class<?> source) {
-        logger = (Logger) LoggerFactory.getLogger(source);
+    public CapturedLogs(Class<?> source) {
+        this(source.getName());
+    }
+
+    public CapturedLogs(String loggerName) {
+        logger = (Logger) LoggerFactory.getLogger(loggerName);
         appender.start();
         logger.addAppender(appender);
         logger.setAdditive(false);
     }
 
-    List<ILoggingEvent> events() {
+    public List<ILoggingEvent> events() {
         return List.copyOf(appender.list);
     }
 
-    List<String> warnings() {
+    public List<String> warnings() {
         return events().stream().filter(e -> e.getLevel() == Level.WARN).map(ILoggingEvent::getFormattedMessage)
                 .toList();
     }

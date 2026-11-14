@@ -17,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.selvitopu.atmsup.inventory.EngineIds;
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.simulator.fixture.TestInventories;
+import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmClearedNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmRaisedNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.StatusChangeNotification;

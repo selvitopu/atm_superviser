@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.simulator.fixture.TestInventories;
+import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
 import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.List;

@@ -6,12 +6,24 @@ import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.inventory.InventoryProperties;
 import io.github.selvitopu.atmsup.inventory.SnmpProperties;
 import io.github.selvitopu.atmsup.inventory.UserCredentials;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
+import io.github.selvitopu.atmsup.supervisor.alarms.IdGenerator;
+import io.github.selvitopu.atmsup.supervisor.board.BoardDecider;
+import io.github.selvitopu.atmsup.supervisor.board.BoardStore;
+import io.github.selvitopu.atmsup.supervisor.board.BoardWriter;
+import io.github.selvitopu.atmsup.supervisor.board.FlightDataRule;
+import io.github.selvitopu.atmsup.supervisor.board.ServiceEvaluator;
+import io.github.selvitopu.atmsup.supervisor.board.StatusDeriver;
+import io.github.selvitopu.atmsup.supervisor.board.SurveillanceRule;
 import io.github.selvitopu.atmsup.supervisor.snmp.NotificationMapper;
 import io.github.selvitopu.atmsup.supervisor.snmp.ObservationMapper;
 import io.github.selvitopu.atmsup.supervisor.snmp.Snmp4jClient;
 import io.github.selvitopu.atmsup.supervisor.snmp.SnmpSession;
 import io.github.selvitopu.atmsup.supervisor.snmp.TrapReceiver;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.InstantSource;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -25,7 +37,7 @@ import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Wires the supervisor's shared infrastructure: inventory, clock, SNMP session, client and mapper. */
+/** Wires the supervisor's shared infrastructure (inventory, clock, SNMP) and the board: decider and writer. */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({InventoryProperties.class, SnmpProperties.class})
 public class SupervisorConfig {
@@ -39,9 +51,10 @@ public class SupervisorConfig {
         return Inventory.from(properties);
     }
 
+    /** Millisecond ticks: event times are stored as DATETIME(3), so the live board holds exactly what is stored. */
     @Bean
     InstantSource instantSource() {
-        return InstantSource.system();
+        return Clock.tick(Clock.systemUTC(), Duration.ofMillis(1));
     }
 
     @Bean
@@ -120,6 +133,36 @@ public class SupervisorConfig {
     @Bean
     ObservationMapper observationMapper() {
         return new ObservationMapper();
+    }
+
+    @Bean
+    AlarmEngine alarmEngine() {
+        return new AlarmEngine(IdGenerator.uuid());
+    }
+
+    @Bean
+    StatusDeriver statusDeriver() {
+        return new StatusDeriver();
+    }
+
+    @Bean
+    ServiceEvaluator serviceEvaluator(Inventory inventory) {
+        return new ServiceEvaluator(inventory, List.of(new SurveillanceRule(), new FlightDataRule()));
+    }
+
+    @Bean
+    BoardDecider boardDecider(Inventory inventory, StatusDeriver deriver, ServiceEvaluator evaluator,
+                              AlarmEngine alarms,
+                              @Value("${atm.supervisor.telemetry-sample-interval:30s}") Duration sampleInterval) {
+        return new BoardDecider(inventory, deriver, evaluator, alarms, sampleInterval);
+    }
+
+    /** Started and stopped by the context (see {@link BoardWriter#PHASE}); its store is the history module's. */
+    @Bean
+    BoardWriter boardWriter(Inventory inventory, BoardStore store, BoardDecider decider, InstantSource clock,
+                            ApplicationEventPublisher events, MeterRegistry meters,
+                            @Value("${atm.supervisor.heartbeat-interval:60s}") Duration heartbeatInterval) {
+        return new BoardWriter(inventory, store, decider, clock, events, meters, heartbeatInterval);
     }
 
     /**

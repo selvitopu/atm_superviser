@@ -20,6 +20,7 @@ import io.github.selvitopu.atmsup.simulator.fixture.SimulatorFixture;
 import io.github.selvitopu.atmsup.simulator.fixture.TestInventories;
 import io.github.selvitopu.atmsup.simulator.fixture.TestManager;
 import io.github.selvitopu.atmsup.simulator.model.FaultRequest;
+import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmRaisedNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.StatusChangeNotification;
 import java.io.IOException;
