@@ -7,6 +7,7 @@ import io.github.selvitopu.atmsup.inventory.SnmpProperties;
 import io.github.selvitopu.atmsup.inventory.UserCredentials;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.snmp4j.MessageDispatcherImpl;
 import org.snmp4j.Snmp;
 import org.snmp4j.UserTarget;
@@ -44,6 +45,7 @@ public final class SnmpSession implements AutoCloseable {
 
     private final Snmp snmp;
     private final DefaultUdpTransportMapping transport;
+    private final AtomicBoolean closed = new AtomicBoolean();
     private volatile int boundPort;
 
     /** {@code port} 0 binds any free port; see {@link #boundPort()}. */
@@ -104,8 +106,15 @@ public final class SnmpSession implements AutoCloseable {
         return target;
     }
 
+    /**
+     * Stops the engine. Idempotent: the lifecycle stop and Spring's inferred destroy method both call it, and only the
+     * first call acts.
+     */
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         try {
             snmp.close();
         } catch (IOException e) {
