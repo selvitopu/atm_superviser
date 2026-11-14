@@ -46,11 +46,16 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.SimpleApplicationEventMulticaster;
 import org.springframework.context.support.AbstractApplicationContext;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.support.TaskUtils;
 
-/** Wires the supervisor's shared infrastructure (inventory, clock, events, SNMP), the board and polling. */
+/**
+ * Wires the supervisor's shared infrastructure (inventory, clock, events, SNMP), the board and polling. Scheduling
+ * drives the SSE heartbeat.
+ */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({InventoryProperties.class, SnmpProperties.class})
+@EnableScheduling
 public class SupervisorConfig {
 
     private static final Logger log = LoggerFactory.getLogger(SupervisorConfig.class);

@@ -55,4 +55,18 @@ public final class Dtos {
 
     public record AckResultDto(List<AlarmDto> acknowledged, List<String> notFound) {
     }
+
+    /** SSE {@code telemetry}: live measurements of one device after a successful poll. */
+    public record TelemetryDto(String equipmentId, Instant lastPollAt, int consecutiveFailures,
+                               Map<String, Object> values, Map<String, List<Map<String, Object>>> tables,
+                               Instant serverTime) {
+    }
+
+    /** SSE {@code heartbeat}. */
+    public record HeartbeatDto(Instant serverTime) {
+    }
+
+    /** SSE {@code supervisor}: a supervisor event (started, heartbeat, stopping). */
+    public record SupervisorEventDto(String type, Instant occurredAt) {
+    }
 }

@@ -8,6 +8,7 @@ import io.github.selvitopu.atmsup.supervisor.api.Dtos.BoardDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ContactDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceDto;
+import io.github.selvitopu.atmsup.supervisor.api.Dtos.TelemetryDto;
 import io.github.selvitopu.atmsup.supervisor.board.Board;
 import io.github.selvitopu.atmsup.supervisor.board.EquipmentState;
 import io.github.selvitopu.atmsup.supervisor.board.Health;
@@ -50,14 +51,23 @@ public class DtoMapper {
 
     /** @throws java.util.NoSuchElementException if the inventory has no such device */
     public EquipmentDto equipment(LiveBoard lb, String id) {
-        Device d = inventory.device(id);
-        EquipmentState s = lb.board().equipment().get(id);
-        Telemetry t = lb.telemetry().getOrDefault(id, Telemetry.EMPTY);
+        inventory.device(id); // unknown ids fail here, before the board is read
+        return equipment(lb.board().equipment().get(id), lb.telemetry().getOrDefault(id, Telemetry.EMPTY));
+    }
+
+    /** One device's state (for example the one an event carries) with its live telemetry. */
+    public EquipmentDto equipment(EquipmentState s, Telemetry t) {
+        Device d = inventory.device(s.id());
         ContactDto contact = new ContactDto(s.contact().reachable(), s.contact().lastContactAt(),
                 s.contact().lostAt(), t.lastPollAt(), t.consecutiveFailures(), d.pollInterval().toMillis());
-        return new EquipmentDto(id, d.name(), d.type().name(), d.group().name(), d.pair(), s.health().name(),
+        return new EquipmentDto(s.id(), d.name(), d.type().name(), d.group().name(), d.pair(), s.health().name(),
                 s.unknownReason() == null ? null : s.unknownReason().name(), s.maintenance(), s.role().name(),
                 s.healthSince(), contact, t.values(), t.tables());
+    }
+
+    public TelemetryDto telemetry(String equipmentId, Telemetry t, Instant serverTime) {
+        return new TelemetryDto(equipmentId, t.lastPollAt(), t.consecutiveFailures(), t.values(), t.tables(),
+                serverTime);
     }
 
     public AlarmDto alarm(Alarm a, Board b) {
