@@ -43,16 +43,21 @@ describe('EquipmentTile', () => {
     expect(f.el.querySelector('.tile')?.className).not.toContain('h-operational');
   });
 
-  it('labels other unknown reasons and greys values only for status unavailable', () => {
-    const labels: [string, string][] = [
-      ['AWAITING_STATUS', 'awaiting status'], ['STATUS_UNAVAILABLE', 'status unavailable'],
-      ['NOT_YET_POLLED', 'not yet polled'], ['SUPERVISOR_RESTARTED', 'supervisor restarted'], ['RESTARTING', 'restarting'],
+  it('labels other unknown reasons and greys the last-known values while awaiting status or status unavailable', () => {
+    const labels: [string, string, boolean][] = [
+      ['AWAITING_STATUS', 'awaiting status', true], ['STATUS_UNAVAILABLE', 'status unavailable', true],
+      ['NOT_YET_POLLED', 'not yet polled', false], ['SUPERVISOR_RESTARTED', 'supervisor restarted', false],
+      ['RESTARTING', 'restarting', false],
     ];
-    for (const [reason, label] of labels) {
-      const f = tile({ health: 'UNKNOWN', unknownReason: reason });
+    for (const [reason, label, dim] of labels) {
+      const f = tile({ health: 'UNKNOWN', unknownReason: reason, values: { plotsPerScan: 300 } });
       expect(f.el.querySelector('.reason')?.textContent?.trim()).toBe(label);
-      expect(f.el.querySelector('.values')?.classList.contains('dim')).toBe(reason === 'STATUS_UNAVAILABLE');
+      expect(f.el.querySelector('.values')?.classList.contains('dim')).toBe(dim);
     }
+  });
+
+  it('shows current values at full strength while health is known', () => {
+    expect(tile({ values: { plotsPerScan: 300 } }).el.querySelector('.values')?.classList.contains('dim')).toBe(false);
   });
 
   it('renders — for a missing value', () => {

@@ -63,6 +63,32 @@ describe('LiveStream', () => {
     expect(source.closed).toBe(true);
   });
 
+  it('emits error and closes the source on malformed JSON instead of dropping the event', () => {
+    stream.connect(1).subscribe(m => received.push(m));
+    const source = FakeEventSource.last;
+    source.fire('alarm', '{"id":', '79');
+    expect(received).toEqual([{ kind: 'error' }]);
+    expect(source.closed).toBe(true);
+  });
+
+  it('emits error and closes the source on malformed volatile JSON', () => {
+    stream.connect(1).subscribe(m => received.push(m));
+    const source = FakeEventSource.last;
+    source.fire('telemetry', 'not json');
+    expect(received).toEqual([{ kind: 'error' }]);
+    expect(source.closed).toBe(true);
+  });
+
+  for (const lastEventId of ['', 'abc', '0', '-3']) {
+    it(`emits error and closes the source on a durable event with id '${lastEventId}'`, () => {
+      stream.connect(1).subscribe(m => received.push(m));
+      const source = FakeEventSource.last;
+      source.fire('equipment', '{"id":"RAD-N"}', lastEventId);
+      expect(received).toEqual([{ kind: 'error' }]);
+      expect(source.closed).toBe(true);
+    });
+  }
+
   it('closes the source on unsubscribe', () => {
     const sub = stream.connect(1).subscribe();
     const source = FakeEventSource.last;

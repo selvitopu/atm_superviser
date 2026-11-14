@@ -7,6 +7,7 @@ import { BoardSource } from '../../../core/state/board-source';
 import { Clock } from '../../../core/state/clock';
 import { freshness } from '../../../core/state/freshness';
 import { display, formatUtc } from '../../../shared/format';
+import { unknownReasonLabel } from '../../../shared/unknown-reason';
 import { StatusBadge } from '../status-badge/status-badge';
 
 const FIELDS: Record<string, [string, string][]> = {
@@ -28,25 +29,37 @@ const FIELDS: Record<string, [string, string][]> = {
       <p class="line">
         <app-status-badge [status]="e.health" />
         <span class="mono">since {{ since() }}</span>
+        @if (reasonLabel(); as reason) {
+          <span class="reason">{{ reason }}</span>
+        }
       </p>
       <dl>
         <dt>Role</dt><dd>{{ display(e.role) }}</dd>
         <dt>Maintenance</dt><dd>{{ e.maintenance ? 'MAINT' : 'no' }}</dd>
-        @for (f of fields(); track f.label) {
-          <dt>{{ f.label }}</dt><dd>{{ f.value }}</dd>
-        }
       </dl>
-      <p class="poll mono">Last poll {{ lastPoll() }}</p>
-      @if (sensors().length > 0) {
-        <table class="sensors">
-          <thead><tr><th>Sensor</th><th>Input</th></tr></thead>
-          <tbody>
-            @for (s of sensors(); track s['index'] ?? $index) {
-              <tr><td>{{ display(s['name']) }}</td><td>{{ display(s['inputStatus']) }}</td></tr>
+      <section class="values">
+        @if (unknown()) {
+          <h3>Last known values</h3>
+        }
+        <div [class.dim]="unknown()">
+          <dl>
+            @for (f of fields(); track f.label) {
+              <dt>{{ f.label }}</dt><dd>{{ f.value }}</dd>
             }
-          </tbody>
-        </table>
-      }
+          </dl>
+          @if (sensors().length > 0) {
+            <table class="sensors">
+              <thead><tr><th>Sensor</th><th>Input</th></tr></thead>
+              <tbody>
+                @for (s of sensors(); track s['index'] ?? $index) {
+                  <tr><td>{{ display(s['name']) }}</td><td>{{ display(s['inputStatus']) }}</td></tr>
+                }
+              </tbody>
+            </table>
+          }
+        </div>
+      </section>
+      <p class="poll mono">Last poll {{ lastPoll() }}</p>
       <h3>Recent events</h3>
       <ul class="events">
         @if (detail(); as d) {
@@ -72,7 +85,11 @@ const FIELDS: Record<string, [string, string][]> = {
     .id, .mono { font-family: var(--font-mono); }
     .id { color: var(--muted); font-size: 12px; }
     .line { display: flex; gap: 10px; align-items: center; margin: 0 0 8px; }
+    .reason { font: 12px var(--font-mono); color: var(--muted); }
     dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; margin: 0; }
+    .values { margin-top: 4px; }
+    .values h3 { margin: 10px 0 4px; }
+    .dim { opacity: 0.4; }
     dt { color: var(--muted); }
     dd { margin: 0; font-family: var(--font-mono); }
     table { width: 100%; margin-top: 10px; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }
@@ -135,6 +152,12 @@ export class DetailPanel {
 
   protected readonly equipment = computed<EquipmentDto | null>(() => this.live() ?? this.detail()?.equipment ?? null);
   protected readonly since = computed(() => formatUtc(this.equipment()?.healthSince));
+  /** While health is UNKNOWN the values are the last known ones: dimmed, labelled, never shown as current. */
+  protected readonly unknown = computed(() => this.equipment()?.health === 'UNKNOWN');
+  protected readonly reasonLabel = computed(() => {
+    const e = this.equipment();
+    return e ? unknownReasonLabel(e) : null;
+  });
   protected readonly lastPoll = computed(() => {
     const c = this.equipment()?.contact;
     const f = c ? freshness(c.lastPollAt, c.pollIntervalMs, this.clock.serverNow()) : null;

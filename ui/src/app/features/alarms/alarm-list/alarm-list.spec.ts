@@ -1,4 +1,5 @@
-import { alarm, board } from '../../../core/state/test-fixtures';
+import { applyMessage } from '../../../core/state/apply-message';
+import { alarm, board, eq } from '../../../core/state/test-fixtures';
 import { FakeStore, render, storeProviders } from '../../../testing/render';
 import { AlarmList } from './alarm-list';
 
@@ -51,6 +52,40 @@ describe('AlarmList', () => {
     expect(store.acked).toEqual([['crit']]);
   });
 
+  it('ack selected never acks a selected alarm that the suppressed filter now hides', () => {
+    const { store, f } = setup([alarm('a', { severity: 'CRITICAL' }), alarm('s', { severity: 'MINOR', suppressed: true })]);
+    const toggleSuppressed = () => {
+      f.el.querySelector<HTMLInputElement>('input.suppressed-toggle')!.click();
+      f.fixture.detectChanges();
+    };
+    toggleSuppressed();
+    f.all('input[type=checkbox].select').forEach(box => box.click());
+    f.fixture.detectChanges();
+    toggleSuppressed();
+    f.all('button').find(b => b.textContent?.includes('Ack selected'))!.click();
+    expect(store.acked).toEqual([['a']]);
+  });
+
+  it('prunes the selection when a selected alarm leaves the list', () => {
+    const { store, f } = setup();
+    const ackSelected = () => f.all('button').find(b => b.textContent?.includes('Ack selected')) as HTMLButtonElement;
+    f.all('input[type=checkbox].select')[0].click(); // crit
+    f.fixture.detectChanges();
+    expect(ackSelected().disabled).toBe(false);
+
+    const crit = store.board()!.alarms.find(a => a.id === 'crit')!;
+    store.board.update(b => ({ ...b!, alarms: b!.alarms.filter(a => a.id !== 'crit') }));
+    f.fixture.detectChanges();
+    expect(ackSelected().disabled).toBe(true);
+    ackSelected().click();
+    expect(store.acked).toEqual([]);
+
+    store.board.update(b => ({ ...b!, alarms: [...b!.alarms, crit] })); // it comes back: not selected again
+    f.fixture.detectChanges();
+    expect(ackSelected().disabled).toBe(true);
+    expect(f.all('input[type=checkbox].select').map(b => (b as HTMLInputElement).checked)).toEqual([false, false, false]);
+  });
+
   it('hides suppressed alarms until the toggle is on', () => {
     const { f } = setup([alarm('a'), alarm('s', { suppressed: true })]);
     expect(f.all('tbody tr').length).toBe(1);
@@ -60,9 +95,40 @@ describe('AlarmList', () => {
     expect(f.all('tbody tr').length).toBe(2);
   });
 
-  it('unconfirmed alarm shows marker', () => {
-    const { f } = setup([alarm('u', { unconfirmed: true }), alarm('v')]);
-    expect(f.all('.unconfirmed').length).toBe(1);
-    expect(f.all('.unconfirmed')[0].textContent).toContain('?');
+  it('marks an alarm unconfirmed while its equipment is UNKNOWN, from the live board', () => {
+    const store = new FakeStore();
+    store.board.set(board({
+      lastEventId: 10, equipment: [eq('RAD-N'), eq('RAD-E')],
+      alarms: [alarm('n', { equipmentId: 'RAD-N' }), alarm('e', { equipmentId: 'RAD-E' })],
+    }));
+    const f = render(AlarmList, {}, storeProviders(store));
+    expect(f.all('.unconfirmed').length).toBe(0);
+
+    store.board.update(b => applyMessage(b!, {
+      kind: 'equipment', id: 11, data: eq('RAD-N', { health: 'UNKNOWN', unknownReason: 'LOST_CONTACT' }),
+    }));
+    f.fixture.detectChanges();
+    const marked = f.all('tbody tr').filter(r => r.querySelector('.unconfirmed'));
+    expect(marked.length).toBe(1);
+    expect(marked[0].textContent).toContain('RAD-N');
+    expect(marked[0].querySelector('.unconfirmed')?.textContent).toContain('?');
+
+    store.board.update(b => applyMessage(b!, { kind: 'equipment', id: 12, data: eq('RAD-N', { health: 'OPERATIONAL' }) }));
+    f.fixture.detectChanges();
+    expect(f.all('.unconfirmed').length).toBe(0);
+  });
+
+  it('ignores the server flag: service alarms and alarms of known equipment are never unconfirmed', () => {
+    const store = new FakeStore();
+    store.board.set(board({
+      equipment: [eq('RAD-N')],
+      alarms: [
+        alarm('stale', { equipmentId: 'RAD-N', unconfirmed: true }),
+        alarm('svc', { equipmentId: 'SURV', code: 903, unconfirmed: true }),
+      ],
+    }));
+    const f = render(AlarmList, {}, storeProviders(store));
+    expect(f.all('tbody tr').length).toBe(2);
+    expect(f.all('.unconfirmed').length).toBe(0);
   });
 });

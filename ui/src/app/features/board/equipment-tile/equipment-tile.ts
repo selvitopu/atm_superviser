@@ -4,15 +4,11 @@ import { EquipmentDto } from '../../../core/api/models';
 import { Clock } from '../../../core/state/clock';
 import { freshness } from '../../../core/state/freshness';
 import { display, formatUtc } from '../../../shared/format';
+import { unknownReasonLabel } from '../../../shared/unknown-reason';
 import { StatusBadge } from '../status-badge/status-badge';
 
-const REASON_LABEL: Record<string, string> = {
-  AWAITING_STATUS: 'awaiting status',
-  STATUS_UNAVAILABLE: 'status unavailable',
-  NOT_YET_POLLED: 'not yet polled',
-  SUPERVISOR_RESTARTED: 'supervisor restarted',
-  RESTARTING: 'restarting',
-};
+/** Unknown reasons whose values are from before the loss of status: shown dimmed, never as current. */
+const LAST_KNOWN = new Set(['LOST_CONTACT', 'STATUS_UNAVAILABLE', 'AWAITING_STATUS']);
 
 const SUMMARY: Record<string, [string, string][]> = {
   RADAR: [['Plots/scan', 'plotsPerScan'], ['Rotation ms', 'rotationPeriodMs']],
@@ -90,12 +86,11 @@ export class EquipmentTile {
   protected readonly lostContact = computed(
     () => this.equipment().health === 'UNKNOWN' && this.equipment().unknownReason === 'LOST_CONTACT');
   protected readonly lastContact = computed(() => formatUtc(this.equipment().contact.lastContactAt));
-  protected readonly reasonLabel = computed(() => {
+  protected readonly reasonLabel = computed(() => unknownReasonLabel(this.equipment()));
+  protected readonly dimmed = computed(() => {
     const e = this.equipment();
-    return e.health === 'UNKNOWN' && e.unknownReason ? (REASON_LABEL[e.unknownReason] ?? null) : null;
+    return e.health === 'UNKNOWN' && LAST_KNOWN.has(e.unknownReason ?? '');
   });
-  protected readonly dimmed = computed(
-    () => this.lostContact() || (this.equipment().health === 'UNKNOWN' && this.equipment().unknownReason === 'STATUS_UNAVAILABLE'));
   protected readonly staleAgeSeconds = computed(() => {
     if (this.lostContact()) {
       return null;

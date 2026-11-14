@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { AlarmDto, AlarmState, Severity } from '../../../core/api/models';
 import { BoardSource } from '../../../core/state/board-source';
 import { LiveBoardStore } from '../../../core/state/live-board-store';
@@ -24,7 +24,7 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
           (change)="showSuppressed.set(!showSuppressed())" />
         Show suppressed ({{ suppressedCount() }})
       </label>
-      <button type="button" [disabled]="selected().size === 0" (click)="ackSelected()">Ack selected</button>
+      <button type="button" [disabled]="selectedIds().length === 0" (click)="ackSelected()">Ack selected</button>
       <button type="button" [disabled]="unackedIds().length === 0" (click)="ackAllVisible()">Ack all visible</button>
       @if (failed()) {
         <span class="error" role="alert">Acknowledge failed</span>
@@ -47,7 +47,7 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
               <td class="mono">{{ a.equipmentId }}</td>
               <td>
                 {{ a.text }}@if (a.instanceName) { · {{ a.instanceName }}}
-                @if (a.unconfirmed) {
+                @if (unconfirmed(a)) {
                   <span class="unconfirmed" title="unconfirmed" aria-label="unconfirmed">?</span>
                 }
               </td>
@@ -89,7 +89,6 @@ export class AlarmList {
   private readonly store = inject(LiveBoardStore);
 
   protected readonly showSuppressed = signal(false);
-  protected readonly selected = signal<ReadonlySet<string>>(new Set());
   protected readonly failed = signal(false);
 
   protected readonly time = formatUtc;
@@ -97,12 +96,31 @@ export class AlarmList {
   protected readonly state = (a: AlarmDto) => STATE[a.state];
 
   private readonly all = computed(() => this.source.board()?.alarms ?? []);
+  /**
+   * The equipment that is UNKNOWN on the current board. An alarm of such equipment is unconfirmed (spec §5.1); this
+   * follows every equipment event, while the DTO's `unconfirmed` flag is only as fresh as the alarm's own last event.
+   * Service alarms match no equipment and are never unconfirmed.
+   */
+  private readonly unknownEquipment = computed(() => new Set(
+    (this.source.board()?.equipment ?? []).filter(e => e.health === 'UNKNOWN').map(e => e.id)));
+  protected readonly unconfirmed = (a: AlarmDto) => this.unknownEquipment().has(a.equipmentId);
   protected readonly suppressedCount = computed(() => this.all().filter(a => a.suppressed).length);
   protected readonly rows = computed(() =>
     this.all()
       .filter(a => this.showSuppressed() || !a.suppressed)
       .sort((a, b) => SEVERITY[a.severity].rank - SEVERITY[b.severity].rank
         || Date.parse(b.raisedAt) - Date.parse(a.raisedAt)));
+  /** The checked rows. Pruned whenever the rows change, so it never holds an alarm that is gone or hidden. */
+  protected readonly selected = linkedSignal<AlarmDto[], ReadonlySet<string>>({
+    source: this.rows,
+    computation: (rows, previous) => {
+      const kept = previous?.value ?? new Set<string>();
+      const visible = new Set(rows.map(a => a.id));
+      return [...kept].every(id => visible.has(id)) ? kept : new Set([...kept].filter(id => visible.has(id)));
+    },
+  });
+  /** The selected alarms among the visible rows, in row order: what "Ack selected" sends. */
+  protected readonly selectedIds = computed(() => this.rows().filter(a => this.selected().has(a.id)).map(a => a.id));
   protected readonly unackedIds = computed(() => this.rows().filter(isUnacked).map(a => a.id));
   protected readonly unackedCount = computed(() => this.unackedIds().length);
 
@@ -117,7 +135,7 @@ export class AlarmList {
   }
 
   protected ackSelected(): void {
-    this.ack([...this.selected()]);
+    this.ack(this.selectedIds());
   }
 
   protected ackAllVisible(): void {

@@ -112,6 +112,37 @@ describe('DetailPanel', () => {
     expect(api.calls.length).toBe(5);
   });
 
+  it('shows the reason, dims the values and heads them "Last known values" when health is UNKNOWN', async () => {
+    const { f } = await setup(eq('RAD-N', {
+      health: 'UNKNOWN', unknownReason: 'LOST_CONTACT', values: { plotsPerScan: 300 },
+    }), 'RAD-N');
+    expect(f.el.querySelector('.reason')?.textContent?.trim()).toBe('lost contact');
+    const values = f.el.querySelector('.values')!;
+    expect(values.querySelector('h3')?.textContent?.trim()).toBe('Last known values');
+    expect(values.querySelector('.dim')?.textContent).toContain('300');
+  });
+
+  it('uses the tile labels for the other unknown reasons and dims the sensor table too', async () => {
+    const labels: [string, string][] = [
+      ['AWAITING_STATUS', 'awaiting status'], ['STATUS_UNAVAILABLE', 'status unavailable'],
+      ['NOT_YET_POLLED', 'not yet polled'], ['SUPERVISOR_RESTARTED', 'supervisor restarted'], ['RESTARTING', 'restarting'],
+    ];
+    for (const [reason, label] of labels) {
+      const { f } = await setup({ ...sdps(), health: 'UNKNOWN', unknownReason: reason });
+      expect(f.el.querySelector('.reason')?.textContent?.trim()).toBe(label);
+      expect(f.el.querySelector('.values h3')?.textContent?.trim()).toBe('Last known values');
+      expect(f.el.querySelector('.values .dim table.sensors')).not.toBeNull();
+    }
+  });
+
+  it('shows current values at full strength, with no reason or heading, while health is known', async () => {
+    const { f } = await setup();
+    expect(f.el.querySelector('.reason')).toBeNull();
+    expect(f.el.querySelector('.values .dim')).toBeNull();
+    expect(f.text()).not.toContain('Last known values');
+    expect(f.el.querySelector('.values')?.textContent).toContain('120');
+  });
+
   it('asks for a selection when no equipment is routed', async () => {
     const { f, api } = await setup(sdps(), null);
     expect(f.text()).toContain('Select equipment');

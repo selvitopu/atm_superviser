@@ -8,10 +8,15 @@ export const EVENT_SOURCE_FACTORY = new InjectionToken<(url: string) => EventSou
 });
 
 const DURABLE = ['equipment', 'service', 'alarm', 'supervisor'] as const;
+const VOLATILE = ['telemetry', 'heartbeat'] as const;
+const INVALID = Symbol('invalid');
 
 /**
  * The supervisor's SSE stream as an Observable. The source is closed on error and on unsubscribe, so the
  * browser's own auto-reconnect never runs: the store owns reconnecting.
+ *
+ * An event that cannot be read (data that is not JSON, or a durable event without a positive numeric id) is never
+ * dropped silently: the source is closed and `error` is emitted, so the store refetches the board and reconnects.
  */
 @Injectable({ providedIn: 'root' })
 export class LiveStream {
@@ -21,21 +26,42 @@ export class LiveStream {
     return new Observable<StreamMessage>(subscriber => {
       const source = this.factory('/api/v1/stream?lastEventId=' + lastEventId);
       const emit = (m: StreamMessage) => subscriber.next(m);
-      const parse = (e: MessageEvent): unknown => JSON.parse(e.data as string);
-
-      source.onopen = () => emit({ kind: 'open' });
-      source.onerror = () => {
+      const fail = () => {
         source.close();
         emit({ kind: 'error' });
       };
+      const parse = (e: MessageEvent): unknown => {
+        try {
+          return JSON.parse(e.data as string);
+        } catch {
+          return INVALID;
+        }
+      };
+
+      source.onopen = () => emit({ kind: 'open' });
+      source.onerror = fail;
       for (const kind of DURABLE) {
         source.addEventListener(kind, e => {
           const me = e as MessageEvent;
-          emit({ kind, id: Number(me.lastEventId), data: parse(me) } as StreamMessage);
+          const id = Number(me.lastEventId);
+          const data = parse(me);
+          if (!(Number.isFinite(id) && id > 0) || data === INVALID) {
+            fail();
+            return;
+          }
+          emit({ kind, id, data } as StreamMessage);
         });
       }
-      source.addEventListener('telemetry', e => emit({ kind: 'telemetry', data: parse(e as MessageEvent) } as StreamMessage));
-      source.addEventListener('heartbeat', e => emit({ kind: 'heartbeat', data: parse(e as MessageEvent) } as StreamMessage));
+      for (const kind of VOLATILE) {
+        source.addEventListener(kind, e => {
+          const data = parse(e as MessageEvent);
+          if (data === INVALID) {
+            fail();
+            return;
+          }
+          emit({ kind, data } as StreamMessage);
+        });
+      }
       source.addEventListener('resync', () => emit({ kind: 'resync' }));
 
       return () => source.close();
