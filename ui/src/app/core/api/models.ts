@@ -1,0 +1,130 @@
+// TypeScript mirror of the supervisor's Dtos.java. Instants are ISO-8601 UTC strings.
+
+export type Health = 'OPERATIONAL' | 'DEGRADED' | 'FAILED' | 'UNKNOWN';
+export type ServiceStatus = 'OK' | 'DEGRADED' | 'FAILED' | 'UNKNOWN';
+export type Severity = 'CRITICAL' | 'MAJOR' | 'MINOR' | 'WARNING' | 'INDETERMINATE' | 'CLEARED';
+export type AlarmState = 'ACTIVE_UNACK' | 'ACTIVE_ACK' | 'CLEARED_UNACK' | 'CLOSED';
+
+export type Values = Record<string, unknown>;
+export type Tables = Record<string, Record<string, unknown>[]>;
+
+export interface BoardDto {
+  centre: string;
+  serverTime: string;
+  lastEventId: number;
+  services: ServiceDto[];
+  equipment: EquipmentDto[];
+  alarms: AlarmDto[];
+}
+
+export interface ServiceDto {
+  id: string;
+  name: string;
+  status: ServiceStatus;
+  bestCase: string;
+  redundancyLost: boolean;
+  reasons: string[];
+  since: string;
+}
+
+export interface EquipmentDto {
+  id: string;
+  name: string;
+  type: string;
+  group: string;
+  pair: string | null;
+  health: Health;
+  unknownReason: string | null;
+  maintenance: boolean;
+  role: string | null;
+  healthSince: string;
+  contact: ContactDto;
+  values: Values;
+  tables: Tables;
+}
+
+export interface ContactDto {
+  reachable: boolean;
+  lastContactAt: string | null;
+  lostAt: string | null;
+  lastPollAt: string | null;
+  consecutiveFailures: number;
+  pollIntervalMs: number;
+}
+
+export interface AlarmDto {
+  id: string;
+  equipmentId: string;
+  code: number;
+  instance: number;
+  instanceName: string;
+  severity: Severity;
+  text: string;
+  source: string;
+  state: AlarmState;
+  suppressed: boolean;
+  unconfirmed: boolean;
+  raisedAt: string;
+  ackedAt: string | null;
+  ackedBy: string | null;
+  ackComment: string | null;
+  clearedAt: string | null;
+}
+
+export interface EquipmentDetailDto {
+  equipment: EquipmentDto;
+  recentEvents: EventSummaryDto[];
+}
+
+export interface EventSummaryDto {
+  id: number;
+  occurredAt: string;
+  type: string;
+  summary: string;
+}
+
+export interface PageDto<T> {
+  items: T[];
+  page: number;
+  size: number;
+  total: number;
+}
+
+export interface AckRequest {
+  comment: string | null;
+}
+
+export interface AckManyRequest {
+  ids: string[];
+  comment: string | null;
+}
+
+export interface AckResultDto {
+  acknowledged: AlarmDto[];
+  notFound: string[];
+}
+
+export interface TelemetryDto {
+  equipmentId: string;
+  lastPollAt: string;
+  consecutiveFailures: number;
+  values: Values;
+  tables: Tables;
+  serverTime: string;
+}
+
+export interface SupervisorEventDto {
+  type: 'SUPERVISOR_STARTED' | 'SUPERVISOR_HEARTBEAT' | 'SUPERVISOR_STOPPING';
+  occurredAt: string;
+}
+
+export type StreamMessage =
+  | { kind: 'equipment'; id: number; data: EquipmentDto }
+  | { kind: 'service'; id: number; data: ServiceDto }
+  | { kind: 'alarm'; id: number; data: AlarmDto }
+  | { kind: 'supervisor'; id: number; data: SupervisorEventDto }
+  | { kind: 'telemetry'; data: TelemetryDto }
+  | { kind: 'heartbeat'; data: { serverTime: string } }
+  | { kind: 'resync' }
+  | { kind: 'open' }
+  | { kind: 'error' };
