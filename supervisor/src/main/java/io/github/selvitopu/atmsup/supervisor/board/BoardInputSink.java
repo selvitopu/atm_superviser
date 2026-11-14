@@ -7,7 +7,8 @@ public interface BoardInputSink {
 
     /**
      * The future completes on the board writer thread once the input is processed, or at once with a failed result
-     * if the writer is not running. It never completes exceptionally.
+     * if the writer is not running. It never completes exceptionally. Never join it from an event listener: listeners
+     * run on the board writer thread (a deadlock) or on SNMP4J's listener thread (it would stall every response).
      */
     CompletableFuture<BoardResult> submit(BoardInput in);
 }

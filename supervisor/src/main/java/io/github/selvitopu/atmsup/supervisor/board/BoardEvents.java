@@ -5,7 +5,8 @@ import java.util.List;
 
 /**
  * Spring application events published by the board writer, synchronously on its thread and only after a successful
- * commit. Listeners must not block (amendment §4): they only enqueue.
+ * commit. Listeners must not block (amendment §4): they only enqueue, and never join a
+ * {@link BoardInputSink#submit} future, which would deadlock the writer.
  */
 public final class BoardEvents {
 

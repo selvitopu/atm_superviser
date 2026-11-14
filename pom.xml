@@ -27,6 +27,7 @@
 
     <properties>
         <java.version>25</java.version>
+        <resilience4j.version>2.4.0</resilience4j.version>
         <!-- JVM args for tests; a module that uses Mockito sets it to its agent flags (see pluginManagement) -->
         <mockito.agent.args></mockito.agent.args>
         <snmp4j.version>3.13.2</snmp4j.version>
@@ -40,6 +41,17 @@
                 <groupId>org.snmp4j</groupId>
                 <artifactId>snmp4j</artifactId>
                 <version>${snmp4j.version}</version>
+            </dependency>
+            <!-- Resilience4j is used programmatically (no Spring Boot starter) -->
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-circuitbreaker</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-micrometer</artifactId>
+                <version>${resilience4j.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springframework.modulith</groupId>

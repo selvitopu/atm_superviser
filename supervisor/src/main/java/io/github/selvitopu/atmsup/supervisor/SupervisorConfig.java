@@ -9,15 +9,22 @@ import io.github.selvitopu.atmsup.inventory.UserCredentials;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
 import io.github.selvitopu.atmsup.supervisor.alarms.IdGenerator;
 import io.github.selvitopu.atmsup.supervisor.board.BoardDecider;
+import io.github.selvitopu.atmsup.supervisor.board.BoardInputSink;
 import io.github.selvitopu.atmsup.supervisor.board.BoardStore;
 import io.github.selvitopu.atmsup.supervisor.board.BoardWriter;
 import io.github.selvitopu.atmsup.supervisor.board.FlightDataRule;
+import io.github.selvitopu.atmsup.supervisor.board.GenerationSource;
 import io.github.selvitopu.atmsup.supervisor.board.ServiceEvaluator;
 import io.github.selvitopu.atmsup.supervisor.board.StatusDeriver;
 import io.github.selvitopu.atmsup.supervisor.board.SurveillanceRule;
+import io.github.selvitopu.atmsup.supervisor.polling.DeviceBreakers;
+import io.github.selvitopu.atmsup.supervisor.polling.PollDispatcher;
+import io.github.selvitopu.atmsup.supervisor.polling.PollScheduler;
+import io.github.selvitopu.atmsup.supervisor.polling.TrapForwarder;
 import io.github.selvitopu.atmsup.supervisor.snmp.NotificationMapper;
 import io.github.selvitopu.atmsup.supervisor.snmp.ObservationMapper;
 import io.github.selvitopu.atmsup.supervisor.snmp.Snmp4jClient;
+import io.github.selvitopu.atmsup.supervisor.snmp.SnmpClient;
 import io.github.selvitopu.atmsup.supervisor.snmp.SnmpSession;
 import io.github.selvitopu.atmsup.supervisor.snmp.TrapReceiver;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -30,14 +37,18 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.event.SimpleApplicationEventMulticaster;
+import org.springframework.context.support.AbstractApplicationContext;
+import org.springframework.scheduling.support.TaskUtils;
 
-/** Wires the supervisor's shared infrastructure (inventory, clock, SNMP) and the board: decider and writer. */
+/** Wires the supervisor's shared infrastructure (inventory, clock, events, SNMP), the board and polling. */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({InventoryProperties.class, SnmpProperties.class})
 public class SupervisorConfig {
@@ -72,6 +83,17 @@ public class SupervisorConfig {
                 return ThreadLocalRandom.current().nextDouble();
             }
         };
+    }
+
+    /**
+     * Events stay synchronous, but a listener that throws is logged and the others still get the event: one failing
+     * listener on the board writer or SNMP listener thread must not cut off the rest.
+     */
+    @Bean(AbstractApplicationContext.APPLICATION_EVENT_MULTICASTER_BEAN_NAME)
+    SimpleApplicationEventMulticaster applicationEventMulticaster(BeanFactory beanFactory) {
+        SimpleApplicationEventMulticaster multicaster = new SimpleApplicationEventMulticaster(beanFactory);
+        multicaster.setErrorHandler(TaskUtils.LOG_AND_SUPPRESS_ERROR_HANDLER);
+        return multicaster;
     }
 
     @Bean
@@ -110,6 +132,12 @@ public class SupervisorConfig {
             @Override
             public boolean isRunning() {
                 return running;
+            }
+
+            /** Stops right after the poll scheduler, so no poll is in flight when the session closes. */
+            @Override
+            public int getPhase() {
+                return PollScheduler.PHASE - 1;
             }
         };
     }
@@ -163,6 +191,32 @@ public class SupervisorConfig {
                             ApplicationEventPublisher events, MeterRegistry meters,
                             @Value("${atm.supervisor.heartbeat-interval:60s}") Duration heartbeatInterval) {
         return new BoardWriter(inventory, store, decider, clock, events, meters, heartbeatInterval);
+    }
+
+    @Bean
+    DeviceBreakers deviceBreakers(MeterRegistry meters) {
+        return new DeviceBreakers(meters, DeviceBreakers.defaults());
+    }
+
+    /** Probes and full polls together share these slots. */
+    @Bean
+    PollDispatcher pollDispatcher(@Value("${atm.supervisor.max-concurrent-polls:8}") int maxConcurrent) {
+        return new PollDispatcher(maxConcurrent);
+    }
+
+    /** Started by BoardReady; stopped by the context before the SNMP session (see {@link PollScheduler#PHASE}). */
+    @Bean
+    PollScheduler pollScheduler(Inventory inventory, SnmpClient client, ObservationMapper mapper,
+                                BoardInputSink sink, GenerationSource generations, DeviceBreakers breakers,
+                                PollDispatcher dispatcher, InstantSource clock, RandomGenerator random,
+                                MeterRegistry meters) {
+        return new PollScheduler(inventory, client, mapper, sink, generations, breakers, dispatcher, clock, random,
+                PollScheduler.Delayer.virtualThreads(), meters);
+    }
+
+    @Bean
+    TrapForwarder trapForwarder(BoardInputSink sink) {
+        return new TrapForwarder(sink);
     }
 
     /**

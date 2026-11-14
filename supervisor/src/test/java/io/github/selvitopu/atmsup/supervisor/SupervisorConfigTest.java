@@ -10,8 +10,14 @@ import io.github.selvitopu.atmsup.inventory.SnmpProperties;
 import io.github.selvitopu.atmsup.inventory.UserCredentials;
 import io.github.selvitopu.atmsup.simulator.fixture.TestInventories;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.event.EventListener;
+import org.springframework.context.event.SimpleApplicationEventMulticaster;
+import org.springframework.context.support.AbstractApplicationContext;
+import org.springframework.core.annotation.Order;
 
 class SupervisorConfigTest {
 
@@ -32,6 +38,45 @@ class SupervisorConfigTest {
         } finally {
             logger.setAdditive(additive);
             logger.detachAppender(appender);
+        }
+    }
+
+    static class FailingListener {
+        @EventListener
+        @Order(1)
+        void on(String event) {
+            throw new IllegalStateException("listener failed");
+        }
+    }
+
+    static class RecordingListener {
+        final List<String> received = new CopyOnWriteArrayList<>();
+
+        @EventListener
+        @Order(2)
+        void on(String event) {
+            received.add(event);
+        }
+    }
+
+    @Test
+    void aFailingListenerDoesNotStopDeliveryToTheOthers() {
+        try (CapturedLogs logs = new CapturedLogs("org.springframework.scheduling.support.TaskUtils$LoggingErrorHandler");
+             AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
+            ctx.registerBean(AbstractApplicationContext.APPLICATION_EVENT_MULTICASTER_BEAN_NAME,
+                    SimpleApplicationEventMulticaster.class,
+                    () -> new SupervisorConfig().applicationEventMulticaster(ctx.getBeanFactory()));
+            ctx.registerBean(FailingListener.class);
+            ctx.registerBean(RecordingListener.class);
+            ctx.refresh();
+
+            ctx.publishEvent("ping"); // synchronous: the failing listener runs first, on this thread
+
+            assertThat(ctx.getBean(RecordingListener.class).received).containsExactly("ping");
+            assertThat(logs.events()).singleElement().satisfies(e -> {
+                assertThat(e.getLevel()).isEqualTo(Level.ERROR);
+                assertThat(e.getThrowableProxy().getMessage()).isEqualTo("listener failed");
+            });
         }
     }
 
