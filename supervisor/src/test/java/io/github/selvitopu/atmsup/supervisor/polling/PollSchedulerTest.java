@@ -363,6 +363,26 @@ class PollSchedulerTest {
     }
 
     @Test
+    void aBackwardClockStepDuringAJobNeverDelaysTheNextRunBeyondTheJitterBound() {
+        client.takeDuringFullPoll("RAD-N", Duration.ofSeconds(-30)); // the wall clock steps back mid-job
+
+        done(scheduler.scheduledFullPoll("RAD-N"));
+
+        assertThat(delayer.delays()).singleElement()
+                .satisfies(d -> assertThat(d).isBetween(Duration.ZERO, Duration.ofMillis(5500)));
+    }
+
+    @Test
+    void aBackwardClockStepDuringAProbeNeverDelaysTheNextProbeBeyondTheJitterBound() {
+        client.duringGet("RAD-N", () -> clock.advance(Duration.ofSeconds(-30)));
+
+        done(scheduler.probeNow("RAD-N"));
+
+        assertThat(delayer.delays()).singleElement()
+                .satisfies(d -> assertThat(d).isBetween(Duration.ZERO, Duration.ofMillis(5500)));
+    }
+
+    @Test
     void coalescedScheduledRunStillSchedulesTheNextOne() {
         client.blockUntilReleased("RAD-N");
         scheduler.fullPollNow("RAD-N");
@@ -567,7 +587,11 @@ class PollSchedulerTest {
         }
 
         void onGetSetGeneration(String id, Generations gens, long gen) {
-            script(id).duringGet = () -> gens.set(id, gen);
+            duringGet(id, () -> gens.set(id, gen));
+        }
+
+        void duringGet(String id, Runnable r) {
+            script(id).duringGet = r;
         }
 
         void takeDuringFullPoll(String id, Duration d) {

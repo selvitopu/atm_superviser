@@ -35,6 +35,8 @@ final class SseClient {
     static final String IO = "io";
     static final String TIMEOUT = "timeout";
     static final String SHUTDOWN = "shutdown";
+    /** The broadcaster could not build a commit's messages: the client must reconnect and resync. */
+    static final String ERROR = "error";
 
     private static final Logger log = LoggerFactory.getLogger(SseClient.class);
     private static final AtomicLong NUMBERS = new AtomicLong();

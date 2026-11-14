@@ -34,9 +34,16 @@ import org.springframework.context.SmartLifecycle;
 
 /**
  * The only writer of the board. One platform thread, {@code board-writer}, takes the inputs in submission order;
- * for each it decides, commits the events in one transaction, applies only what was committed, then publishes. A
- * failed commit leaves the board and the generations unchanged (only the live telemetry is merged, and an unstored
- * telemetry sample stays due), so the next equivalent input retries. Readers get an immutable snapshot through {@link #current()}.
+ * for each it decides, commits the events in one transaction, applies only what was committed, then publishes.
+ *
+ * <p>A failed commit leaves the board and the generations unchanged, so the next equivalent input retries. Of the new
+ * telemetry only the attempt counters are merged ({@code lastProbeAt}, {@code consecutiveFailures},
+ * {@code fullPollFailures}); {@code lastPollAt}, the values, the tables and {@code lastSampleAt} stay as they were, so
+ * an unpersisted result never looks like a fresh poll and an unstored sample stays due. A {@link TelemetryUpdated} is
+ * still published with that counter-only telemetry, so the stream matches {@code /board}; its poll time and values
+ * are the old ones. A trap's {@link RepollRequested} is published even then, so a follow-up poll retries.
+ *
+ * <p>Readers get an immutable snapshot through {@link #current()}.
  */
 public final class BoardWriter implements BoardInputSink, GenerationSource, SmartLifecycle {
 
@@ -200,9 +207,10 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             stored = d.events().isEmpty() ? List.of() : store.commit(d.events());
         } catch (RuntimeException e) {
             log.error("Cannot commit the events of {}; the board is unchanged", in.getClass().getSimpleName(), e);
-            Map<String, Telemetry> telemetry = sampleStillDue(before.telemetry(), d.telemetry());
-            live = new LiveBoard(before.board(), merged(before.telemetry(), telemetry), before.generations());
-            publishTelemetry(telemetry, now);
+            Map<String, Telemetry> counters = countersOnly(before.telemetry(), d.telemetry());
+            live = new LiveBoard(before.board(), merged(before.telemetry(), counters), before.generations());
+            publishTelemetry(counters, now);
+            d.repoll().forEach(id -> publish(new RepollRequested(id)));
             return BoardResult.failed(e.getMessage());
         }
 
@@ -227,13 +235,18 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
         return m;
     }
 
-    /** The updates with the previous {@code lastSampleAt}: a sample that was not stored stays due for the next poll. */
-    private static Map<String, Telemetry> sampleStillDue(Map<String, Telemetry> current,
-                                                         Map<String, Telemetry> updates) {
+    /**
+     * The updates' attempt counters on the current telemetry: what the unpersisted result measured (its poll time,
+     * values and tables) is dropped, and a sample that was not stored stays due for the next poll.
+     */
+    private static Map<String, Telemetry> countersOnly(Map<String, Telemetry> current,
+                                                       Map<String, Telemetry> updates) {
         Map<String, Telemetry> m = new LinkedHashMap<>();
-        updates.forEach((id, t) -> m.put(id, new Telemetry(t.lastPollAt(), t.lastProbeAt(), t.consecutiveFailures(),
-                t.fullPollFailures(), current.getOrDefault(id, Telemetry.EMPTY).lastSampleAt(), t.values(),
-                t.tables())));
+        updates.forEach((id, t) -> {
+            Telemetry kept = current.getOrDefault(id, Telemetry.EMPTY);
+            m.put(id, new Telemetry(kept.lastPollAt(), t.lastProbeAt(), t.consecutiveFailures(), t.fullPollFailures(),
+                    kept.lastSampleAt(), kept.values(), kept.tables()));
+        });
         return m;
     }
 

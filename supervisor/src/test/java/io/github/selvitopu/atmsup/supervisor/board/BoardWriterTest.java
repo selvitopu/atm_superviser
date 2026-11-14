@@ -30,6 +30,7 @@ import io.github.selvitopu.atmsup.supervisor.board.BoardInput.TrapReceived;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
 import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification;
+import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmRaisedNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.StatusChangeNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Observation;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -53,13 +55,15 @@ class BoardWriterTest {
     private final FakeStore store = new FakeStore();
     private final RecordingPublisher publisher = new RecordingPublisher();
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final AtomicReference<Instant> now = new AtomicReference<>(t0);
     private BoardWriter writer;
 
     private BoardWriter writer(Duration heartbeat) {
         var evaluator = new ServiceEvaluator(inv, List.of(new SurveillanceRule(), new FlightDataRule()));
         var decider = new BoardDecider(inv, new StatusDeriver(), evaluator, new AlarmEngine(IdGenerator.uuid()),
                 Duration.ofSeconds(30));
-        writer = new BoardWriter(inv, store, decider, InstantSource.fixed(t0), publisher, meters, heartbeat);
+        InstantSource clock = now::get;
+        writer = new BoardWriter(inv, store, decider, clock, publisher, meters, heartbeat);
         return writer;
     }
 
@@ -76,7 +80,11 @@ class BoardWriterTest {
     }
 
     private static Observation obs(String id, EquipmentStatus status) {
-        return new Observation(id, t0, status, Role.STANDALONE, false, Map.of(), Map.of());
+        return obs(id, t0, status, Map.of());
+    }
+
+    private static Observation obs(String id, Instant at, EquipmentStatus status, Map<String, Object> values) {
+        return new Observation(id, at, status, Role.STANDALONE, false, values, Map.of());
     }
 
     private PollSucceeded pollSucceeded(String id, EquipmentStatus status) {
@@ -154,6 +162,9 @@ class BoardWriterTest {
         assertThat(health("RAD-N")).isNotEqualTo(Health.FAILED);
         assertThat(publisher.events(BoardCommitted.class)).isEmpty();
         assertThat(publisher.all).extracting(Object::getClass).containsExactly(TelemetryUpdated.class);
+        Telemetry published = publisher.events(TelemetryUpdated.class).getFirst().telemetry();
+        assertThat(published.lastPollAt()).isNull(); // the poll was not persisted: no fresh poll time
+        assertThat(published).isEqualTo(writer.current().telemetry().get("RAD-N"));
         writer.submit(pollSucceeded("RAD-N", FAILED)).join();
         assertThat(health("RAD-N")).isEqualTo(Health.FAILED);
     }
@@ -169,17 +180,68 @@ class BoardWriterTest {
         }
 
         Telemetry kept = writer.current().telemetry().get("RAD-N");
-        assertThat(kept.lastPollAt()).isEqualTo(t0);
+        assertThat(kept.lastPollAt()).isNull();
         assertThat(kept.lastSampleAt()).isNull();
         assertThat(publisher.events(TelemetryUpdated.class)).extracting(TelemetryUpdated::telemetry)
                 .containsExactly(kept);
         assertThat(writer.submit(pollSucceeded("RAD-N", OPERATIONAL)).join().committed()).isTrue();
         assertThat(store.events).extracting(e -> e.event().type()).contains(EventType.TELEMETRY_SAMPLED);
         assertThat(writer.current().telemetry().get("RAD-N").lastSampleAt()).isEqualTo(t0);
+        assertThat(writer.current().telemetry().get("RAD-N").lastPollAt()).isEqualTo(t0);
     }
 
     @Test
-    void commitFailureKeepsGenerationButMergesTelemetry() {
+    void commitFailureAfterASuccessfulPollKeepsTheLastPersistedPollAndValues() {
+        started();
+        Observation first = obs("RAD-N", t0, OPERATIONAL, Map.of("plotsPerScan", 300L));
+        assertThat(writer.submit(new PollSucceeded(first, writer.generation("RAD-N"))).join().committed()).isTrue();
+        Telemetry persisted = writer.current().telemetry().get("RAD-N");
+        writer.submit(probeFailed("RAD-N")).join();
+        assertThat(writer.current().telemetry().get("RAD-N").consecutiveFailures()).isEqualTo(1);
+        now.set(t0.plusSeconds(5));
+        publisher.clear();
+        store.failNextCommit();
+
+        Observation failed = obs("RAD-N", t0.plusSeconds(5), FAILED, Map.of("plotsPerScan", 0L));
+        try (CapturedLogs logs = new CapturedLogs(BoardWriter.class)) {
+            assertThat(writer.submit(new PollSucceeded(failed, writer.generation("RAD-N"))).join().committed())
+                    .isFalse();
+        }
+
+        Telemetry kept = writer.current().telemetry().get("RAD-N");
+        assertThat(kept.lastPollAt()).isEqualTo(t0);
+        assertThat(kept.values()).isEqualTo(persisted.values()).containsEntry("plotsPerScan", 300L);
+        assertThat(kept.tables()).isEqualTo(persisted.tables());
+        assertThat(kept.lastSampleAt()).isEqualTo(persisted.lastSampleAt());
+        // the attempt counters are merged: the device did answer
+        assertThat(kept.lastProbeAt()).isEqualTo(t0.plusSeconds(5));
+        assertThat(kept.consecutiveFailures()).isZero();
+        assertThat(kept.fullPollFailures()).isZero();
+        assertThat(health("RAD-N")).isEqualTo(Health.OPERATIONAL);
+        assertThat(publisher.all).extracting(Object::getClass).containsExactly(TelemetryUpdated.class);
+        assertThat(publisher.events(TelemetryUpdated.class).getFirst().telemetry()).isEqualTo(kept);
+    }
+
+    @Test
+    void failedTrapCommitStillRequestsARepollAndKeepsTheGeneration() {
+        started();
+        long g = writer.generation("RAD-N");
+        publisher.clear();
+        store.failNextCommit();
+
+        try (CapturedLogs logs = new CapturedLogs(BoardWriter.class)) {
+            BoardResult r = writer.submit(new TrapReceived(new AlarmRaisedNotification("RAD-N", t0, 101, 0, "",
+                    Severity.CRITICAL, "Radar failure"))).join();
+            assertThat(r.committed()).isFalse();
+        }
+
+        assertThat(publisher.all).containsExactly(new RepollRequested("RAD-N"));
+        assertThat(writer.generation("RAD-N")).isEqualTo(g);
+        assertThat(writer.current().board().openAlarms()).isEmpty();
+    }
+
+    @Test
+    void commitFailureKeepsGenerationButMergesTheCounters() {
         started();
         writer.submit(probeFailed("RAD-N")).join();
         writer.submit(probeFailed("RAD-N")).join();

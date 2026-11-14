@@ -8,10 +8,13 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.mib.Role;
 import io.github.selvitopu.atmsup.mib.Severity;
 import io.github.selvitopu.atmsup.simulator.fixture.TestInventories;
+import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
@@ -390,6 +393,52 @@ class SseBroadcasterTest {
 
         await().atMost(ofSeconds(1)).until(() -> counter("atmsup.sse.disconnects", "reason", "io") == 1.0);
         assertThat(gauge("atmsup.sse.clients")).isEqualTo(1.0);
+    }
+
+    /** An equipment event for a device the inventory does not know: mapping it throws. */
+    private static EquipmentEvent unmappable() {
+        return new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, T0, new EquipmentState("XYZ", Health.FAILED,
+                null, false, Role.STANDALONE, T0, new Contact(true, T0, null)));
+    }
+
+    @Test
+    void aCommitThatCannotBeMappedDisconnectsEveryClientInsteadOfDroppingIt() {
+        TestEmitter other = normalClient();
+
+        try (CapturedLogs logs = new CapturedLogs(SseBroadcaster.class)) {
+            broadcaster.onCommitted(committed(stored(1101, alarmEvent()), stored(1102, unmappable()),
+                    stored(1103, alarmEvent())));
+            assertThat(logs.events()).extracting(ILoggingEvent::getLevel).containsExactly(Level.ERROR);
+        }
+
+        assertThat(counter("atmsup.sse.disconnects", "reason", "error")).isEqualTo(2.0);
+        assertThat(gauge("atmsup.sse.clients")).isZero();
+        await().atMost(ofSeconds(1)).until(() -> client.completed() && other.completed());
+        assertThat(client.ids()).isEmpty(); // nothing of the commit was sent: the browsers resume from 1100
+        assertThat(sentNames(subscribe(Mode.NORMAL, null, "1100"))).containsExactly("resync");
+        assertThat(sentNames(subscribe(Mode.NORMAL, null, "1103"))).isEmpty(); // /board already has the commit
+        broadcaster.onCommitted(committed(stored(1104, alarmEvent())));
+        assertThat(sentIds(subscribe(Mode.NORMAL, null, "1103"))).containsExactly(1104L);
+    }
+
+    @Test
+    void noResumeCrossesAMappingGapEvenAfterTheRingWrapsAround() {
+        broadcaster = broadcaster(10, 256);
+        broadcaster.onCommitted(committed(LongStream.rangeClosed(1, 15)
+                .mapToObj(id -> stored(id, alarmEvent())).toArray(StoredEvent[]::new))); // the ring keeps 6..15
+        try (CapturedLogs logs = new CapturedLogs(SseBroadcaster.class)) {
+            broadcaster.onCommitted(committed(stored(16, unmappable()), stored(17, alarmEvent())));
+        }
+
+        broadcaster.onCommitted(committed(LongStream.rangeClosed(18, 22)
+                .mapToObj(id -> stored(id, alarmEvent())).toArray(StoredEvent[]::new)));
+
+        assertThat(sentNames(subscribe(Mode.NORMAL, null, "12"))).containsExactly("resync"); // 16 and 17 are missing
+        assertThat(sentIds(subscribe(Mode.NORMAL, null, "17"))).isEqualTo(ids(18, 22));
+        broadcaster.onCommitted(committed(LongStream.rangeClosed(23, 30)
+                .mapToObj(id -> stored(id, alarmEvent())).toArray(StoredEvent[]::new))); // evicts 18..20
+        assertThat(sentNames(subscribe(Mode.NORMAL, null, "17"))).containsExactly("resync");
+        assertThat(sentIds(subscribe(Mode.NORMAL, null, "20"))).isEqualTo(ids(21, 30));
     }
 
     @Test

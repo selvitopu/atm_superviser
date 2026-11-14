@@ -4,9 +4,10 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Spring application events published by the board writer, synchronously on its thread and only after a successful
- * commit. Listeners must not block (amendment §4): they only enqueue, and never join a
- * {@link BoardInputSink#submit} future, which would deadlock the writer.
+ * Spring application events published by the board writer, synchronously on its thread. {@link BoardCommitted} is
+ * published only after a successful commit; after a failed one the writer still publishes the counter-only
+ * {@link TelemetryUpdated} and a trap's {@link RepollRequested}. Listeners must not block (amendment §4): they only
+ * enqueue, and never join a {@link BoardInputSink#submit} future, which would deadlock the writer.
  */
 public final class BoardEvents {
 

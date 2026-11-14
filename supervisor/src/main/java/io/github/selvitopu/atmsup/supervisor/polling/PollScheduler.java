@@ -52,7 +52,8 @@ import org.springframework.context.event.EventListener;
  *
  * <p>A loop's run starts when it fires. The next run fires at that start plus the device's poll interval ×
  * U[0.9, 1.1], or at once if that time has passed, so a slow run does not stretch the cycle and a loop never
- * overlaps itself. The first run of each loop fires after a random delay in [0, interval).
+ * overlaps itself; the wait is never longer than interval × 1.1, even if the wall clock steps back. The first run of
+ * each loop fires after a random delay in [0, interval).
  *
  * <p>{@link BoardReady} starts the loops; as a {@link SmartLifecycle} the scheduler is stopped first on shutdown.
  */
@@ -233,14 +234,21 @@ public final class PollScheduler implements SmartLifecycle {
                 .whenComplete((ignored, failure) -> scheduleNext(d, start, () -> fullPollLoop(d)));
     }
 
+    /**
+     * Schedules the loop's next run at {@code start} + interval × U[0.9, 1.1]. The delay is clamped to
+     * [0, interval × 1.1]: a wall clock that steps back during the job (a VM clock correction, say) must not stretch
+     * the sleep, which would delay lost-contact detection by the size of the step.
+     */
     private void scheduleNext(Device d, Instant start, Runnable run) {
         if (stopped) {
             return;
         }
+        long intervalNanos = d.pollInterval().toNanos();
         double factor = random.nextDouble(JITTER_MIN, JITTER_MAX);
-        Instant next = start.plus(Duration.ofNanos(Math.round(d.pollInterval().toNanos() * factor)));
+        Instant next = start.plus(Duration.ofNanos(Math.round(intervalNanos * factor)));
         Duration delay = Duration.between(clock.instant(), next);
-        delayer.schedule(run, delay.isNegative() ? Duration.ZERO : delay);
+        Duration max = Duration.ofNanos(Math.round(intervalNanos * JITTER_MAX));
+        delayer.schedule(run, delay.isNegative() ? Duration.ZERO : delay.compareTo(max) > 0 ? max : delay);
     }
 
     private Duration firstDelay(Device d) {

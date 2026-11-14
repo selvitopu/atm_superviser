@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.ContextClosedEvent;
@@ -47,6 +49,7 @@ public class SseBroadcaster {
     static final Duration EMITTER_TIMEOUT = Duration.ofMinutes(30);
     static final String HEARTBEAT = "heartbeat";
     private static final SseMessage RESYNC = new SseMessage("resync", null, Map.of());
+    private static final Logger log = LoggerFactory.getLogger(SseBroadcaster.class);
 
     private final DtoMapper mapper;
     private final BoardWriter writer;
@@ -98,7 +101,7 @@ public class SseBroadcaster {
         resyncs = Counter.builder("atmsup.sse.resyncs")
                 .description("Subscribers told to resync because the ring did not cover their last event id")
                 .register(meters);
-        List.of(SseClient.OVERFLOW, SseClient.IO, SseClient.TIMEOUT).forEach(this::disconnects);
+        List.of(SseClient.OVERFLOW, SseClient.IO, SseClient.TIMEOUT, SseClient.ERROR).forEach(this::disconnects);
     }
 
     /**
@@ -131,7 +134,10 @@ public class SseBroadcaster {
         return emitter;
     }
 
-    /** On the board writer's thread: appends each broadcast event to the ring and queues it for every client. */
+    /**
+     * On the board writer's thread: appends each broadcast event to the ring and queues it for every client. A commit
+     * whose messages cannot be built is never dropped silently: see {@link #gap}.
+     */
     @EventListener
     public void onCommitted(BoardCommitted committed) {
         List<StoredEvent> events = committed.events();
@@ -140,11 +146,18 @@ public class SseBroadcaster {
         }
         LiveBoard live = writer.current();
         List<SseMessage> messages = new ArrayList<>(events.size());
-        for (StoredEvent e : events) {
-            SseMessage m = message(e, live);
-            if (m != null) {
-                messages.add(m);
+        try {
+            for (StoredEvent e : events) {
+                SseMessage m = message(e, live);
+                if (m != null) {
+                    messages.add(m);
+                }
             }
+        } catch (RuntimeException e) {
+            log.error("Cannot map the events {}..{} for the stream; disconnecting every client so that it resyncs",
+                    events.getFirst().id(), events.getLast().id(), e);
+            gap(events.getLast().id());
+            return;
         }
         synchronized (lock) {
             if (!seen) {
@@ -160,6 +173,21 @@ public class SseBroadcaster {
                 }
             }
             newest = Math.max(newest, events.getLast().id());
+        }
+    }
+
+    /**
+     * A commit up to {@code lastId} could not be broadcast. The ring is emptied and both {@code floor} and
+     * {@code newest} move to {@code lastId}, so no resume can replay across the gap (a client that was behind it gets
+     * {@code resync}), and every client is disconnected with reason {@code error}, so it reconnects and catches up.
+     */
+    private void gap(long lastId) {
+        synchronized (lock) {
+            ring.clear();
+            floor = Math.max(floor, lastId);
+            newest = Math.max(newest, lastId);
+            seen = true;
+            clients.forEach(c -> c.disconnect(SseClient.ERROR));
         }
     }
 
