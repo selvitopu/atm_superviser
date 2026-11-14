@@ -9,9 +9,11 @@ import static io.github.selvitopu.atmsup.supervisor.board.EventType.SUPERVISOR_S
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.supervisor.alarms.AckResult;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmCatalogue;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmChange;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.alarms.ServiceAlarmInput;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.AcknowledgeAlarms;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.HeartbeatTick;
@@ -61,14 +63,14 @@ public final class BoardDecider {
 
     public Decision decide(LiveBoard live, BoardInput in, Instant now) {
         return switch (in) {
-            case ProbeSucceeded p -> deviceResult(live, p.probe().equipmentId(), p.generation(), null, now,
+            case ProbeSucceeded p -> deviceResult(live, in, p.probe().equipmentId(), p.generation(), now,
                     (cur, tel) -> deriver.probeSucceeded(cur, tel, p.probe(),
                             inv.device(p.probe().equipmentId()).pollInterval(), now));
-            case ProbeFailed f -> deviceResult(live, f.equipmentId(), f.generation(), null, now,
+            case ProbeFailed f -> deviceResult(live, in, f.equipmentId(), f.generation(), now,
                     (cur, tel) -> deriver.probeFailed(cur, tel, now));
-            case PollSucceeded p -> deviceResult(live, p.obs().equipmentId(), p.generation(), p.obs(), now,
+            case PollSucceeded p -> deviceResult(live, in, p.obs().equipmentId(), p.generation(), now,
                     (cur, tel) -> deriver.pollSucceeded(cur, tel, p.obs(), now));
-            case PollFailed f -> deviceResult(live, f.equipmentId(), f.generation(), null, now,
+            case PollFailed f -> deviceResult(live, in, f.equipmentId(), f.generation(), now,
                     (cur, tel) -> deriver.pollFailed(cur, tel, now));
             case TrapReceived t -> trap(live, t, now);
             case AcknowledgeAlarms a -> acknowledge(live, a, now);
@@ -81,8 +83,12 @@ public final class BoardDecider {
     /**
      * A probe or poll result: freshness gate, then equipment event, maintenance updates, contact alarm, service
      * events, service alarms and (for a successful poll only) the telemetry sample, in that order.
+     *
+     * <p>The contact alarm 901 is raised on CONTACT_LOST. Any successful probe or poll clears an ACTIVE 901, with or
+     * without CONTACT_RESTORED: after a supervisor restart the device is SUPERVISOR_RESTARTED, not LOST_CONTACT, but
+     * a 901 carried over the restart must still clear on the first contact. A CLEARED_UNACK 901 is left alone.
      */
-    private Decision deviceResult(LiveBoard live, String id, long generation, Observation polled, Instant now,
+    private Decision deviceResult(LiveBoard live, BoardInput in, String id, long generation, Instant now,
                                   BiFunction<EquipmentState, Telemetry, StatusDeriver.Derived> derive) {
         if (generation < live.generation(id)) {
             return Decision.discarded();
@@ -96,28 +102,39 @@ public final class BoardDecider {
 
         Working w = new Working(live.board());
         boolean contactChanged = false;
+        boolean maintenance = cur.maintenance();
         if (derived.event().isPresent()) {
             EquipmentEvent ev = derived.event().get();
-            boolean maintenance = ev.state().maintenance();
+            maintenance = ev.state().maintenance();
             w.add(ev);
             if (maintenance != cur.maintenance()) {
                 w.addAlarms(alarms.onMaintenance(w.open(), id, maintenance), now);
             }
             contactChanged = ev.type() == CONTACT_LOST || ev.type() == CONTACT_RESTORED;
-            if (contactChanged) {
-                w.addAlarms(alarms.onContact(w.open(), id, ev.type() == CONTACT_LOST, maintenance, now), now);
+            if (ev.type() == CONTACT_LOST) {
+                w.addAlarms(alarms.onContact(w.open(), id, true, maintenance, now), now);
             }
+        }
+        boolean contacted = in instanceof ProbeSucceeded || in instanceof PollSucceeded;
+        if (contacted && lostContactActive(w.open(), id)) {
+            w.addAlarms(alarms.onContact(w.open(), id, false, maintenance, now), now);
         }
         serviceChanges(w, now);
 
         Telemetry next = derived.telemetry();
-        if (polled != null && sampleDue(tel, now)) {
+        if (in instanceof PollSucceeded poll && sampleDue(tel, now)) {
+            Observation polled = poll.obs();
             w.add(new TelemetrySampleEvent(now, id, polled.observedAt(), polled.values(), polled.tables()));
             next = new Telemetry(next.lastPollAt(), next.lastProbeAt(), next.consecutiveFailures(),
                     next.fullPollFailures(), now, next.values(), next.tables());
         }
         return new Decision(w.events, Map.of(id, next), List.of(), contactChanged ? Set.of(id) : Set.of(), false,
                 BoardResult.ok());
+    }
+
+    private static boolean lostContactActive(Map<AlarmKey, Alarm> open, String id) {
+        Alarm a = open.get(new AlarmKey(id, AlarmCatalogue.LOST_CONTACT, 0));
+        return a != null && (a.state() == AlarmState.ACTIVE_UNACK || a.state() == AlarmState.ACTIVE_ACK);
     }
 
     /** No deadband: a stable value is sampled too (amendment §5). */

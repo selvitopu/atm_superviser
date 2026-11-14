@@ -192,6 +192,58 @@ class BoardDeciderTest {
         assertThat(d.invalidated()).containsExactly("SDPS-A");
     }
 
+    /** {@code id} lost contact (901 open), then the supervisor restarted: UNKNOWN/SUPERVISOR_RESTARTED, 901 open. */
+    private LiveBoard restartedWithOpen901(String id) {
+        LiveBoard lb = lostContact(id);
+        lb = merged(lb, decider.decide(lb, new Startup(false), t0.plusSeconds(1)));
+        assertThat(lb.board().equipment().get(id).unknownReason()).isEqualTo(SUPERVISOR_RESTARTED);
+        assertThat(lb.board().openAlarms().get(new AlarmKey(id, 901, 0)).state()).isEqualTo(AlarmState.ACTIVE_UNACK);
+        return lb;
+    }
+
+    @Test
+    void restoredAfterSupervisorRestartClears901() {
+        LiveBoard lb = restartedWithOpen901("RAD-N");
+        Instant t1 = t0.plusSeconds(5);
+
+        Decision d = decider.decide(lb, new PollSucceeded(obs("RAD-N", OPERATIONAL), lb.generation("RAD-N")), t1);
+
+        assertThat(d.events()).extracting(DomainEvent::type)
+                .containsExactly(EQUIPMENT_STATE_CHANGED, ALARM_CLEARED, SERVICE_STATE_CHANGED, TELEMETRY_SAMPLED);
+        assertThat(alarmEvent(d, 1).alarm()).extracting(Alarm::key, Alarm::state)
+                .containsExactly(new AlarmKey("RAD-N", 901, 0), AlarmState.CLEARED_UNACK);
+        assertThat(d.invalidated()).isEmpty();
+    }
+
+    @Test
+    void probeAfterSupervisorRestartClears901() {
+        LiveBoard lb = restartedWithOpen901("RAD-N");
+        Instant t1 = t0.plusSeconds(5);
+
+        Decision d = decider.decide(lb,
+                new ProbeSucceeded(new ProbeObservation("RAD-N", t1, 1000), lb.generation("RAD-N")), t1);
+
+        assertThat(d.events()).extracting(DomainEvent::type).containsExactly(ALARM_CLEARED);
+        assertThat(alarmEvent(d, 0).alarm()).extracting(Alarm::key, Alarm::state)
+                .containsExactly(new AlarmKey("RAD-N", 901, 0), AlarmState.CLEARED_UNACK);
+        assertThat(merged(lb, d).board().equipment().get("RAD-N").unknownReason()).isEqualTo(SUPERVISOR_RESTARTED);
+    }
+
+    @Test
+    void cleared901IsNotTouchedAgain() {
+        LiveBoard lb = lostContact("RAD-N");
+        Instant t1 = t0.plusSeconds(5);
+        lb = merged(lb, decider.decide(lb, new ProbeSucceeded(new ProbeObservation("RAD-N", t1, 1000), 1), t1));
+        assertThat(lb.board().openAlarms().get(new AlarmKey("RAD-N", 901, 0)).state())
+                .isEqualTo(AlarmState.CLEARED_UNACK);
+
+        Decision d = decider.decide(lb, new PollSucceeded(obs("RAD-N", OPERATIONAL), lb.generation("RAD-N")),
+                t1.plusSeconds(5));
+
+        assertThat(d.events()).extracting(DomainEvent::type).containsExactly(EQUIPMENT_STATE_CHANGED,
+                TELEMETRY_SAMPLED);
+    }
+
     @Test
     void staleSuccessIsDiscarded() {
         LiveBoard lb = withGeneration(lostContact("RAD-N"), "RAD-N", 2);

@@ -159,6 +159,26 @@ class BoardWriterTest {
     }
 
     @Test
+    void commitFailureDoesNotLoseTheTelemetrySample() {
+        started();
+        publisher.clear();
+        store.failNextCommit();
+
+        try (CapturedLogs logs = new CapturedLogs(BoardWriter.class)) {
+            assertThat(writer.submit(pollSucceeded("RAD-N", OPERATIONAL)).join().committed()).isFalse();
+        }
+
+        Telemetry kept = writer.current().telemetry().get("RAD-N");
+        assertThat(kept.lastPollAt()).isEqualTo(t0);
+        assertThat(kept.lastSampleAt()).isNull();
+        assertThat(publisher.events(TelemetryUpdated.class)).extracting(TelemetryUpdated::telemetry)
+                .containsExactly(kept);
+        assertThat(writer.submit(pollSucceeded("RAD-N", OPERATIONAL)).join().committed()).isTrue();
+        assertThat(store.events).extracting(e -> e.event().type()).contains(EventType.TELEMETRY_SAMPLED);
+        assertThat(writer.current().telemetry().get("RAD-N").lastSampleAt()).isEqualTo(t0);
+    }
+
+    @Test
     void commitFailureKeepsGenerationButMergesTelemetry() {
         started();
         writer.submit(probeFailed("RAD-N")).join();

@@ -35,8 +35,8 @@ import org.springframework.context.SmartLifecycle;
 /**
  * The only writer of the board. One platform thread, {@code board-writer}, takes the inputs in submission order;
  * for each it decides, commits the events in one transaction, applies only what was committed, then publishes. A
- * failed commit leaves the board and the generations unchanged (only the live telemetry is merged), so the next
- * equivalent input retries. Readers get an immutable snapshot through {@link #current()}.
+ * failed commit leaves the board and the generations unchanged (only the live telemetry is merged, and an unstored
+ * telemetry sample stays due), so the next equivalent input retries. Readers get an immutable snapshot through {@link #current()}.
  */
 public final class BoardWriter implements BoardInputSink, GenerationSource, SmartLifecycle {
 
@@ -200,8 +200,9 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             stored = d.events().isEmpty() ? List.of() : store.commit(d.events());
         } catch (RuntimeException e) {
             log.error("Cannot commit the events of {}; the board is unchanged", in.getClass().getSimpleName(), e);
-            live = new LiveBoard(before.board(), merged(before.telemetry(), d.telemetry()), before.generations());
-            publishTelemetry(d, now);
+            Map<String, Telemetry> telemetry = sampleStillDue(before.telemetry(), d.telemetry());
+            live = new LiveBoard(before.board(), merged(before.telemetry(), telemetry), before.generations());
+            publishTelemetry(telemetry, now);
             return BoardResult.failed(e.getMessage());
         }
 
@@ -215,7 +216,7 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
         if (!stored.isEmpty()) {
             publish(new BoardCommitted(stored, after));
         }
-        publishTelemetry(d, now);
+        publishTelemetry(d.telemetry(), now);
         d.repoll().forEach(id -> publish(new RepollRequested(id)));
         return d.result();
     }
@@ -226,14 +227,24 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
         return m;
     }
 
+    /** The updates with the previous {@code lastSampleAt}: a sample that was not stored stays due for the next poll. */
+    private static Map<String, Telemetry> sampleStillDue(Map<String, Telemetry> current,
+                                                         Map<String, Telemetry> updates) {
+        Map<String, Telemetry> m = new LinkedHashMap<>();
+        updates.forEach((id, t) -> m.put(id, new Telemetry(t.lastPollAt(), t.lastProbeAt(), t.consecutiveFailures(),
+                t.fullPollFailures(), current.getOrDefault(id, Telemetry.EMPTY).lastSampleAt(), t.values(),
+                t.tables())));
+        return m;
+    }
+
     private static Map<String, Long> bumped(Map<String, Long> current, Set<String> invalidated) {
         Map<String, Long> m = new LinkedHashMap<>(current);
         invalidated.forEach(id -> m.merge(id, 1L, Long::sum));
         return m;
     }
 
-    private void publishTelemetry(Decision d, Instant now) {
-        d.telemetry().forEach((id, t) -> publish(new TelemetryUpdated(id, t, now)));
+    private void publishTelemetry(Map<String, Telemetry> telemetry, Instant now) {
+        telemetry.forEach((id, t) -> publish(new TelemetryUpdated(id, t, now)));
     }
 
     /** Listeners only enqueue; one that throws must not stop the writer. */
