@@ -14,6 +14,7 @@ import io.github.selvitopu.atmsup.mib.SnmpEnum;
 import io.github.selvitopu.atmsup.supervisor.snmp.SnmpRequestException.Kind;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -136,7 +137,8 @@ public class ObservationMapper {
      */
     private static List<DeviceAlarm> alarms(List<VariableBinding> rows) {
         if (rows == null) {
-            return List.of();
+            // an absent walk must never read as an empty table: that would clear every device alarm
+            throw malformed("alarm table not walked");
         }
         Map<List<Long>, Map<OID, Variable>> byRow = new TreeMap<>((x, y) -> {
             int c = Long.compare(x.get(0), y.get(0));
@@ -154,7 +156,7 @@ public class ObservationMapper {
             List<Long> index = List.of(oid.get(column.size()) & 0xFFFFFFFFL, oid.get(column.size() + 1) & 0xFFFFFFFFL);
             byRow.computeIfAbsent(index, k -> new HashMap<>()).put(column, vb.getVariable());
         }
-        List<DeviceAlarm> alarms = new java.util.ArrayList<>();
+        List<DeviceAlarm> alarms = new ArrayList<>();
         for (Map.Entry<List<Long>, Map<OID, Variable>> row : byRow.entrySet()) {
             long code = row.getKey().get(0);
             long instance = row.getKey().get(1);
@@ -207,7 +209,7 @@ public class ObservationMapper {
                 statuses.put(index, fromCode(SensorInputStatus.class, code.getValue()));
             }
         }
-        List<Map<String, Object>> table = new java.util.ArrayList<>();
+        List<Map<String, Object>> table = new ArrayList<>();
         for (Map.Entry<Long, String> name : names.entrySet()) {
             SensorInputStatus status = statuses.get(name.getKey());
             if (status == null) {

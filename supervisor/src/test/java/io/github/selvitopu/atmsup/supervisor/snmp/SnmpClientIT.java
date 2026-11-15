@@ -1,5 +1,6 @@
 package io.github.selvitopu.atmsup.supervisor.snmp;
 
+import static io.github.selvitopu.atmsup.mib.AtmTsOids.ALARM_ENTRY;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_STATUS;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.SDPS_SENSOR_ENTRY;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.scalar;
@@ -66,7 +67,7 @@ class SnmpClientIT {
 
         assertThat(vbs).hasSize(14);
         assertThat(vbs).noneMatch(vb -> vb.getVariable().isException());
-        Observation o = new ObservationMapper().map(inv.device("RAD-N"), vbs, Map.of(), Instant.now());
+        Observation o = new ObservationMapper().map(inv.device("RAD-N"), vbs, Map.of(ALARM_ENTRY, List.of()), Instant.now());
         assertThat(o.equipmentId()).isEqualTo("RAD-N");
     }
 

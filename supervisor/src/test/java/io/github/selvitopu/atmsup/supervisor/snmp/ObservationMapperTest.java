@@ -41,6 +41,8 @@ class ObservationMapperTest {
     private static final Device SDPS_A = device("SDPS-A", DeviceType.SDPS, Group.SURVEILLANCE, "SDPS-B");
     private static final Device FDPS_A = device("FDPS-A", DeviceType.FDPS, Group.FLIGHT_DATA, "FDPS-B");
 
+    private static final Map<OID, List<VariableBinding>> NO_ALARMS = Map.of(ALARM_ENTRY, List.of());
+
     private final ObservationMapper mapper = new ObservationMapper();
 
     private static Device device(String id, DeviceType type, Group group, String pair) {
@@ -153,8 +155,38 @@ class ObservationMapperTest {
     }
 
     @Test
+    void aMissingAlarmWalkFailsTheObservation() {
+        for (Device d : List.of(RAD_N, SDPS_A, FDPS_A)) {
+            Map<OID, Variable> m = d == RAD_N ? radar() : equipment(d.id(), 1, 1);
+            assertThatThrownBy(() -> mapper.map(d, bindings(m), Map.of(), T0))
+                    .isInstanceOfSatisfying(SnmpRequestException.class, e -> {
+                        assertThat(e.kind()).isEqualTo(SnmpRequestException.Kind.MALFORMED);
+                        assertThat(e.getMessage()).startsWith("MALFORMED: alarm table not walked");
+                    });
+        }
+    }
+
+    @Test
+    void aBadRaisedAtOrRowIndexFailsTheObservation() {
+        List<VariableBinding> badTime = new ArrayList<>(alarmRow(101, 0, "", Severity.CRITICAL.code(), "x",
+                Instant.parse("2026-11-13T14:00:00Z")));
+        badTime.replaceAll(vb -> vb.getOid().startsWith(ALARM_RAISED_AT)
+                ? new VariableBinding(vb.getOid(), new OctetString("bad")) : vb);
+        List<VariableBinding> shortIndex = List.of(new VariableBinding(new OID(ALARM_SEVERITY).append(101),
+                new Integer32(Severity.CRITICAL.code())));
+
+        for (List<VariableBinding> rows : List.of(badTime, shortIndex)) {
+            assertThatThrownBy(() -> mapWithAlarms(rows))
+                    .isInstanceOfSatisfying(SnmpRequestException.class, e -> {
+                        assertThat(e.kind()).isEqualTo(SnmpRequestException.Kind.MALFORMED);
+                        assertThat(e.getMessage()).startsWith("MALFORMED: alarm table");
+                    });
+        }
+    }
+
+    @Test
     void mapsRadar() {
-        Observation o = mapper.map(RAD_N, bindings(radar()), Map.of(), T0);
+        Observation o = mapper.map(RAD_N, bindings(radar()), NO_ALARMS, T0);
 
         assertThat(o.equipmentId()).isEqualTo("RAD-N");
         assertThat(o.observedAt()).isEqualTo(T0);
@@ -178,7 +210,7 @@ class ObservationMapperTest {
         Map<OID, Variable> m = equipment("RAD-N", 2, 3);
         m.put(EQ_MAINTENANCE_MODE, new Integer32(1));
 
-        Observation o = mapper.map(RAD_N, bindings(m), Map.of(), T0);
+        Observation o = mapper.map(RAD_N, bindings(m), NO_ALARMS, T0);
 
         assertThat(o.status()).isEqualTo(EquipmentStatus.DEGRADED);
         assertThat(o.role()).isEqualTo(Role.STANDBY);
@@ -187,7 +219,7 @@ class ObservationMapperTest {
 
     @Test
     void valuesAndMapsAreImmutable() {
-        Observation o = mapper.map(RAD_N, bindings(radar()), Map.of(), T0);
+        Observation o = mapper.map(RAD_N, bindings(radar()), NO_ALARMS, T0);
 
         assertThatThrownBy(() -> o.values().put("x", 1L)).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> o.tables().put("x", List.of())).isInstanceOf(UnsupportedOperationException.class);
@@ -200,7 +232,7 @@ class ObservationMapperTest {
         m.put(FDPS_QUEUE_DEPTH, new Gauge32(3));
         m.put(FDPS_LATENCY_MS, new Gauge32(45));
 
-        Observation o = mapper.map(FDPS_A, bindings(m), Map.of(), T0);
+        Observation o = mapper.map(FDPS_A, bindings(m), NO_ALARMS, T0);
 
         assertThat(o.role()).isEqualTo(Role.ACTIVE);
         assertThat(o.values()).containsEntry("flightPlanCount", 120L).containsEntry("queueDepth", 3L)
@@ -209,28 +241,28 @@ class ObservationMapperTest {
 
     @Test
     void missingRequiredIsMalformed() {
-        assertThatThrownBy(() -> mapper.map(RAD_N, bindings(without(radar(), EQ_STATUS)), Map.of(), T0))
+        assertThatThrownBy(() -> mapper.map(RAD_N, bindings(without(radar(), EQ_STATUS)), NO_ALARMS, T0))
                 .isInstanceOf(SnmpRequestException.class)
                 .hasMessage("MALFORMED: atmTsEqStatus missing");
     }
 
     @Test
     void exceptionValueOnRequiredIsMalformed() {
-        assertThatThrownBy(() -> mapper.map(RAD_N, bindings(with(radar(), EQ_ROLE, Null.noSuchInstance)), Map.of(), T0))
+        assertThatThrownBy(() -> mapper.map(RAD_N, bindings(with(radar(), EQ_ROLE, Null.noSuchInstance)), NO_ALARMS, T0))
                 .hasMessage("MALFORMED: atmTsEqRole missing");
     }
 
     @Test
     void exceptionValueOnOptionalIsOmitted() {
         Observation o = mapper.map(RAD_N, bindings(with(radar(), RADAR_PLOTS_PER_SCAN, Null.noSuchInstance)),
-                Map.of(), T0);
+                NO_ALARMS, T0);
 
         assertThat(o.values()).doesNotContainKey("plotsPerScan").containsKey("rotationPeriodMs");
     }
 
     @Test
     void missingOptionalIsOmitted() {
-        Observation o = mapper.map(RAD_N, bindings(without(radar(), EQ_SW_VERSION)), Map.of(), T0);
+        Observation o = mapper.map(RAD_N, bindings(without(radar(), EQ_SW_VERSION)), NO_ALARMS, T0);
 
         assertThat(o.values()).doesNotContainKey("swVersion");
     }
@@ -238,7 +270,7 @@ class ObservationMapperTest {
     @Test
     void optionalWithWrongSyntaxIsOmitted() {
         Observation o = mapper.map(RAD_N, bindings(with(radar(), RADAR_PLOTS_PER_SCAN, new OctetString("x"))),
-                Map.of(), T0);
+                NO_ALARMS, T0);
 
         assertThat(o.values()).doesNotContainKey("plotsPerScan");
     }
@@ -247,7 +279,7 @@ class ObservationMapperTest {
     void malformedDateAndTimeOmitsStatusChangedAt() {
         // month 13 makes DateAndTimes.decode throw DateTimeException; the field is optional
         OctetString bad = new OctetString(new byte[] {0x07, (byte) 0xEA, 13, 1, 0, 0, 0, 0});
-        Observation o = mapper.map(RAD_N, bindings(with(radar(), EQ_STATUS_CHANGED_AT, bad)), Map.of(), T0);
+        Observation o = mapper.map(RAD_N, bindings(with(radar(), EQ_STATUS_CHANGED_AT, bad)), NO_ALARMS, T0);
 
         assertThat(o.values()).doesNotContainKey("statusChangedAt").containsKey("swVersion");
     }
@@ -255,7 +287,7 @@ class ObservationMapperTest {
     @Test
     void wrongLengthDateAndTimeOmitsStatusChangedAt() {
         Observation o = mapper.map(RAD_N,
-                bindings(with(radar(), EQ_STATUS_CHANGED_AT, new OctetString(new byte[] {1, 2, 3}))), Map.of(), T0);
+                bindings(with(radar(), EQ_STATUS_CHANGED_AT, new OctetString(new byte[] {1, 2, 3}))), NO_ALARMS, T0);
 
         assertThat(o.values()).doesNotContainKey("statusChangedAt");
     }
@@ -263,12 +295,12 @@ class ObservationMapperTest {
     @Test
     void wrongDeviceAnsweringIsMalformed() {
         assertThatThrownBy(() -> mapper.map(RAD_N, bindings(with(radar(), EQ_ID, new OctetString("RAD-E"))),
-                Map.of(), T0)).hasMessage("MALFORMED: answered as RAD-E");
+                NO_ALARMS, T0)).hasMessage("MALFORMED: answered as RAD-E");
     }
 
     @Test
     void unknownEnumCodeIsMalformed() {
-        assertThatThrownBy(() -> mapper.map(RAD_N, bindings(with(radar(), EQ_STATUS, new Integer32(9))), Map.of(), T0))
+        assertThatThrownBy(() -> mapper.map(RAD_N, bindings(with(radar(), EQ_STATUS, new Integer32(9))), NO_ALARMS, T0))
                 .isInstanceOf(SnmpRequestException.class)
                 .hasMessageContaining("Unknown EquipmentStatus code 9");
     }
@@ -276,12 +308,12 @@ class ObservationMapperTest {
     @Test
     void wrongSyntaxIsMalformed() {
         assertThatThrownBy(() -> mapper.map(RAD_N, bindings(with(radar(), EQ_STATUS, new OctetString("1"))),
-                Map.of(), T0)).hasMessage("MALFORMED: atmTsEqStatus has syntax OCTET STRING");
+                NO_ALARMS, T0)).hasMessage("MALFORMED: atmTsEqStatus has syntax OCTET STRING");
     }
 
     @Test
     void counterSyntaxOnRequiredIsMalformed() {
-        assertThatThrownBy(() -> mapper.map(RAD_N, bindings(with(radar(), EQ_STATUS, new Counter32(1))), Map.of(), T0))
+        assertThatThrownBy(() -> mapper.map(RAD_N, bindings(with(radar(), EQ_STATUS, new Counter32(1))), NO_ALARMS, T0))
                 .isInstanceOf(SnmpRequestException.class).hasMessageStartingWith("MALFORMED: atmTsEqStatus has syntax");
     }
 
@@ -291,7 +323,7 @@ class ObservationMapperTest {
         m.put(SDPS_TRACK_COUNT, new Gauge32(900));
         m.put(SDPS_LATENCY_MS, new Gauge32(20));
 
-        Observation o = mapper.map(SDPS_A, bindings(m), Map.of(SDPS_SENSOR_ENTRY, sensorRows()), T0);
+        Observation o = mapper.map(SDPS_A, bindings(m), Map.of(SDPS_SENSOR_ENTRY, sensorRows(), ALARM_ENTRY, List.of()), T0);
 
         assertThat(o.values()).containsEntry("trackCount", 900L).containsEntry("latencyMs", 20L);
         assertThat(o.tables().get("sensors")).containsExactly(
@@ -306,7 +338,7 @@ class ObservationMapperTest {
         java.util.Collections.reverse(rows);
         Map<OID, Variable> m = equipment("SDPS-A", 1, 2);
 
-        Observation o = mapper.map(SDPS_A, bindings(m), Map.of(SDPS_SENSOR_ENTRY, rows), T0);
+        Observation o = mapper.map(SDPS_A, bindings(m), Map.of(SDPS_SENSOR_ENTRY, rows, ALARM_ENTRY, List.of()), T0);
 
         assertThat(o.tables().get("sensors")).extracting(r -> r.get("index")).containsExactly(1L, 2L, 3L);
     }
