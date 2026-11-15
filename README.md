@@ -30,7 +30,7 @@ because the answer depends on SDPS-A, and its open alarms are marked unconfirmed
 - **Full polls are single-flight per device.** Traps that arrive during a poll coalesce into exactly
   one follow-up poll.
 - **One writer, one transaction.** A single board writer decides each input, commits its events and
-  alarm rows in one MySQL transaction, and applies only what was committed.
+  alarm rows in one PostgreSQL transaction, and applies only what was committed.
 - **A slow browser cannot stall supervision.** The writer never does network I/O. Each SSE client
   has a bounded queue, and a client that overflows it is disconnected and resumes from the server's
   buffer of recent events, never silently skipped.
@@ -53,7 +53,7 @@ The [design](docs/design/2026-11-13-atm-supervisor-design.md) describes the full
 | SNMPv3 traps and informs | Implemented |
 | Alarm-table reconciliation on every full poll | Implemented |
 | Alarms with acknowledgement, escalation and maintenance suppression | Implemented |
-| Event log and telemetry sampled every 30 s, in MySQL | Implemented |
+| Event log and telemetry sampled every 30 s, in PostgreSQL | Implemented |
 | Live Angular board over SSE, with resume after a lost connection | Implemented |
 | Fault injection through the simulator's REST API | Demo-only |
 | SNMP `SET` from the command line, straight to an agent | Demo-only: bypasses the supervisor |
@@ -91,7 +91,7 @@ flowchart LR
     BW["board writer<br/>single thread"]
     SSE["SSE broadcaster"]
   end
-  DB[("MySQL 8.4<br/>event log and alarms")]
+  DB[("PostgreSQL 18<br/>event log, alarms and users")]
   UI["Angular board<br/>nginx :8080"]
   PO -- "GET / GETBULK" --> AG
   AG -- "traps / informs" --> TR
@@ -109,7 +109,7 @@ flowchart LR
 | `mib/` | `DEMO-ATM-TECHSUP-MIB.txt`, OID constants and `lint.sh` (smilint); see the [MIB guide](docs/mib.md) |
 | `inventory/` | Device inventory model, loaded from `config/inventory.yml` |
 | `simulator/` | 7 hand-written SNMPv3 agents on SNMP4J core, and a fault REST API |
-| `supervisor/` | Polling, traps, alarms, board, REST and SSE, MySQL persistence (Spring Modulith modules) |
+| `supervisor/` | Polling, traps, alarms, board, REST and SSE, PostgreSQL persistence with a Liquibase changelog (Spring Modulith modules) |
 | `ui/` | Angular 22 board |
 | `deploy/` | `docker-compose.yml` and the nginx config |
 
@@ -128,7 +128,7 @@ Start here to see how the invariants above are implemented:
 | [`AlarmEngine`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java) | The alarm lifecycle, and the reconciliation of open alarms against a device's alarm table. |
 | [`SseBroadcaster`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/SseBroadcaster.java) | Fans committed events out to browsers through bounded per-client queues, with resume from a ring buffer. |
 | [`DeviceResponder`](simulator/src/main/java/io/github/selvitopu/atmsup/simulator/agent/DeviceResponder.java) | The hand-written SNMP agent: GET, GETNEXT, GETBULK and SET with the correct SNMP error statuses. |
-| [`SupervisorEndToEndIT`](supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/SupervisorEndToEndIT.java) | The whole supervisor against real agents over UDP and MySQL in Testcontainers, including recovery from lost traps. |
+| [`SupervisorEndToEndIT`](supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/SupervisorEndToEndIT.java) | The whole supervisor against real agents over UDP and PostgreSQL in Testcontainers, including recovery from lost traps. |
 
 ## How it is tested
 
@@ -137,7 +137,7 @@ Start here to see how the invariants above are implemented:
 - **Real SNMP over UDP.** Integration tests start the simulator's agents in-process on free ports. The
   supervisor's SNMP4J client polls them, walks their tables, receives their traps and informs, and
   sees wrong passwords and timeouts; the simulator's own tests cover SETs and their error statuses.
-- **MySQL through Testcontainers** for the event log, alarm uniqueness and the end-to-end test.
+- **PostgreSQL through Testcontainers** for the event log, alarm uniqueness, the Liquibase seed data and the end-to-end test.
 - **Module boundaries** are verified with Spring Modulith.
 - **Angular** unit tests with Vitest, and the production build.
 - **The MIB** is linted with `smilint`, and the Java OID constants are checked against it.
@@ -246,11 +246,11 @@ The [MIB guide](docs/mib.md) has more examples, with real output.
 
 ## Run without Docker
 
-Stop the Compose stack first: it uses the same ports. You need JDK 25, Node 26 and a MySQL 8.4,
+Stop the Compose stack first: it uses the same ports. You need JDK 25, Node 26 and a PostgreSQL 18,
 here in a container:
 
 ```sh
-docker run -d --name atmsup-mysql -p 127.0.0.1:3306:3306 -e TZ=UTC -e MYSQL_DATABASE=atmsup -e MYSQL_USER=atmsup -e MYSQL_PASSWORD=atmsup-demo -e MYSQL_ROOT_PASSWORD=root-demo mysql:8.4
+docker run -d --name atmsup-postgres -p 127.0.0.1:5432:5432 -e TZ=UTC -e POSTGRES_DB=atmsup -e POSTGRES_USER=atmsup -e POSTGRES_PASSWORD=atmsup-demo postgres:18
 ./mvnw -B -DskipTests package
 ```
 
@@ -267,7 +267,7 @@ cd ui && npm ci && npx ng serve                                     # http://loc
 
 `ng serve` proxies `/api` to the supervisor on 8080 and `/sim/api` to the simulator on 8090, so the
 fault commands above work with `localhost:4200` in place of `localhost:8080`. Remove the database with
-`docker rm -f atmsup-mysql`.
+`docker rm -f atmsup-postgres`.
 
 ## Development
 

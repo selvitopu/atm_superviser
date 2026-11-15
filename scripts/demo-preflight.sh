@@ -6,7 +6,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/demo-preflight.sh [--build] [--fresh] [--help]
 
-  --build   Build the three images and pull mysql:8.4 (needs the network).
+  --build   Build the three images and pull postgres:18 (needs the network).
   --fresh   Remove the demo volumes first (alarm history, engine boots).
   --help    Show this help.
 
@@ -34,7 +34,7 @@ fi
 
 if [ "$build" -eq 1 ]; then
   docker compose build
-  docker pull mysql:8.4
+  docker pull postgres:18
 else
   missing=0
   while read -r image; do

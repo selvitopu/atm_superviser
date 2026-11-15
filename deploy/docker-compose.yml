@@ -1,18 +1,18 @@
 name: atm-supervisor
 
 services:
-  mysql:
-    image: mysql:8.4
+  postgres:
+    image: postgres:18
     environment:
       TZ: UTC
-      MYSQL_DATABASE: atmsup
-      MYSQL_USER: atmsup
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-atmsup-demo}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-demo}
+      POSTGRES_DB: atmsup
+      POSTGRES_USER: atmsup
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-atmsup-demo}
     volumes:
-      - mysql-data:/var/lib/mysql
+      # postgres:18 keeps its data under /var/lib/postgresql/18/docker, so the volume is mounted one level up
+      - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      test: ["CMD-SHELL", "pg_isready -U atmsup -d atmsup"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -58,8 +58,8 @@ services:
       ATM_SUPERVISOR_HTTP_ADDRESS: 0.0.0.0
       ATM_SUPERVISOR_BINDHOST: 0.0.0.0
       ATM_SUPERVISOR_DATA_DIR: /data
-      MYSQL_HOST: mysql
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-atmsup-demo}
+      DB_HOST: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-atmsup-demo}
       SNMP_MONITOR_AUTH: ${SNMP_MONITOR_AUTH:-monitor-auth-demo}
       SNMP_MONITOR_PRIV: ${SNMP_MONITOR_PRIV:-monitor-priv-demo}
       SNMP_OPERATOR_AUTH: ${SNMP_OPERATOR_AUTH:-operator-auth-demo}
@@ -74,7 +74,7 @@ services:
       retries: 30
       start_period: 20s
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       simulator:
         condition: service_healthy
@@ -96,6 +96,6 @@ services:
         condition: service_healthy
 
 volumes:
-  mysql-data:
+  postgres-data:
   simulator-data:
   supervisor-data:
