@@ -282,11 +282,20 @@ cd mib && ./lint.sh                            # lint the MIB with smilint (fall
 
 ## Documentation
 
+- [Architecture](docs/architecture.md): C4 context, container and component views, Spring Modulith
+  boundaries, and the polling, board-writer and SSE pipelines
 - [Domain primer](docs/domain.md): technical supervision, the supervised systems, health versus
   service state, and the alarm lifecycle
+- [Operator guide](docs/operator-guide.md): how to read the board, `UNKNOWN` reasons, maintenance
+  badges, freshness ages and alarm handling
+- [MIB guide](docs/mib.md): the custom MIB, the SNMPv3 users and `snmpwalk` examples
 - [Hazard log](docs/safety/hazard-log.md): what can mislead an operator, and the code and tests that
   prevent it
-- [MIB guide](docs/mib.md): the custom MIB, the SNMPv3 users and `snmpwalk` examples
+- [Change request CR-001](docs/safety/CR-001-auto-switchover-visibility.md): automatic 3 s A/B
+  switchover visibility and confirmed service redundancy alarms
+- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0008 covering the
+  modular monolith, SNMPv3/engine boots, full-poll alarm resync, full-state event log, bounded SSE,
+  shared inventory, restart context preservation, and two-generation polling
 - [Demo walkthrough](docs/demo-v0.1.md): a scripted tour of v0.1
 - [Design](docs/design/2026-11-13-atm-supervisor-design.md): the target architecture for every phase,
   amended by the [architecture review decisions](docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md)
