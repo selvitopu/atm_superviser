@@ -81,9 +81,9 @@ public final class AlarmEngine {
     /**
      * Reconciles the {@code DEVICE} alarms of one device against its alarm table (spec §8.2), through the same raise
      * and clear paths as a trap but {@code via RESYNC}. A row with no active alarm is raised with the device's raise
-     * time (a CLEARED_UNACK alarm on its key comes back with its id); an active alarm with no row is cleared; a row
-     * that differs from its active alarm in severity or text updates it. Supervisor alarms are never touched, not even
-     * by a row on their key. Changes are ordered by (code, instance).
+     * time, also when a CLEARED_UNACK alarm on its key comes back with its id; an active alarm with no row is
+     * cleared; a row that differs from its active alarm in severity or text updates it. Supervisor alarms are never
+     * touched, not even by a row on their key. Changes are ordered by (code, instance).
      *
      * <p>{@code table} must be a complete walk that is not stale: a partial or outdated one would clear alarms the
      * device still holds.
@@ -108,10 +108,16 @@ public final class AlarmEngine {
                 continue;
             }
             DeviceAlarm row = device.get(key);
-            changes.addAll(row != null
-                    ? raise(open, key, row.instanceName(), row.severity(), row.text(), AlarmSource.DEVICE, Via.RESYNC,
-                            maintenance, row.raisedAt())
-                    : clear(open, key, Via.RESYNC, now));
+            if (row == null) {
+                changes.addAll(clear(open, key, Via.RESYNC, now));
+            } else if (current != null && current.state() == AlarmState.CLEARED_UNACK) {
+                // unlike a trap re-raise, a resync raise always takes the device's raise time (spec §8.2)
+                changes.add(reRaised(current, row.instanceName(), row.severity(), row.text(), AlarmSource.DEVICE,
+                        Via.RESYNC, maintenance, row.raisedAt()));
+            } else {
+                changes.addAll(raise(open, key, row.instanceName(), row.severity(), row.text(), AlarmSource.DEVICE,
+                        Via.RESYNC, maintenance, row.raisedAt()));
+            }
         }
         return changes;
     }
@@ -172,9 +178,7 @@ public final class AlarmEngine {
             return List.of(new AlarmChange(AlarmEventType.RAISED, created, via, null));
         }
         if (old.state() == AlarmState.CLEARED_UNACK) {
-            var reraised = new Alarm(old.id(), key, instanceName, severity, text, source, AlarmState.ACTIVE_UNACK,
-                    maintenance, old.raisedAt(), null, null, null, null);
-            return List.of(new AlarmChange(AlarmEventType.RAISED, reraised, via, null));
+            return List.of(reRaised(old, instanceName, severity, text, source, via, maintenance, old.raisedAt()));
         }
         if (old.severity() == severity && Objects.equals(old.text(), text)) {
             return List.of();
@@ -186,6 +190,14 @@ public final class AlarmEngine {
                 : new Alarm(old.id(), key, instanceName, severity, text, old.source(), old.state(),
                         old.suppressed(), old.raisedAt(), old.ackedAt(), old.ackedBy(), old.ackComment(), null);
         return List.of(new AlarmChange(AlarmEventType.UPDATED, updated, via, null));
+    }
+
+    /** A CLEARED_UNACK alarm active again under its own id (Task 12), raised at {@code raisedAt}. */
+    private static AlarmChange reRaised(Alarm old, String instanceName, Severity severity, String text,
+                                        AlarmSource source, Via via, boolean maintenance, Instant raisedAt) {
+        var alarm = new Alarm(old.id(), old.key(), instanceName, severity, text, source, AlarmState.ACTIVE_UNACK,
+                maintenance, raisedAt, null, null, null, null);
+        return new AlarmChange(AlarmEventType.RAISED, alarm, via, null);
     }
 
     private List<AlarmChange> clear(Map<AlarmKey, Alarm> open, AlarmKey key, Via via, Instant now) {

@@ -403,10 +403,23 @@ class AlarmEngineTest {
         var changes = engine.reconcile(open(cu), "RAD-N", List.of(row(201, 0, MAJOR, "Channel A failed")), false, T1);
 
         assertThat(changes).extracting(AlarmChange::type, AlarmChange::via).containsExactly(tuple(RAISED, Via.RESYNC));
-        // the re-raise lifecycle of a trap: the same alarm record, active again, keeping its first raise time
         assertThat(changes.get(0).alarm())
-                .extracting(Alarm::id, Alarm::severity, Alarm::text, Alarm::state, Alarm::raisedAt, Alarm::clearedAt)
-                .containsExactly("s1", MAJOR, "Channel A failed", ACTIVE_UNACK, T0, null);
+                .extracting(Alarm::id, Alarm::severity, Alarm::text, Alarm::state, Alarm::clearedAt)
+                .containsExactly("s1", MAJOR, "Channel A failed", ACTIVE_UNACK, null);
+    }
+
+    @Test
+    void aReRaiseFromTheTableTakesTheDevicesRaiseTime() {
+        var cu = alarm("s1", "RAD-N", 201, 0, MINOR, CLEARED_UNACK);
+
+        var resync = engine.reconcile(open(cu), "RAD-N", List.of(row(201, 0, MINOR)), false, T1).get(0);
+        var trap = engine.onNotification(open(cu), raised("RAD-N", 201, 0, MINOR), false, T1).get(0);
+
+        // spec §8.2: a resync raise uses the device's raisedAt; a trap re-raise keeps the alarm's first raise time
+        assertThat(resync.alarm()).extracting(Alarm::id, Alarm::state, Alarm::raisedAt)
+                .containsExactly("s1", ACTIVE_UNACK, DEVICE_RAISED_AT);
+        assertThat(trap.alarm()).extracting(Alarm::id, Alarm::state, Alarm::raisedAt)
+                .containsExactly("s1", ACTIVE_UNACK, T0);
     }
 
     @Test
