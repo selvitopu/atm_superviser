@@ -4,6 +4,8 @@
 
 Status: approved 2026-11-13 · Date: 2026-11-13
 
+> **Target architecture, not the current release.** This document designs every phase from v0.1 to v1.0. Its sections on ADS-B, voice, radio, recording, network switches, control commands, security, snapshots, replay and Prometheus/Grafana describe planned work. What exists today is listed in the [README](../../README.md#status), and the [hazard log](../safety/hazard-log.md) records the mitigations that are implemented.
+
 > **Amended by** [`docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md`](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md) (2026-11-13). It adds a per-device circuit breaker with independent probes, single-flight polling with generation checks, crash-safe idempotent commands, SSE backpressure, and 30-second telemetry sampling. **Where this document and the amendment conflict, the amendment wins.**
 
 ---

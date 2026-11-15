@@ -1,68 +1,150 @@
 # ATM Supervisor
 
-SNMP-based technical supervision for a simulated air traffic control centre. ATM Supervisor polls
-a fleet of simulated surveillance and flight data devices over SNMPv3, receives their traps and
-informs, raises and tracks alarms, derives the state of the operational services (surveillance and
-flight data) and shows it all on a live board. The centre is fictional: **Demo ACC**.
+ATM Supervisor is an open-source technical supervision tool for air traffic management (ATM)
+systems. It polls simulated surveillance and flight data equipment over SNMPv3, receives their traps
+and informs, reconciles their alarm tables, derives the state of the operational services they
+support, and shows it all on a live operator board. It is built for the System Controller's view of
+a centre: what has failed, what is only unconfirmed, and what that means for the service controllers
+receive. The centre it supervises is fictional: **Demo ACC**.
 
-## Status: v0.1
+> **Non-operational prototype.** ATM Supervisor and Demo ACC are fictional and not affiliated with
+> any air navigation service provider. Nothing here is certified or fit for operational use.
 
-v0.1 is the first slice: three device types only, end to end. v0.1.1 hardens it and adds alarm-table
-reconciliation (resync): every full poll walks the device's alarm table and corrects the alarms, so a
-lost trap no longer hides a failure.
+![The operator board during a failure: RAD-N has failed, SDPS-A has lost contact and is UNKNOWN, FDPS has switched over to its B unit, the surveillance service is UNKNOWN at best OK, and the flight data service is DEGRADED](docs/images/board-failure-and-unknown.png)
 
-What works:
+*RAD-N has failed, SDPS-A has stopped answering, and FDPS-A has failed so FDPS-B took over. SDPS-A
+is `UNKNOWN`, not green, with its last known values greyed. Surveillance is `UNKNOWN · at best OK`
+because the answer depends on SDPS-A, and its open alarms are marked unconfirmed (`?`).*
 
-- 3 device types (RADAR, SDPS, FDPS) and 7 devices: RAD-N, RAD-E, RAD-S, SDPS-A/B, FDPS-A/B.
-- Two services, SURV (surveillance) and FD (flight data), evaluated from device state.
-- SNMPv3 authPriv (SHA-256 / AES-128) polling with lightweight probes and a circuit breaker per device.
-- SNMPv3 traps and informs received on UDP 10162.
-- Alarms with acknowledge.
-- A live board in Angular, fed by Server-Sent Events (SSE) with resume.
-- An event log with telemetry sampled every 30 s.
-- A simulator with a fault-injection REST API.
-- Actuator health and metrics on the management port (supervisor: 8081, loopback only).
+## Engineering highlights
 
-Not in v0.1 yet: supervisor control commands, security and login, snapshots, replay
-and retention, Prometheus and Grafana, and the other device types (VCS, radio, recorder, LAN).
-The roadmap from v0.2 to v1.0 is in [section 13 of the design](docs/design/2026-11-13-atm-supervisor-design.md).
+- **`UNKNOWN` is never treated as healthy.** A device the supervisor cannot confirm is `UNKNOWN` with
+  a reason. Services are evaluated twice, with unknown equipment assumed available and unavailable,
+  and a known failure is never hidden behind "unknown".
+- **Polling is the source of truth; traps only speed it up.** Every trap triggers a re-poll, and every
+  successful full poll reconciles the device's alarm table, so a lost trap cannot hide an alarm.
+- **Stale results are rejected.** Each device has a status generation and a contact generation, and a
+  poll or probe result started under an older generation is discarded.
+- **Probes do not depend on the circuit breaker.** Lightweight `sysUpTime` probes alone decide
+  contact. The per-device breaker guards only the full polls.
+- **Full polls are single-flight per device.** Traps that arrive during a poll coalesce into exactly
+  one follow-up poll.
+- **One writer, one transaction.** A single board writer decides each input, commits its events and
+  alarm rows in one MySQL transaction, and applies only what was committed.
+- **A slow browser cannot stall supervision.** The writer never does network I/O. Each SSE client
+  has a bounded queue, and a client that overflows it is disconnected and resumes from the server's
+  buffer of recent events, never silently skipped.
+- **Telemetry is sampled, never invented.** Values are stored every 30 s while polls succeed, and a
+  missed poll produces no sample.
 
-## Known limitations (v0.1)
+Each of these is tied to its code and tests in the [hazard log](docs/safety/hazard-log.md).
 
-See [section 13 of the design](docs/design/2026-11-13-atm-supervisor-design.md) for the phases.
+## Status
 
-- **Service rules use availability only.** A DEGRADED unit counts as available (design §5.2), so a degraded
-  active unit does not degrade its service. v0.2 widens the rules to equipment state.
-- **Database outage.** The board keeps its last persisted state and the tiles turn amber-stale. There is no
-  explicit storage-down signal yet, and the writer queue and the number of SSE clients are not yet bounded (v0.2).
-- **Commands and replay arrive in v0.3.** That covers commands with tracking, idempotency and `UNCERTAIN`
-  outcomes, and replay. `snmpset` from the CLI bypasses the supervisor.
-- **Later phases.** The five scripted scenarios, the remaining device types, security, and Prometheus and
-  Grafana come in later phases.
+The current release is **v0.1.1**: three device types end to end, hardened after external review.
+The [design](docs/design/2026-11-13-atm-supervisor-design.md) describes the full target, and the
+[phases](docs/design/2026-11-13-atm-supervisor-design.md#13-phases) say what comes when.
+
+| Capability | Status |
+|---|---|
+| RADAR, SDPS and FDPS supervision: 7 devices, A/B pairs with automatic switchover | Implemented |
+| SURV (surveillance) and FD (flight data) service derivation | Implemented |
+| SNMPv3 authPriv polling, probes and per-device circuit breakers | Implemented |
+| SNMPv3 traps and informs | Implemented |
+| Alarm-table reconciliation on every full poll | Implemented |
+| Alarms with acknowledgement, escalation and maintenance suppression | Implemented |
+| Event log and telemetry sampled every 30 s, in MySQL | Implemented |
+| Live Angular board over SSE, with resume after a lost connection | Implemented |
+| Fault injection through the simulator's REST API | Demo-only |
+| SNMP `SET` from the command line, straight to an agent | Demo-only: bypasses the supervisor |
+| ADS-B, voice, radio, recorder and network switch (IF-MIB, SNMPv2c) supervision | Planned (v0.2) |
+| VOICE, REC and NET services | Planned (v0.2) |
+| Scripted fault scenarios | Planned (v0.2) |
+| Control commands with interlocks, preview and outcome tracking | Planned (v0.3) |
+| Authentication and roles | Planned (v0.3) |
+| Replay, snapshots, export and retention | Planned (v0.3) |
+| Prometheus, `snmp_exporter` and Grafana | Planned (v1.0); Actuator metrics exist today |
+| Browser end-to-end tests | Planned (v1.0) |
+
+### Known limitations
+
+- **Service rules use availability only.** A `DEGRADED` unit counts as available, so a degraded active
+  unit does not yet degrade its service.
+- **Database outage.** The board keeps its last persisted state and the tiles turn stale, but there is
+  no explicit storage-down signal yet. The writer queue and the number of SSE clients are not bounded yet.
+- **One supervisor instance.** While it is down, nothing is supervised; on restart every device is
+  `UNKNOWN` until its first poll.
+- **One slow recovery path.** If contact returns while a half-open trial poll is still running, the
+  device can stay `UNKNOWN` for up to about 30 s.
 
 ## Architecture
 
-```
- simulator (7 SNMPv3 agents, UDP 16101-16107; fault API :8090)
-     |  SNMPv3 polls (supervisor -> agent)      ^
-     |  traps / informs (agent -> supervisor, UDP 10162)
-     v                                          |
- supervisor (polling, alarms, services; REST + SSE :8080) ---- MySQL 8.4
-     ^
-     |  /api/  and  /api/v1/stream (SSE)
-   nginx  --  serves the Angular UI;  /sim/api/ -> simulator fault API
-     ^
- browser  http://localhost:8080
+```mermaid
+flowchart LR
+  subgraph SIM[simulator]
+    AG["7 SNMPv3 agents<br/>UDP 16101-16107"]
+    FA["fault API :8090"]
+  end
+  subgraph SUP[supervisor]
+    PO["polling<br/>probes and full polls"]
+    TR["trap receiver<br/>UDP 10162"]
+    BW["board writer<br/>single thread"]
+    SSE["SSE broadcaster"]
+  end
+  DB[("MySQL 8.4<br/>event log and alarms")]
+  UI["Angular board<br/>nginx :8080"]
+  PO -- "GET / GETBULK" --> AG
+  AG -- "traps / informs" --> TR
+  PO --> BW
+  TR --> BW
+  BW -- "one transaction" --> DB
+  BW --> SSE
+  SSE -- "/api/v1/stream" --> UI
+  UI -- "/api/v1" --> SUP
+  UI -- "/sim/api" --> FA
 ```
 
 | Module | Purpose |
 |---|---|
-| `mib/` | `DEMO-ATM-TECHSUP-MIB.txt`, OID constants and `lint.sh` (smilint) |
+| `mib/` | `DEMO-ATM-TECHSUP-MIB.txt`, OID constants and `lint.sh` (smilint); see the [MIB guide](docs/mib.md) |
 | `inventory/` | Device inventory model, loaded from `config/inventory.yml` |
-| `simulator/` | 7 SNMPv3 agents and a fault REST API |
-| `supervisor/` | Polling, traps, alarms, board, REST and SSE, MySQL persistence |
+| `simulator/` | 7 hand-written SNMPv3 agents on SNMP4J core, and a fault REST API |
+| `supervisor/` | Polling, traps, alarms, board, REST and SSE, MySQL persistence (Spring Modulith modules) |
 | `ui/` | Angular 22 board |
 | `deploy/` | `docker-compose.yml` and the nginx config |
+
+## Code tour
+
+Start here to see how the invariants above are implemented:
+
+| File | Why it matters |
+|---|---|
+| [`PollScheduler`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/PollScheduler.java) | Runs probes outside the breaker and full polls through it, keeps full polls single-flight, and verifies a device at once when contact returns. |
+| [`DeviceBreakers`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/DeviceBreakers.java) | The per-device Resilience4j breakers that guard full polls: a window of 5 calls that opens at 50 % failures. |
+| [`BoardWriter`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java) | The only writer of the board: decide, commit in one transaction, apply what was committed, then publish. |
+| [`BoardDecider`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardDecider.java) | Turns each input into events, discards stale results by generation, and samples telemetry. |
+| [`StatusDeriver`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/StatusDeriver.java) | Derives health, contact and the `UNKNOWN` reasons from probes and full polls. |
+| [`ServiceEvaluator`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluator.java) | Runs every service rule in two passes so unknown equipment can only make a service `UNKNOWN`, never `OK`. |
+| [`AlarmEngine`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java) | The alarm lifecycle, and the reconciliation of open alarms against a device's alarm table. |
+| [`SseBroadcaster`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/SseBroadcaster.java) | Fans committed events out to browsers through bounded per-client queues, with resume from a ring buffer. |
+| [`DeviceResponder`](simulator/src/main/java/io/github/selvitopu/atmsup/simulator/agent/DeviceResponder.java) | The hand-written SNMP agent: GET, GETNEXT, GETBULK and SET with the correct SNMP error statuses. |
+| [`SupervisorEndToEndIT`](supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/SupervisorEndToEndIT.java) | The whole supervisor against real agents over UDP and MySQL in Testcontainers, including recovery from lost traps. |
+
+## How it is tested
+
+- **Unit tests** cover the service rules, status derivation, the alarm lifecycle and reconciliation,
+  the board writer pipeline, the poll scheduler and SSE backpressure.
+- **Real SNMP over UDP.** Integration tests start the simulator's agents in-process on free ports. The
+  supervisor's SNMP4J client polls them, walks their tables, receives their traps and informs, and
+  sees wrong passwords and timeouts; the simulator's own tests cover SETs and their error statuses.
+- **MySQL through Testcontainers** for the event log, alarm uniqueness and the end-to-end test.
+- **Module boundaries** are verified with Spring Modulith.
+- **Angular** unit tests with Vitest, and the production build.
+- **The MIB** is linted with `smilint`, and the Java OID constants are checked against it.
+- **Compose healthchecks** gate startup, and the preflight script waits until the board is `READY`.
+
+CI (`.github/workflows/ci.yml`) runs the backend build with all tests, the frontend tests and build,
+and the MIB lint.
 
 ## Quickstart
 
@@ -85,6 +167,8 @@ docker compose up -d --wait
 `compose.yaml` includes `deploy/docker-compose.yml`, so `docker compose -f deploy/docker-compose.yml up -d --wait`
 is equivalent. `scripts/demo-preflight.sh --fresh` first removes the demo volumes (alarm history), and
 `--help` lists the options. The scripted tour is in [docs/demo-v0.1.md](docs/demo-v0.1.md).
+
+![The operator board with every device operational and both services OK](docs/images/board-nominal.png)
 
 Inject a fault into the north radar, then undo it:
 
@@ -158,6 +242,8 @@ The same from a throwaway Alpine container on the Compose network, with nothing 
 docker run --rm --network atm-supervisor_default alpine:3.22 sh -c 'apk add -q net-snmp-tools && snmpget -v3 -l authPriv -u monitor -a SHA-256 -A monitor-auth-demo -x AES -X monitor-priv-demo simulator:16101 1.3.6.1.2.1.1.3.0'
 ```
 
+The [MIB guide](docs/mib.md) has more examples, with real output.
+
 ## Run without Docker
 
 Stop the Compose stack first: it uses the same ports. You need JDK 25, Node 26 and a MySQL 8.4,
@@ -194,18 +280,17 @@ cd ui && npx ng build                          # UI production build
 cd mib && ./lint.sh                            # lint the MIB with smilint (falls back to Docker)
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same three checks: backend, frontend and MIB lint.
-
 ## Documentation
 
-- [Design specification](docs/design/2026-11-13-atm-supervisor-design.md)
-- [Architecture review decisions](docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md): the binding
-  amendment (circuit breaker, probes, single-flight polling, SSE backpressure, telemetry sampling)
+- [Domain primer](docs/domain.md): technical supervision, the supervised systems, health versus
+  service state, and the alarm lifecycle
+- [Hazard log](docs/safety/hazard-log.md): what can mislead an operator, and the code and tests that
+  prevent it
+- [MIB guide](docs/mib.md): the custom MIB, the SNMPv3 users and `snmpwalk` examples
+- [Demo walkthrough](docs/demo-v0.1.md): a scripted tour of v0.1
+- [Design](docs/design/2026-11-13-atm-supervisor-design.md): the target architecture for every phase,
+  amended by the [architecture review decisions](docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md)
 
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE).
-
-## Disclaimer
-
-Demo ACC is fictional. This project is not affiliated with any air navigation service provider.
