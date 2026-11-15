@@ -38,7 +38,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.SplittableRandom;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -167,6 +169,29 @@ class CentreTest {
         centre.applyFault("RAD-S", new FaultRequest(FAIL, null));
 
         assertThat(seen).containsExactly(7);
+    }
+
+    @Test
+    @Timeout(20)
+    void aSetRequestHoldsTheCentreLockFromFirstCheckToLastApply() throws Exception {
+        CompletableFuture<Object> fault = new CompletableFuture<>();
+        CompletableFuture<Object> started = new CompletableFuture<>();
+        centre.setHandler("FDPS-B").atomically(() -> {
+            CompletableFuture.runAsync(() -> {
+                started.complete(null);
+                centre.applyFault("FDPS-B", new FaultRequest(FAIL, null));
+                fault.complete(null);
+            });
+            started.join();
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            assertThat(fault).isNotDone();
+            return null;
+        });
+        fault.get(2, TimeUnit.SECONDS);
     }
 
     @Test

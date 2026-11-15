@@ -39,6 +39,7 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,6 +75,8 @@ public final class Centre {
     private final ReentrantLock lock = new ReentrantLock();
     /** Batches are numbered under {@link #lock} and delivered in that order, without holding it. */
     private final Object deliveryTurn = new Object();
+    /** The batch of the {@code mutate} that holds the lock; read and written only under the lock. */
+    private Batch outer;
     private long nextTicket;
     private long nowServing;
     private volatile Map<String, MibView> views = Map.of();
@@ -232,6 +235,11 @@ public final class Centre {
         model(id);
         return new SetHandler() {
             @Override
+            public <T> T atomically(Supplier<T> body) {
+                return mutate(batch -> body.get());
+            }
+
+            @Override
             public SetCheck check(OID oid, Variable value) {
                 return mutate(batch -> checkSet(model(id), oid, value));
             }
@@ -354,12 +362,19 @@ public final class Centre {
     }
 
     private <T> T mutate(Function<Batch, T> body) {
+        if (lock.isHeldByCurrentThread() && outer != null) {
+            // Nested in SetHandler.atomically: join the outer batch, which delivers once the outer hold is released.
+            T nested = body.apply(outer);
+            rebuildViews(clock.instant());
+            return nested;
+        }
         Batch batch = new Batch();
         T result;
         List<CentreEvent> events;
         long ticket = -1;
         lock.lock();
         try {
+            outer = batch;
             result = body.apply(batch);
             rebuildViews(clock.instant());
             events = batch.events();
@@ -367,6 +382,7 @@ public final class Centre {
                 ticket = nextTicket++;
             }
         } finally {
+            outer = null;
             lock.unlock();
         }
         if (ticket >= 0) {

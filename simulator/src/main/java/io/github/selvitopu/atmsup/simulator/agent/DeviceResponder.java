@@ -196,17 +196,18 @@ final class DeviceResponder implements CommandResponder {
      */
     private void set(PDU request, PDU response, String securityName) {
         List<? extends VariableBinding> bindings = request.getVariableBindings();
-        for (int i = 0; i < bindings.size(); i++) {
-            int errorStatus = checkSet(securityName, bindings.get(i));
-            if (errorStatus != PDU.noError) {
-                response.setErrorStatus(errorStatus);
-                response.setErrorIndex(i + 1);
-                break;
+        setHandler.atomically(() -> {
+            for (int i = 0; i < bindings.size(); i++) {
+                int errorStatus = checkSet(securityName, bindings.get(i));
+                if (errorStatus != PDU.noError) {
+                    response.setErrorStatus(errorStatus);
+                    response.setErrorIndex(i + 1);
+                    return null;
+                }
             }
-        }
-        if (response.getErrorStatus() == PDU.noError) {
             bindings.forEach(vb -> setHandler.apply(vb.getOid(), vb.getVariable()));
-        }
+            return null;
+        });
         response.addAll(bindings);
     }
 
