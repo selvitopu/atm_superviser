@@ -102,8 +102,8 @@ class PollSchedulerTest {
 
     @Test
     void probeSuccessSubmitsProbeSucceededWithStartGeneration() {
-        gens.set("RAD-N", 4);
-        client.onGetSetGeneration("RAD-N", gens, 5);
+        gens.setContact("RAD-N", 4);
+        client.duringGet("RAD-N", () -> gens.setContact("RAD-N", 5));
 
         done(scheduler.probeNow("RAD-N"));
 
@@ -117,13 +117,26 @@ class PollSchedulerTest {
 
     @Test
     void failedProbeSubmitsProbeFailedWithReasonTimeAndGeneration() {
-        gens.set("RAD-N", 2);
+        gens.setContact("RAD-N", 2);
         client.failWith("RAD-N", timeout());
 
         done(scheduler.probeNow("RAD-N"));
 
         assertThat(sink.only(ProbeFailed.class))
                 .isEqualTo(new ProbeFailed("RAD-N", T0, "TIMEOUT: no response from 127.0.0.1:16101", 2));
+    }
+
+    @Test
+    void probesCarryTheContactGenerationAndFullPollsTheStatusGeneration() {
+        gens.set("RAD-N", 7);
+        gens.setContact("RAD-N", 3);
+
+        done(scheduler.probeNow("RAD-N"));
+        assertThat(sink.only(ProbeSucceeded.class).generation()).isEqualTo(3);
+        sink.clear();
+        done(scheduler.fullPollNow("RAD-N"));
+
+        assertThat(sink.only(PollSucceeded.class).generation()).isEqualTo(7);
     }
 
     @Test
@@ -537,18 +550,28 @@ class PollSchedulerTest {
         }
     }
 
-    /** Settable per-device generations. */
+    /** Settable per-device status and contact generations. */
     static final class Generations implements GenerationSource {
 
         private final Map<String, Long> gens = new ConcurrentHashMap<>();
+        private final Map<String, Long> contact = new ConcurrentHashMap<>();
 
         void set(String id, long gen) {
             gens.put(id, gen);
         }
 
+        void setContact(String id, long gen) {
+            contact.put(id, gen);
+        }
+
         @Override
         public long generation(String equipmentId) {
             return gens.getOrDefault(equipmentId, 0L);
+        }
+
+        @Override
+        public long contactGeneration(String equipmentId) {
+            return contact.getOrDefault(equipmentId, 0L);
         }
     }
 

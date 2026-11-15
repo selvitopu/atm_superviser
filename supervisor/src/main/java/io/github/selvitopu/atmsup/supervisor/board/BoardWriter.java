@@ -36,12 +36,14 @@ import org.springframework.context.SmartLifecycle;
  * The only writer of the board. One platform thread, {@code board-writer}, takes the inputs in submission order;
  * for each it decides, commits the events in one transaction, applies only what was committed, then publishes.
  *
- * <p>A failed commit leaves the board and the generations unchanged, so the next equivalent input retries. Of the new
- * telemetry only the attempt counters are merged ({@code lastProbeAt}, {@code consecutiveFailures},
- * {@code fullPollFailures}); {@code lastPollAt}, the values, the tables and {@code lastSampleAt} stay as they were, so
- * an unpersisted result never looks like a fresh poll and an unstored sample stays due. A {@link TelemetryUpdated} is
- * still published with that counter-only telemetry, so the stream matches {@code /board}; its poll time and values
- * are the old ones. A trap's {@link RepollRequested} is published even then, so a follow-up poll retries.
+ * <p>A failed commit leaves the board unchanged, so the next equivalent input retries. The generations are bumped
+ * anyway: invalidation is coordination, not persisted state, so a trap or contact change that could not be stored
+ * still makes the results in flight stale. Of the new telemetry only the attempt counters are merged
+ * ({@code lastProbeAt}, {@code consecutiveFailures}, {@code fullPollFailures}); {@code lastPollAt}, the values, the
+ * tables and {@code lastSampleAt} stay as they were, so an unpersisted result never looks like a fresh poll and an
+ * unstored sample stays due. A {@link TelemetryUpdated} is still published with that counter-only telemetry, so the
+ * stream matches {@code /board}; its poll time and values are the old ones. A trap's {@link RepollRequested} is
+ * published even then, so a follow-up poll retries.
  *
  * <p>Readers get an immutable snapshot through {@link #current()}.
  */
@@ -82,7 +84,8 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
         this.heartbeatInterval = heartbeatInterval;
         this.staleProbes = staleCounter(meters, "probe");
         this.stalePolls = staleCounter(meters, "poll");
-        this.live = new LiveBoard(Board.initial(inv, List.of()), Map.of(), zeroGenerations(inv));
+        this.live = new LiveBoard(Board.initial(inv, List.of()), Map.of(), zeroGenerations(inv),
+                zeroGenerations(inv));
     }
 
     private static Counter staleCounter(MeterRegistry meters, String kind) {
@@ -105,6 +108,11 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
     @Override
     public long generation(String equipmentId) {
         return live.generation(equipmentId);
+    }
+
+    @Override
+    public long contactGeneration(String equipmentId) {
+        return live.contactGeneration(equipmentId);
     }
 
     @Override
@@ -131,7 +139,8 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             return;
         }
         boolean firstStart = !store.hasEvents();
-        live = new LiveBoard(Board.initial(inv, store.loadOpenAlarms()), Map.of(), zeroGenerations(inv));
+        live = new LiveBoard(Board.initial(inv, store.loadOpenAlarms()), Map.of(), zeroGenerations(inv),
+                zeroGenerations(inv));
         shutDown = false;
         ScheduledExecutorService ex = Executors.newSingleThreadScheduledExecutor(
                 Thread.ofPlatform().name(THREAD_NAME).daemon().factory());
@@ -208,7 +217,9 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
         } catch (RuntimeException e) {
             log.error("Cannot commit the events of {}; the board is unchanged", in.getClass().getSimpleName(), e);
             Map<String, Telemetry> counters = countersOnly(before.telemetry(), d.telemetry());
-            live = new LiveBoard(before.board(), merged(before.telemetry(), counters), before.generations());
+            live = new LiveBoard(before.board(), merged(before.telemetry(), counters),
+                    bumped(before.generations(), d.invalidated()),
+                    bumped(before.contactGenerations(), d.contactInvalidated()));
             publishTelemetry(counters, now);
             d.repoll().forEach(this::publish);
             return BoardResult.failed(e.getMessage());
@@ -219,7 +230,8 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             board = BoardReducer.apply(board, e);
         }
         LiveBoard after = new LiveBoard(board, merged(before.telemetry(), d.telemetry()),
-                bumped(before.generations(), d.invalidated()));
+                bumped(before.generations(), d.invalidated()),
+                bumped(before.contactGenerations(), d.contactInvalidated()));
         live = after;
         if (!stored.isEmpty()) {
             publish(new BoardCommitted(stored, after));

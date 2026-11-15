@@ -96,7 +96,8 @@ class BoardControllerTest {
         alarms.forEach(a -> open.put(a.key(), a));
         Map<ServiceId, ServiceState> services = Map.of(ServiceId.SURV,
                 new ServiceState(ServiceId.SURV, ServiceStatus.OK, null, false, List.of(), T));
-        given(writer.current()).willReturn(new LiveBoard(new Board(eq, services, open, 17), telemetry, Map.of()));
+        given(writer.current())
+                .willReturn(new LiveBoard(new Board(eq, services, open, 17), telemetry, Map.of(), Map.of()));
     }
 
     private static Map<String, EquipmentState> allKnown() {

@@ -84,7 +84,8 @@ class AlarmControllerTest {
     void liveBoard() {
         var eq = Map.of("RAD-N", new EquipmentState("RAD-N", Health.OPERATIONAL, null, false, Role.STANDALONE, T,
                 new Contact(true, T, null)));
-        given(writer.current()).willReturn(new LiveBoard(new Board(eq, Map.of(), Map.of(), 1), Map.of(), Map.of()));
+        given(writer.current())
+                .willReturn(new LiveBoard(new Board(eq, Map.of(), Map.of(), 1), Map.of(), Map.of(), Map.of()));
     }
 
     private static Alarm ackedAlarm(String id) {

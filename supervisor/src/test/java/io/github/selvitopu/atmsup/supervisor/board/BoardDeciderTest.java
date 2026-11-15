@@ -55,6 +55,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -72,7 +73,7 @@ class BoardDeciderTest {
     // ---- fixtures
 
     private LiveBoard initial() {
-        return new LiveBoard(Board.initial(inv, List.of()), Map.of(), Map.of());
+        return new LiveBoard(Board.initial(inv, List.of()), Map.of(), Map.of(), Map.of());
     }
 
     private LiveBoard allOperational() {
@@ -93,7 +94,7 @@ class BoardDeciderTest {
             tel.put(id, new Telemetry(t0, t0, 0, 0, null, Map.of(), Map.of()));
         });
         Board b = new Board(eq, Map.of(), Map.of(), 0);
-        return new LiveBoard(new Board(eq, evaluator.evaluate(b, t0), Map.of(), 0), tel, Map.of());
+        return new LiveBoard(new Board(eq, evaluator.evaluate(b, t0), Map.of(), 0), tel, Map.of(), Map.of());
     }
 
     private static LiveBoard withProbeFailures(LiveBoard lb, String id, int failures) {
@@ -101,13 +102,20 @@ class BoardDeciderTest {
         Map<String, Telemetry> tel = new LinkedHashMap<>(lb.telemetry());
         tel.put(id, new Telemetry(t.lastPollAt(), t.lastProbeAt(), failures, t.fullPollFailures(), t.lastSampleAt(),
                 t.values(), t.tables()));
-        return new LiveBoard(lb.board(), tel, lb.generations());
+        return new LiveBoard(lb.board(), tel, lb.generations(), lb.contactGenerations());
     }
 
+    /** The status generation only (what traps bump). */
     private static LiveBoard withGeneration(LiveBoard lb, String id, long generation) {
         Map<String, Long> gens = new LinkedHashMap<>(lb.generations());
         gens.put(id, generation);
-        return new LiveBoard(lb.board(), lb.telemetry(), gens);
+        return new LiveBoard(lb.board(), lb.telemetry(), gens, lb.contactGenerations());
+    }
+
+    private static LiveBoard withContactGeneration(LiveBoard lb, String id, long generation) {
+        Map<String, Long> gens = new LinkedHashMap<>(lb.contactGenerations());
+        gens.put(id, generation);
+        return new LiveBoard(lb.board(), lb.telemetry(), lb.generations(), gens);
     }
 
     /** What the board writer does with a committed decision: apply the events, merge telemetry, bump generations. */
@@ -120,10 +128,12 @@ class BoardDeciderTest {
         tel.putAll(d.telemetry());
         Map<String, Long> gens = new LinkedHashMap<>(lb.generations());
         d.invalidated().forEach(id -> gens.merge(id, 1L, Long::sum));
-        return new LiveBoard(b, tel, gens);
+        Map<String, Long> contact = new LinkedHashMap<>(lb.contactGenerations());
+        d.contactInvalidated().forEach(id -> contact.merge(id, 1L, Long::sum));
+        return new LiveBoard(b, tel, gens, contact);
     }
 
-    /** {@code id} after its third failed probe: LOST_CONTACT with 901 open and generation 1. */
+    /** {@code id} after its third failed probe: LOST_CONTACT with 901 open and both generations 1. */
     private LiveBoard lostContact(String id) {
         LiveBoard lb = withProbeFailures(allOperational(), id, 2);
         return merged(lb, decider.decide(lb, new ProbeFailed(id, t0, "TIMEOUT: no response", 0), t0));
@@ -192,6 +202,7 @@ class BoardDeciderTest {
                 .containsExactly(901, AlarmState.CLEARED_UNACK);
         assertThat(merged(lb, d).board().services().get(ServiceId.SURV).status()).isEqualTo(ServiceStatus.UNKNOWN);
         assertThat(d.invalidated()).containsExactly("SDPS-A");
+        assertThat(d.contactInvalidated()).containsExactly("SDPS-A");
     }
 
     /** {@code id} lost contact (901 open), then the supervisor restarted: UNKNOWN/SUPERVISOR_RESTARTED, 901 open. */
@@ -245,7 +256,7 @@ class BoardDeciderTest {
         Instant t1 = t0.plusSeconds(5);
 
         Decision d = decider.decide(lb,
-                new ProbeSucceeded(new ProbeObservation("RAD-N", t1, 1000), lb.generation("RAD-N")), t1);
+                new ProbeSucceeded(new ProbeObservation("RAD-N", t1, 1000), lb.contactGeneration("RAD-N")), t1);
 
         assertThat(d.events()).extracting(DomainEvent::type).containsExactly(ALARM_CLEARED);
         assertThat(alarmEvent(d, 0).alarm()).extracting(Alarm::key, Alarm::state)
@@ -285,7 +296,7 @@ class BoardDeciderTest {
 
     @Test
     void staleFailureIsDiscarded() {
-        LiveBoard lb = withGeneration(withProbeFailures(allOperational(), "RAD-N", 2), "RAD-N", 2);
+        LiveBoard lb = withContactGeneration(withProbeFailures(allOperational(), "RAD-N", 2), "RAD-N", 2);
 
         Decision d = decider.decide(lb, new ProbeFailed("RAD-N", t0, "TIMEOUT: no response", 1), t0);
 
@@ -302,6 +313,17 @@ class BoardDeciderTest {
 
         assertThat(d.stale()).isFalse();
         assertThat(d.telemetry().get("RAD-N").fullPollFailures()).isEqualTo(1);
+    }
+
+    @Test
+    void contactChangeInvalidatesBothGenerations() {
+        LiveBoard lb = withProbeFailures(allOperational(), "RAD-N", 2);
+
+        Decision d = decider.decide(lb, new ProbeFailed("RAD-N", t0, "TIMEOUT: no response", 0), t0);
+
+        assertThat(d.events()).extracting(DomainEvent::type).startsWith(CONTACT_LOST);
+        assertThat(d.invalidated()).isEqualTo(Set.of("RAD-N"));
+        assertThat(d.contactInvalidated()).isEqualTo(Set.of("RAD-N"));
     }
 
     @Test
@@ -430,6 +452,14 @@ class BoardDeciderTest {
         assertThat(d.events()).isEmpty();
         assertThat(d.repoll()).containsExactly(new RepollRequested("RAD-N", Reason.TRAP));
         assertThat(d.invalidated()).containsExactly("RAD-N");
+    }
+
+    @Test
+    void trapInvalidatesOnlyTheStatusGeneration() {
+        Decision d = decider.decide(allOperational(), new TrapReceived(raisedN("RAD-N", 101, CRITICAL)), t0);
+
+        assertThat(d.invalidated()).isEqualTo(Set.of("RAD-N"));
+        assertThat(d.contactInvalidated()).isEmpty();
     }
 
     @Test

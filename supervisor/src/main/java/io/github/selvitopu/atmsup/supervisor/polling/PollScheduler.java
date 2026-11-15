@@ -48,7 +48,8 @@ import org.springframework.context.event.EventListener;
  *       {@code TRAP_REFRESH} poll once it ends.</li>
  * </ul>
  * All SNMP work runs on the bounded {@link PollDispatcher}. Results go to the board writer with the generation read
- * when the job started; this class never waits for the writer.
+ * when the job started (the contact generation for a probe, the status generation for a full poll); this class never
+ * waits for the writer.
  *
  * <p>A loop's run starts when it fires. The next run fires at that start plus the device's poll interval ×
  * U[0.9, 1.1], or at once if that time has passed, so a slow run does not stretch the cycle and a loop never
@@ -309,7 +310,7 @@ public final class PollScheduler implements SmartLifecycle {
     // --- jobs ----------------------------------------------------------------------------------------------------
 
     private void runProbe(Device d) {
-        long gen = generations.generation(d.id());
+        long gen = generations.contactGeneration(d.id());
         BoardInput result;
         try {
             List<VariableBinding> vbs = client.get(d, List.of(PollPlan.PROBE));

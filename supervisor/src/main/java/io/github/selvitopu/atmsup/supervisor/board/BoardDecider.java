@@ -86,13 +86,18 @@ public final class BoardDecider {
      * A probe or poll result: freshness gate, then equipment event, maintenance updates, contact alarm, service
      * events, service alarms and (for a successful poll only) the telemetry sample, in that order.
      *
+     * <p>A probe is checked against the contact generation and a full poll against the status generation. A probe
+     * only proves reachability and never sets health, so a trap does not make it stale: a trapping device that stops
+     * answering still reaches LOST_CONTACT. A contact change bumps both generations.
+     *
      * <p>The contact alarm 901 is raised on CONTACT_LOST. Any successful probe or poll clears an ACTIVE 901, with or
      * without CONTACT_RESTORED: after a supervisor restart the device is SUPERVISOR_RESTARTED, not LOST_CONTACT, but
      * a 901 carried over the restart must still clear on the first contact. A CLEARED_UNACK 901 is left alone.
      */
     private Decision deviceResult(LiveBoard live, BoardInput in, String id, long generation, Instant now,
                                   BiFunction<EquipmentState, Telemetry, StatusDeriver.Derived> derive) {
-        if (generation < live.generation(id)) {
+        boolean probe = in instanceof ProbeSucceeded || in instanceof ProbeFailed;
+        if (generation < (probe ? live.contactGeneration(id) : live.generation(id))) {
             return Decision.discarded();
         }
         EquipmentState cur = live.board().equipment().get(id);
@@ -132,8 +137,8 @@ public final class BoardDecider {
         }
         List<RepollRequested> repoll = derived.event().filter(ev -> ev.type() == CONTACT_RESTORED).isPresent()
                 ? List.of(new RepollRequested(id, Reason.CONTACT_RESTORED)) : List.of();
-        return new Decision(w.events, Map.of(id, next), repoll, contactChanged ? Set.of(id) : Set.of(), false,
-                BoardResult.ok());
+        Set<String> invalidated = contactChanged ? Set.of(id) : Set.of();
+        return new Decision(w.events, Map.of(id, next), repoll, invalidated, invalidated, false, BoardResult.ok());
     }
 
     private static boolean lostContactActive(Map<AlarmKey, Alarm> open, String id) {
@@ -175,20 +180,24 @@ public final class BoardDecider {
                 unknown ? null : s.status() == ServiceStatus.FAILED, unknown ? null : s.redundancyLost());
     }
 
-    /** Every notification type asks for a prompt full poll and invalidates in-flight results. */
+    /**
+     * Every notification type asks for a prompt full poll and invalidates in-flight full polls (the status generation
+     * only: an in-flight probe is still valid evidence about contact).
+     */
     private Decision trap(LiveBoard live, TrapReceived t, Instant now) {
         String id = t.n().equipmentId();
         EquipmentState s = live.board().equipment().get(id);
         Working w = new Working(live.board());
         w.addAlarms(alarms.onNotification(w.open(), t.n(), s != null && s.maintenance(), now), now);
-        return new Decision(w.events, Map.of(), List.of(new RepollRequested(id, Reason.TRAP)), Set.of(id), false, BoardResult.ok());
+        return new Decision(w.events, Map.of(), List.of(new RepollRequested(id, Reason.TRAP)), Set.of(id), Set.of(),
+                false, BoardResult.ok());
     }
 
     private Decision acknowledge(LiveBoard live, AcknowledgeAlarms a, Instant now) {
         AckResult ack = alarms.acknowledge(live.board().openAlarms(), a.alarmIds(), a.actor(), a.comment(), now);
         Working w = new Working(live.board());
         w.addAlarms(ack.changes(), now);
-        return new Decision(w.events, Map.of(), List.of(), Set.of(), false,
+        return new Decision(w.events, Map.of(), List.of(), Set.of(), Set.of(), false,
                 new BoardResult(true, ack.acknowledged(), ack.notFound(), null));
     }
 
@@ -200,11 +209,11 @@ public final class BoardDecider {
         Map<ServiceId, ServiceState> services = new EnumMap<>(ServiceId.class);
         services.putAll(evaluator.evaluate(w.board, now));
         services.values().forEach(st -> w.add(new ServiceEvent(now, st)));
-        return new Decision(w.events, Map.of(), List.of(), Set.of(), false, BoardResult.ok());
+        return new Decision(w.events, Map.of(), List.of(), Set.of(), Set.of(), false, BoardResult.ok());
     }
 
     private static Decision supervisorOnly(SupervisorEvent e) {
-        return new Decision(List.of(e), Map.of(), List.of(), Set.of(), false, BoardResult.ok());
+        return new Decision(List.of(e), Map.of(), List.of(), Set.of(), Set.of(), false, BoardResult.ok());
     }
 
     /** The events of one decision, each applied to a working board before the next one is computed. */

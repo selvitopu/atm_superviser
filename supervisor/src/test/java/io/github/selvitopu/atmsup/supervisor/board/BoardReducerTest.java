@@ -137,8 +137,10 @@ class BoardReducerTest {
 
     @Test
     void liveBoardGenerationDefaultsToZero() {
-        var live = new LiveBoard(initial, Map.of(), Map.of("RAD-N", 3L));
+        var live = new LiveBoard(initial, Map.of(), Map.of("RAD-N", 3L), Map.of("RAD-N", 2L));
         assertThat(live.generation("RAD-N")).isEqualTo(3);
         assertThat(live.generation("RAD-E")).isZero();
+        assertThat(live.contactGeneration("RAD-N")).isEqualTo(2);
+        assertThat(live.contactGeneration("RAD-E")).isZero();
     }
 }

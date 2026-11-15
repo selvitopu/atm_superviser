@@ -74,7 +74,8 @@ class SseBroadcasterTest {
     private final BoardWriter writer = mock(BoardWriter.class);
     private final Telemetry tel = new Telemetry(T0.minusSeconds(1), T0, 2, 0, null, Map.of("plotsPerScan", 300L),
             Map.of("sensors", List.of(Map.of("index", 1L))));
-    private final LiveBoard live = new LiveBoard(Board.initial(inventory, List.of()), Map.of("RAD-N", tel), Map.of());
+    private final LiveBoard live = new LiveBoard(Board.initial(inventory, List.of()), Map.of("RAD-N", tel), Map.of(),
+            Map.of());
     private final List<TestEmitter> emitters = new CopyOnWriteArrayList<>();
 
     private SimpleMeterRegistry meters;

@@ -25,6 +25,7 @@ import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested.Reason;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.TelemetryUpdated;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.HeartbeatTick;
+import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollFailed;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollSucceeded;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.ProbeFailed;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.ProbeSucceeded;
@@ -95,7 +96,7 @@ class BoardWriterTest {
     }
 
     private ProbeFailed probeFailed(String id) {
-        return new ProbeFailed(id, t0, "TIMEOUT: no response", writer.generation(id));
+        return new ProbeFailed(id, t0, "TIMEOUT: no response", writer.contactGeneration(id));
     }
 
     private static Notification statusChange(String id) {
@@ -104,6 +105,10 @@ class BoardWriterTest {
 
     private Health health(String id) {
         return writer.current().board().equipment().get(id).health();
+    }
+
+    private double stale(String kind) {
+        return meters.counter("atmsup.board.stale.results", "kind", kind).count();
     }
 
     @Test
@@ -146,6 +151,76 @@ class BoardWriterTest {
         assertThat(publisher.all).isEmpty();
         assertThat(meters.counter("atmsup.board.stale.results", "kind", "poll").count()).isEqualTo(1.0);
         assertThat(meters.counter("atmsup.board.stale.results", "kind", "probe").count()).isZero();
+    }
+
+    @Test
+    void trapFloodCannotMaskLostContact() {
+        started();
+        assertThat(writer.submit(pollSucceeded("RAD-N", OPERATIONAL)).join().committed()).isTrue();
+        assertThat(health("RAD-N")).isEqualTo(Health.OPERATIONAL);
+
+        for (int i = 0; i < 3; i++) {
+            long contact = writer.contactGeneration("RAD-N");
+            writer.submit(new TrapReceived(statusChange("RAD-N"))).join();
+            writer.submit(new ProbeFailed("RAD-N", t0, "TIMEOUT: no response", contact)).join();
+        }
+
+        EquipmentState s = writer.current().board().equipment().get("RAD-N");
+        assertThat(s.health()).isEqualTo(Health.UNKNOWN);
+        assertThat(s.unknownReason()).isEqualTo(UnknownReason.LOST_CONTACT);
+        assertThat(writer.current().board().openAlarms().get(new AlarmKey("RAD-N", 901, 0)).state())
+                .isEqualTo(AlarmState.ACTIVE_UNACK);
+        assertThat(stale("probe")).isZero();
+    }
+
+    @Test
+    void aContactChangeStillDiscardsAnOlderProbe() {
+        started();
+        long preLoss = writer.contactGeneration("RAD-N");
+        for (int i = 0; i < 3; i++) {
+            writer.submit(probeFailed("RAD-N")).join();
+        }
+        assertThat(writer.current().board().equipment().get("RAD-N").unknownReason())
+                .isEqualTo(UnknownReason.LOST_CONTACT);
+        assertThat(writer.contactGeneration("RAD-N")).isEqualTo(preLoss + 1);
+        LiveBoard before = writer.current();
+        publisher.clear();
+
+        BoardResult r = writer.submit(new ProbeSucceeded(new ProbeObservation("RAD-N", t0.plusSeconds(5), 1000),
+                preLoss)).join();
+
+        assertThat(r).isEqualTo(BoardResult.ok());
+        assertThat(writer.current()).isSameAs(before);
+        assertThat(writer.current().board().equipment().get("RAD-N").unknownReason())
+                .isEqualTo(UnknownReason.LOST_CONTACT);
+        assertThat(writer.current().board().openAlarms().get(new AlarmKey("RAD-N", 901, 0)).state())
+                .isEqualTo(AlarmState.ACTIVE_UNACK);
+        assertThat(writer.current().telemetry().get("RAD-N").consecutiveFailures()).isEqualTo(3);
+        assertThat(publisher.all).isEmpty();
+        assertThat(stale("probe")).isEqualTo(1.0);
+    }
+
+    @Test
+    void aTrapStillDiscardsAnOlderFullPoll() {
+        started();
+        assertThat(writer.submit(pollSucceeded("RAD-N", OPERATIONAL)).join().committed()).isTrue();
+        long status = writer.generation("RAD-N");
+        long contact = writer.contactGeneration("RAD-N");
+
+        writer.submit(new TrapReceived(statusChange("RAD-N"))).join();
+
+        assertThat(writer.generation("RAD-N")).isEqualTo(status + 1);
+        assertThat(writer.contactGeneration("RAD-N")).isEqualTo(contact);
+        LiveBoard before = writer.current();
+        publisher.clear();
+        assertThat(writer.submit(new PollSucceeded(obs("RAD-N", FAILED), status)).join()).isEqualTo(BoardResult.ok());
+        assertThat(writer.submit(new PollFailed("RAD-N", t0, "TIMEOUT: no response", status)).join())
+                .isEqualTo(BoardResult.ok());
+        assertThat(writer.current()).isSameAs(before);
+        assertThat(health("RAD-N")).isEqualTo(Health.OPERATIONAL);
+        assertThat(writer.current().telemetry().get("RAD-N").fullPollFailures()).isZero();
+        assertThat(publisher.all).isEmpty();
+        assertThat(stale("poll")).isEqualTo(2.0);
     }
 
     @Test
@@ -226,9 +301,10 @@ class BoardWriterTest {
     }
 
     @Test
-    void failedTrapCommitStillRequestsARepollAndKeepsTheGeneration() {
+    void failedCommitStillBumpsGenerationsAndRequestsTheRepoll() {
         started();
         long g = writer.generation("RAD-N");
+        long c = writer.contactGeneration("RAD-N");
         publisher.clear();
         store.failNextCommit();
 
@@ -239,8 +315,15 @@ class BoardWriterTest {
         }
 
         assertThat(publisher.all).containsExactly(new RepollRequested("RAD-N", Reason.TRAP));
-        assertThat(writer.generation("RAD-N")).isEqualTo(g);
+        assertThat(writer.generation("RAD-N")).isEqualTo(g + 1);
+        assertThat(writer.contactGeneration("RAD-N")).isEqualTo(c); // a trap does not invalidate probes
         assertThat(writer.current().board().openAlarms()).isEmpty();
+        // a poll that started before the uncommitted trap is now discarded
+        publisher.clear();
+        assertThat(writer.submit(new PollSucceeded(obs("RAD-N", OPERATIONAL), g)).join()).isEqualTo(BoardResult.ok());
+        assertThat(health("RAD-N")).isEqualTo(Health.UNKNOWN);
+        assertThat(publisher.all).isEmpty();
+        assertThat(stale("poll")).isEqualTo(1.0);
     }
 
     @Test
@@ -256,7 +339,7 @@ class BoardWriterTest {
 
         try (CapturedLogs logs = new CapturedLogs(BoardWriter.class)) {
             BoardResult r = writer.submit(new ProbeSucceeded(new ProbeObservation("RAD-N", t0, 1000),
-                    writer.generation("RAD-N"))).join();
+                    writer.contactGeneration("RAD-N"))).join();
             assertThat(r.committed()).isFalse();
         }
 
@@ -265,7 +348,7 @@ class BoardWriterTest {
     }
 
     @Test
-    void commitFailureKeepsGenerationButMergesTheCounters() {
+    void commitFailureOfAContactChangeBumpsBothGenerationsAndMergesTheCounters() {
         started();
         writer.submit(probeFailed("RAD-N")).join();
         writer.submit(probeFailed("RAD-N")).join();
@@ -275,14 +358,16 @@ class BoardWriterTest {
             assertThat(writer.submit(probeFailed("RAD-N")).join().committed()).isFalse();
         }
 
-        assertThat(writer.generation("RAD-N")).isZero();
+        assertThat(writer.generation("RAD-N")).isEqualTo(1);
+        assertThat(writer.contactGeneration("RAD-N")).isEqualTo(1);
         assertThat(writer.current().telemetry().get("RAD-N").consecutiveFailures()).isEqualTo(3);
         assertThat(writer.current().board().equipment().get("RAD-N").unknownReason())
                 .isEqualTo(UnknownReason.NOT_YET_POLLED);
         assertThat(writer.submit(probeFailed("RAD-N")).join().committed()).isTrue();
         assertThat(writer.current().board().equipment().get("RAD-N").unknownReason())
                 .isEqualTo(UnknownReason.LOST_CONTACT);
-        assertThat(writer.generation("RAD-N")).isEqualTo(1);
+        assertThat(writer.generation("RAD-N")).isEqualTo(2);
+        assertThat(writer.contactGeneration("RAD-N")).isEqualTo(2);
     }
 
     @Test
@@ -296,6 +381,7 @@ class BoardWriterTest {
         assertThat(writer.current().generations()).hasSize(7).containsOnlyKeys(
                 inv.devices().stream().map(Device::id).toList());
         assertThat(writer.current().generations().values()).containsOnly(0L);
+        assertThat(writer.current().contactGenerations()).isEqualTo(writer.current().generations());
         assertThat(publisher.all).extracting(Object::getClass).containsExactly(BoardCommitted.class, BoardReady.class);
     }
 
