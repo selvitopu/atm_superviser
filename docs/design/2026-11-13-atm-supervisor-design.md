@@ -120,12 +120,12 @@ Each piece of equipment has four independent attributes:
     - `NOT_YET_POLLED`: before the first successful poll.
     - `LOST_CONTACT`: after 3 consecutive failed **probes**, about 15 s.
     - `AWAITING_STATUS`: a probe restored contact, and no full poll has confirmed health yet.
-    - `STATUS_UNAVAILABLE`: probes succeed, but no full poll has succeeded for more than 3 × the poll interval.
+    - `STATUS_UNAVAILABLE`: probes succeed for a device whose health was known, but no full poll has succeeded for more than 3 × the poll interval.
     - `RESTARTING`: during a commanded restart (§8.3).
     - `SUPERVISOR_RESTARTED`: after the supervisor itself restarts, until the first poll.
 - **Maintenance**, a boolean flag that is *not* a health value. It comes from `atmTsEqMaintenanceMode`. Because the two are separate, a device in maintenance still shows its real health. In the `fdps-failover` demo the operator sees FDPS-A come back `OPERATIONAL` after the restart, and only then switches maintenance off.
 - **Role**, one of `standalone`, `active` or `standby`.
-- **Contact**, made of `reachable`, `lastPollAt` and the time of the last probe (`lastProbeAt`) and the count of consecutive failed probes.
+- **Contact**, made of `reachable`, `lastPollAt`, `lastProbeAt` and the count of consecutive failed probes.
 
 **Freshness:**
 - At more than 2× the poll interval since `lastPollAt`, the UI shows the age in amber. The UI computes the age itself (§9).
@@ -250,7 +250,7 @@ A shared Maven module `mib` holds the MIB file and the Java constants (`AtmTsOid
   - **Why it matters:** localised keys depend only on the engine ID, so they stay valid across restarts. What breaks is the **time window**. If the boots counter went back down after a simulator restart, the supervisor's USM would treat that device's v3 traps as replays and silently drop them. Requests are not affected, because SNMP4J resynchronises automatically on the `notInTimeWindow` report.
   - **Test:** restart a device and confirm its next v3 trap is still accepted.
 - **Traps and informs:** critical alarms are sent as **INFORMs** (acknowledged and retried). Everything else is sent as TRAPs.
-- **Polling is the source of truth.** Traps are low-latency hints: a trap triggers an immediate re-poll of that device. After contact is restored, or after the supervisor starts, it walks each device's `atmTsAlarmTable` and reconciles its own alarm state with it. This covers lost traps.
+- **Polling is the source of truth.** Traps are low-latency hints: a trap triggers an immediate re-poll of that device. Every successful full poll walks the device's `atmTsAlarmTable`, and the supervisor reconciles its own alarm state with it. This covers lost traps.
 - **Ports:**
   - Each agent listens on UDP `16101 + n` (n = 0…14, so 16101–16115) inside the simulator container, so the apps run as non-root. This range was chosen so that no agent collides with the trap port 10162 when everything runs on one host.
   - The supervisor's trap receiver listens on UDP `10162`.
@@ -337,9 +337,9 @@ Skipping SNMP4J-Agent avoids its sparsely documented API and keeps every line of
 |---|---|
 | `inventory` | Loads and validates `config/inventory.yml` (id, type, name, group, host, port, SNMP version, user or community, engine ID, poll interval, pair partner). Fails fast at startup if it is invalid. |
 | `snmp` | One SNMP4J `Snmp` session (UDP transport, MPv2c plus MPv3, USM). `SnmpClient` covers get, getBulk and set with timeouts and retries. `TrapReceiver` accepts traps and informs and answers informs. Maps varbinds to typed `Observation` and `Notification` records. |
-| `polling` | One scheduled task per device, run on virtual threads with bounded concurrency. Counts consecutive failures, triggers an immediate re-poll when a trap arrives, and runs the alarm-table resync. |
+| `polling` | One scheduled task per device, run on virtual threads with bounded concurrency. Counts consecutive failures and triggers an immediate re-poll when a trap arrives. |
 | `board` | Owns the live state (equipment, services, open alarms) and the **board writer** thread (§8.1). Also holds:<br>- the `StatusDeriver`<br>- the **`ServiceEvaluator`**: the single function `Board → service states` that runs every `ServiceRule` with both UNKNOWN passes. The board writer and the command preview both use it (§8.3).<br>- the **pure `BoardReducer`** (`Board × Event → Board`) |
-| `alarms` | Alarm lifecycle and catalogue (§8.2), deduplication, maintenance suppression, and reconciliation on resync. |
+| `alarms` | Alarm lifecycle and catalogue (§8.2), deduplication, maintenance suppression, and the reconciliation against a device's alarm table (resync), which the board runs inside the decision for every successful full poll. |
 | `control` | Commands, interlocks, SET execution, and verifying the result (§8.3). |
 | `history` | Append-only event log, snapshots, replay queries, export, and retention purge. |
 | `api` | REST controllers, the SSE endpoint, DTOs, OpenAPI (springdoc), and RFC 9457 `ProblemDetail` errors. |
@@ -395,9 +395,9 @@ This has three consequences:
 - **Commands:** `COMMAND_ISSUED`, `COMMAND_COMPLETED`
 - **Supervisor lifecycle:** `SUPERVISOR_STARTED`, `SUPERVISOR_HEARTBEAT` (every 60 s), `SUPERVISOR_STOPPING` (on graceful shutdown)
 
-**Lost contact in replay.** The consecutive-failure count is **live only**. It changes on every failed poll and is not stored. What is stored is the fact:
-- `CONTACT_LOST` when the third poll fails. Its payload is the full equipment state: health `UNKNOWN`, `unknownReason: LOST_CONTACT`, `lostAt`, and `lastContactAt` (the last successful poll).
-- `CONTACT_RESTORED`, carrying the fresh state, on the next successful poll.
+**Lost contact in replay.** The consecutive-failure count is **live only**. It changes on every failed probe and is not stored. What is stored is the fact:
+- `CONTACT_LOST` when the third probe fails. Its payload is the full equipment state: health `UNKNOWN`, `unknownReason: LOST_CONTACT`, `lostAt`, and `lastContactAt` (the last successful probe or poll).
+- `CONTACT_RESTORED`, carrying the fresh state, on the next successful probe or poll.
 
 *Worked example:* REC is polled successfully at 14:09:45Z, fails at 14:09:50, 14:09:55 and 14:10:00Z, and answers again at 14:10:40Z.
 
@@ -417,7 +417,7 @@ The replay fidelity test (§11) uses exactly this sequence.
 - **What replay shows:** statuses, alarms and commands exactly. For values, it shows the most recent real sample at or before T, together with that sample's own timestamp and age, and never interpolates. The replay UI says so.
 - **Not affected:** health, `UNKNOWN` and lost contact are never coalesced. They are stored events.
 
-**Probes, full polls, generations and the circuit breaker.** Each device has two kinds of poll (amendment [§1](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md) and [§2](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md)).
+**Probes, full polls, generations and the circuit breaker.** Each device has two kinds of poll ([amendment](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md) §1 and §2).
 - **Probes** read `sysUpTime.0` at the poll cadence and never go through the circuit breaker.
 - **Full polls** run through the per-device breaker: a count-based window of 5, at least 3 calls, a 50 % failure rate, 30 s in OPEN and one permitted call in HALF_OPEN. There is no time-based move from OPEN to HALF_OPEN.
 - **Recovery:** when a probe restores contact, an OPEN breaker moves to HALF_OPEN and one verification poll runs at once. If it succeeds, the breaker closes and health is set from it. If it fails, the breaker reopens and the device stays `UNKNOWN`.
@@ -425,7 +425,7 @@ The replay fidelity test (§11) uses exactly this sequence.
   - the **status generation** is bumped by traps and by contact changes, and full polls are checked against it;
   - the **contact generation** is bumped by contact changes only, and probes are checked against it.
   - **Why two:** a probe carries no subsystem state, so a trap cannot invalidate contact evidence. With one shared generation, a trap could discard a probe result and mask a lost contact.
-  - **Failed commits:** both generations are bumped even when the commit fails, so a result that was read before the failure is never accepted afterwards.
+  - **Failed commits:** a failed commit still bumps the generations its decision invalidates (a trap bumps the status generation; a contact change bumps both), so the results it made stale are never accepted afterwards.
   - **Reading of the amendment:** the split into two generations is this project's reading of amendment §2 (stale-result protection).
 - **Known trade-off:** under a trap flood that outpaces a full poll's round trip, full polls are discarded as stale. The device then goes `UNKNOWN` with `STATUS_UNAVAILABLE` after 3 poll intervals, through the probe path.
 
@@ -454,7 +454,7 @@ Traps still raise and clear alarms at once, as hints; the walk then confirms or 
 | Case | Action | Event |
 |---|---|---|
 | In D, not in S | Raise, using the device's `raisedAt` (also the re-raise, with the same id, of a `CLEARED_UNACK` alarm) | `ALARM_RAISED` with `via: RESYNC` |
-| In S, not in D | Clear; an acknowledged alarm goes on to `CLOSED`, following the lifecycle | `ALARM_CLEARED` with `via: RESYNC` |
+| In S, not in D | Clear; an acknowledged alarm goes on to `CLOSED`, following the lifecycle | `ALARM_CLEARED` with `via: RESYNC`; `ALARM_CLOSED` for an acknowledged alarm |
 | In both, D more severe | Update severity, back to unacknowledged | `ALARM_UPDATED` |
 | In both, D less severe | Update severity, acknowledgement kept | `ALARM_UPDATED` |
 | In both, same severity (text may differ) | Update the text only if it differs | `ALARM_UPDATED` or nothing |
@@ -751,7 +751,7 @@ Each phase ends with a tag, and the repo is presentable at every tag.
 | Phase | Tag | Scope |
 |---|---|---|
 | 1 "First slice" | `v0.1` | **Three device types only: radar, SDPS, FDPS (7 devices).** Covers the full MIB file (all groups defined), the `mib` module, the hand-written agent (scalars, the SDPS sensor table and the alarm table) with persisted engine boots, and the faults API. In the supervisor: inventory, snmp, polling, traps and informs, the board writer, the `ServiceEvaluator` for `SURV` and `FD`, alarms with acknowledge (no resync yet) and the event log. Also REST plus SSE, the Angular board with alarm list and detail panel, Compose (mysql, simulator, supervisor, ui), **basic CI** (`mvn verify`, `ng test` and build, `smilint`), unit and SNMP integration tests, and a minimal README. |
-| 2 "The whole centre" | `v0.2` | The remaining types: ADS-B, VCS, radio, recorder, and the switches (IF-MIB, v2c), bringing the total to 15 devices and all five services. Also alarm resync, lost-contact UI, scenarios and the simulator console. |
+| 2 "The whole centre" | `v0.2` | The remaining types: ADS-B, VCS, radio, recorder, and the switches (IF-MIB, v2c), bringing the total to 15 devices and all five services. Also alarm resync (already in v0.1.1), lost-contact UI, scenarios and the simulator console. |
 | 3 "It controls and remembers" | `v0.3` | Control commands with interlocks, preview, SET outcome handling and verification. Security and roles, snapshots, and the replay UI with export. |
 | 4 "Production-minded" | `v1.0` | Prometheus, snmp_exporter and Grafana, Playwright end-to-end tests, net-snmp CLI checks in CI, full docs (§15), README with GIF, alarm sound |
 
@@ -797,7 +797,7 @@ Phases are split by **device type**, not by device count, because the work grows
   | H2 Replay mistaken for live | Separate `ReplayStore` with no SSE; fixed amber band; commands disabled in replay; `NO_DATA` for gaps | `replay-isolation.spec.ts`, `replay-band.spec.ts`, `ReplayNoDataTest`, e2e replay step |
   | H3 Unintended or unsafe control command | Role check; mandatory reason; interlocks; preview through the same `ServiceEvaluator`; confirmation dialog; idempotent `becomeActive`; SETs with 0 retries | `CommandInterlockTest`, `CommandSecurityTest`, `CommandPreviewConsistencyIT`, `SetErrorHandlingIT` |
   | H4 An alarm flood hides a critical alarm | Ordered by severity, then time; maintenance suppression; escalation goes back to unacknowledged; critical tone | `AlarmLifecycleTest`, `alarm-list.spec.ts` |
-  | H5 A lost trap hides a failure | Polling is the source of truth; INFORMs for critical alarms; resync reconciliation | `AlarmResyncTest`, `TrapLossResyncIT` |
+  | H5 A lost trap hides a failure | Polling is the source of truth; INFORMs for critical alarms; resync reconciliation | `AlarmEngineTest`, `SupervisorEndToEndIT.trapLossIsReconciledFromTheAlarmTable` |
   | H6 A failed SNMP authentication goes unnoticed | Alarm 902 on USM reports; a Grafana panel | `SnmpV3AuthFailureIT` |
   | H7 A restarted device shown with its pre-restart state | `UNKNOWN (RESTARTING)` until the first poll; restart proven through `sysUpTime` | `RestartVerificationIT` |
   | H8 v3 traps silently rejected after an agent restart | Persisted, ever-growing `snmpEngineBoots` | `EngineBootsPersistenceIT` |

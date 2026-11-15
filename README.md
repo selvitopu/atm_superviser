@@ -66,7 +66,9 @@ See [section 13 of the design](docs/design/2026-11-13-atm-supervisor-design.md) 
 
 ## Quickstart
 
-Requires Docker with Compose. The first time, while online, build the images:
+Requires Docker with Compose v2, bash, curl, python3 and lsof (the preflight script uses all of them). On
+macOS, python3 comes with the Command Line Tools (`xcode-select --install`). The first time, while online,
+build the images:
 
 ```sh
 scripts/demo-preflight.sh --build

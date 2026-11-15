@@ -60,9 +60,14 @@ if [ -z "$(docker compose ps --status running -q)" ] \
   exit 1
 fi
 
-docker compose up -d --wait
+if ! docker compose up -d --wait; then
+  echo "The demo stack did not become healthy."
+  docker compose ps || true
+  docker compose logs --tail 50 supervisor || true
+  exit 1
+fi
 
-code=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/sim/api/reset || true)
+code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -X POST localhost:8080/sim/api/reset || true)
 if [ "$code" != "204" ]; then
   echo "Simulator reset failed (HTTP $code)."
   exit 1
@@ -86,7 +91,7 @@ sys.exit(0 if ok else 1)
 deadline=$((SECONDS + 120))
 last=""
 while [ "$SECONDS" -lt "$deadline" ]; do
-  if board=$(curl -fsS localhost:8080/api/v1/board 2>/dev/null) \
+  if board=$(curl -fsS --max-time 5 localhost:8080/api/v1/board 2>/dev/null) \
       && last=$(printf '%s' "$board" | evaluate 2>/dev/null); then
     echo "READY  7/7 OPERATIONAL  SURV OK  FD OK  http://localhost:8080"
     exit 0

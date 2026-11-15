@@ -83,9 +83,8 @@ F FDPS-B UNREACHABLE
 ```
 
 Shows: nothing changes for about 15 s while polls and probes fail. At about 16 s FDPS-B turns UNKNOWN
-(reason LOST_CONTACT), alarm 901 "Lost contact" is raised with a "?" next to it,
-and FD turns UNKNOWN, shown as "UNKNOWN · at best OK", with the reason "Depends on equipment in UNKNOWN
-state: FDPS-B".
+(reason LOST_CONTACT), alarm 901 "Lost contact" is raised with a "?" next to it, and FD turns UNKNOWN,
+shown as "UNKNOWN · at best OK", with the reason "Depends on equipment in UNKNOWN state: FDPS-B".
 
 Talking point: the board never shows green for something it cannot see. The "?" means the alarm belongs to
 a device whose state is unconfirmed, and "at best OK" tells the operator the best case if the unit is in
@@ -97,9 +96,9 @@ fact fine (§5.1).
 F FDPS-B RECOVER
 ```
 
-Shows: within about a second FDPS-B passes through AWAITING_STATUS (still UNKNOWN) for a
-fraction of a second and then returns to OPERATIONAL. FD returns to OK and alarm 901 becomes CLEARED-UNACK. Acknowledge
-it and it leaves the list.
+Shows: within a few seconds (at most one probe interval) FDPS-B passes through AWAITING_STATUS (still
+UNKNOWN) for a fraction of a second and then returns to OPERATIONAL. FD returns to OK and alarm 901
+becomes CLEARED-UNACK. Acknowledge it and it leaves the list.
 
 Talking point: a recovered probe triggers one immediate verification poll instead of waiting for the
 breaker timer, so recovery takes seconds, not about 30 s (amendment §1).
