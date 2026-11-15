@@ -8,7 +8,7 @@
 
 While the supervised CNS/ATM estate models redundant equipment pairs (`SDPS-A/B`, `FDPS-A/B`), we needed to decide whether the **ATM Supervisor** process itself should run as a clustered active/standby pair or as a single instance, and how it should behave across restarts ([Hazard H7](../safety/hazard-log.md#h7-a-supervisor-restart-loses-operational-context)).
 
-Running two active supervisor instances concurrently against the same SNMP agents and MySQL tables without distributed leader election would double SNMP poll traffic, interleave conflicting `event_log` transitions, and race on alarm reconciliation.
+Running two active supervisor instances concurrently against the same SNMP agents and database tables without distributed leader election would double SNMP poll traffic, interleave conflicting `event_log` transitions, and race on alarm reconciliation.
 
 ## Decision Drivers
 
@@ -18,7 +18,7 @@ Running two active supervisor instances concurrently against the same SNMP agent
 
 ## Considered Options
 
-1. **Run a single supervisor instance backed by MySQL, preserve open alarms and last-known `maintenance`/`role` across restarts while setting health to `UNKNOWN (SUPERVISOR_RESTARTED)`, and record lifecycle/heartbeat events (`SUPERVISOR_STARTED`, `SUPERVISOR_HEARTBEAT`, `SUPERVISOR_STOPPING`)** *(Chosen)*
+1. **Run a single supervisor instance backed by PostgreSQL, preserve open alarms and last-known `maintenance`/`role` across restarts while setting health to `UNKNOWN (SUPERVISOR_RESTARTED)`, and record lifecycle/heartbeat events (`SUPERVISOR_STARTED`, `SUPERVISOR_HEARTBEAT`, `SUPERVISOR_STOPPING`)** *(Chosen)*
 2. **Active/standby supervisor clustering via a database lease or Raft** (deferred as future work beyond `v1.0`)
 3. **Stateless in-memory supervisor that starts from blank inventory defaults on every restart** (rejected because restarting the supervisor would wipe open alarms and reset maintenance flags)
 
@@ -43,7 +43,7 @@ Chosen option: **Option 1.**
 ### Consequences
 
 * **Good:** Restarting the supervisor preserves open alarms, maintenance flags, and active/standby roles, while honestly marking health as `UNKNOWN (SUPERVISOR_RESTARTED)` until the first poll completes.
-* **Good:** Because all durable state already lives in MySQL and `Board` is a pure fold of `event_log`, adding active/standby supervisor failover in the future only requires a lease table gating [`PollScheduler`] and [`BoardWriter`].
+* **Good:** Because all durable state already lives in PostgreSQL and `Board` is a pure fold of `event_log`, adding active/standby supervisor failover in the future only requires a lease table gating [`PollScheduler`] and [`BoardWriter`].
 * **Bad / Trade-off:** While the single supervisor container is stopped, nothing is supervised.
 
 ## Verification

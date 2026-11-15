@@ -32,7 +32,7 @@ flowchart LR
         UI["ui (nginx :8080)<br/>Serves SPA, proxies /api -> supervisor:8080<br/>and /sim/api -> simulator:8090"]
         SUP["supervisor (Spring Boot 4.1, Java 25)<br/>REST & SSE :8080 · Actuator :8081<br/>Trap Receiver UDP :10162"]
         SIM["simulator (Spring Boot 4.1, Java 25)<br/>7 SNMP4J Core Agents UDP :16101–16107<br/>Fault Injection API :8090"]
-        DB[("mysql (MySQL 8.4)<br/>event_log & alarm tables")]
+        DB[("postgres (PostgreSQL 18)<br/>event_log, alarm & user tables")]
         VOL[("simulator-data volume<br/>engine-boots.json")]
     end
 
@@ -41,7 +41,7 @@ flowchart LR
     UI -->|"/sim/api/*"| SIM
     SUP -->|"SNMPv3 authPriv<br/>(SHA-256 / AES-128)"| SIM
     SIM -->|"TRAP / INFORM<br/>(UDP 10162)"| SUP
-    SUP -->|"JDBC / Flyway"| DB
+    SUP -->|"JDBC / Liquibase"| DB
     SIM --> VOL
 ```
 
@@ -137,7 +137,7 @@ sequenceDiagram
     participant In as PollScheduler / TrapForwarder / API
     participant BW as BoardWriter (Single Thread)
     participant BD as BoardDecider (Pure)
-    participant DB as JpaBoardStore (MySQL Tx)
+    participant DB as JpaBoardStore (PostgreSQL Tx)
     participant BR as BoardReducer (Pure)
     participant SSE as SseBroadcaster
 
@@ -175,12 +175,15 @@ sequenceDiagram
 
 ---
 
-## 3. Persistence Schema (`V1__event_log_and_alarm.sql`)
+## 3. Persistence Schema (Liquibase changelog)
+
+The schema is created by the Liquibase changelog [`db.changelog-master.yaml`](../supervisor/src/main/resources/db/changelog/db.changelog-master.yaml), whose SQL changesets live in [`changes/`](../supervisor/src/main/resources/db/changelog/changes). Changeset `003` loads the demo accounts only in demo mode ([ADR-0009](adr/0009-postgresql-and-liquibase.md)).
 
 | Table | Purpose | Key Columns & Constraints |
 |---|---|---|
-| `event_log` | Append-only log of all equipment, service, alarm, supervisor lifecycle, and 30 s `TELEMETRY_SAMPLED` events. | `id BIGINT AUTO_INCREMENT PRIMARY KEY`, `occurred_at`, `recorded_at`, `type`, `entity_kind`, `entity_id`, `equipment_id`, `actor`, `payload JSON` (full new entity state + `schemaVersion`; alarm events also record `via`). Indexed on `(occurred_at)`, `(equipment_id, occurred_at)` and `(type, occurred_at)`. |
-| `alarm` | Open and closed alarm records. | `id`, `equipment_id`, `code`, `instance`, `instance_name`, `severity`, `text`, `source`, `state`, `suppressed`, `raised_at`, `acked_at`, `acked_by`, `ack_comment`, `cleared_at`, and `open_key VARCHAR(64) UNIQUE` (`equipment\|code\|instance` while open, `NULL` once `CLOSED`). |
+| `event_log` | Append-only log of all equipment, service, alarm, supervisor lifecycle, and 30 s `TELEMETRY_SAMPLED` events. | `id bigint generated always as identity`, `occurred_at` and `recorded_at` (`timestamptz(3)`), `type`, `entity_kind`, `entity_id`, `equipment_id`, `actor`, `payload jsonb` (full new entity state + `schemaVersion`; alarm events also record `via`). Indexed on `(occurred_at)`, `(equipment_id, occurred_at)` and `(type, occurred_at)`. |
+| `alarm` | Open and closed alarm records. | `id`, `equipment_id`, `code`, `instance`, `instance_name`, `severity`, `text`, `source`, `state`, `suppressed`, `raised_at`, `acked_at`, `acked_by`, `ack_comment`, `cleared_at`. The partial unique index `uk_alarm_open` on `(equipment_id, code, instance) where state <> 'CLOSED'` allows one open alarm per identity. |
+| `role`, `app_user`, `user_role` | Roles (`VIEWER`, `SUPERVISOR`, `ADMIN`) and accounts. | Usernames are unique and lower case; passwords are stored as `{bcrypt}` hashes. In demo mode, `admin1`, `supervisor1` and `demo1` are created with one role each. |
 
 *(Planned for `v0.3`: `command`, `active_command(equipment_id PRIMARY KEY)` for crash-safe command exclusion, and `snapshot` for 5-minute replay checkpoints.)*
 

@@ -38,7 +38,7 @@ You can also manage the stack directly with Docker Compose from the repository r
 
 ```sh
 docker compose up -d --wait
-docker compose down          # stop containers, keep MySQL & engine-boots volumes
+docker compose down          # stop containers, keep the database & engine-boots volumes
 docker compose down -v       # stop containers and delete volumes
 ```
 
@@ -113,7 +113,7 @@ Click any equipment tile to select it (deep-linked at `/board/:equipmentId`, for
   * **SDPS (`SDPS-A/B`):** `Tracks`, `Latency (ms)`, plus the **`Sensor / Input` table** listing each radar (`RAD-N`, `RAD-E`, `RAD-S`) as `RECEIVING`, `LOST`, or `EXCLUDED`.
   * **FDPS (`FDPS-A/B`):** `Flight plans`, `Queue depth`, and `Latency (ms)`.
 * **Poll Freshness (`Last poll N s ago`):** Ticks every second against server time.
-* **Recent Events:** Lists up to the last **50 durable events** recorded in MySQL for this device (`EQUIPMENT_STATE_CHANGED`, `CONTACT_LOST`, `CONTACT_RESTORED`, `ALARM_RAISED`, `ALARM_CLEARED`, etc.) with their UTC timestamps and human-readable summaries.
+* **Recent Events:** Lists up to the last **50 durable events** recorded in PostgreSQL for this device (`EQUIPMENT_STATE_CHANGED`, `CONTACT_LOST`, `CONTACT_RESTORED`, `ALARM_RAISED`, `ALARM_CLEARED`, etc.) with their UTC timestamps and human-readable summaries.
 
 ### 2.6 Alarms Pane (Bottom Bar & Table)
 

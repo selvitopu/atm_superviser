@@ -49,7 +49,7 @@ Chosen option: **Option 1.**
 ### Consequences
 
 * **Good:** Eliminates the 5-minute resync blind spot and removes per-device "resync due" timer state; a lost trap is corrected by the next successful full poll (5 s cadence).
-* **Good:** All reconciliation changes commit in the same MySQL transaction as the poll's equipment and service events.
+* **Good:** All reconciliation changes commit in the same PostgreSQL transaction as the poll's equipment and service events.
 * **Bad / Trade-off:** Adds one `GETBULK` walk of `atmTsAlarmTable` to every full poll (negligible overhead because a device has at most a handful of active alarms).
 
 ## Verification

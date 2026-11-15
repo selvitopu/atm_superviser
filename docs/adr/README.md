@@ -12,3 +12,4 @@ This directory records the significant architectural decisions of **ATM Supervis
 | [ADR-0006](0006-single-shared-inventory.md) | Single shared device inventory (`config/inventory.yml`) across simulator and supervisor | Accepted | Implemented (`v0.1.1`) |
 | [ADR-0007](0007-supervisor-ha-as-future-work.md) | Single supervisor instance with state-preserving restart; active/standby supervisor HA left as future work | Accepted | Implemented (`v0.1.1`) |
 | [ADR-0008](0008-independent-probes-two-generations-and-crash-safe-commands.md) | Independent health probes, two-generation single-flight polling, and crash-safe `UNCERTAIN` commands | Accepted | Probes, breakers & two generations implemented (`v0.1.1`); supervisor commands planned (`v0.3`) |
+| [ADR-0009](0009-postgresql-and-liquibase.md) | PostgreSQL 18 with a Liquibase changelog and demo-only seed accounts | Accepted | Implemented (after `v0.1.1`) |

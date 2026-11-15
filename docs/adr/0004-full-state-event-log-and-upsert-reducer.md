@@ -35,7 +35,7 @@ Chosen option: **Option 1.**
 2. **Pure Upsert [`BoardReducer`]:**
    * [`BoardReducer.apply`] folds a [`DomainEvent`] into an immutable [`Board`] by upserting the entity by ID (or removing an alarm when `ALARM_CLOSED`).
    * It never runs [`ServiceEvaluator`] or [`AlarmEngine`], which run only in [`BoardDecider`] (Step 1 of [`BoardWriter`]).
-   * In [`BoardWriter`], the in-memory board is updated **only** by folding the events that just committed in MySQL ([`BoardReducer.apply`] for each committed event). If a commit fails, the board remains unchanged and the next input retries ([`BoardWriterTest`] `commitFailureLeavesBoardUnchangedAndRetries`).
+   * In [`BoardWriter`], the in-memory board is updated **only** by folding the events that just committed in PostgreSQL ([`BoardReducer.apply`] for each committed event). If a commit fails, the board remains unchanged and the next input retries ([`BoardWriterTest`] `commitFailureLeavesBoardUnchangedAndRetries`).
 3. **Volatile Live Telemetry vs. 30 s `TELEMETRY_SAMPLED`:**
    * Every successful full poll emits a volatile `telemetry` SSE frame (with no SSE `id`) for live UI gauges and freshness ages.
    * [`BoardDecider`] emits one durable `TELEMETRY_SAMPLED` event per device every **30 seconds** while full polls succeed, with **no deadband** so stable values are sampled too. Missed polls emit no sample.

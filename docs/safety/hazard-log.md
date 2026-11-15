@@ -135,7 +135,7 @@ Status values:
 - **Cause:** the supervisor restarts and comes back with an empty or outdated picture.
 - **Consequence:** open alarms disappear, or old states are shown as current.
 - **Mitigation:**
-  - Every state change is stored as an event, together with the alarm rows, in one MySQL transaction
+  - Every state change is stored as an event, together with the alarm rows, in one PostgreSQL transaction
     ([JpaBoardStore]).
   - On start the supervisor reloads open alarms, restores each device's last known maintenance flag
     and role, and marks every device `UNKNOWN (SUPERVISOR_RESTARTED)` until its first poll

@@ -42,7 +42,7 @@ Around these it uses mainstream engineering: full-stack Java/Spring Boot plus An
   - alarm resynchronisation after traps are lost
 - **G5 Replay and data retrieval:** rebuild the board as it was at any past moment, play history back at speed, and export an incident report.
 - **G6 Engineering hygiene:**
-  - unit tests, plus integration tests over real UDP SNMP and Testcontainers MySQL
+  - unit tests, plus integration tests over real UDP SNMP and Testcontainers PostgreSQL
   - CI and Docker Compose
   - Prometheus (including `snmp_exporter`) and Grafana
   - English docs: ADRs, a domain primer, a sample change request with a safety assessment, and a hazard log
@@ -75,7 +75,7 @@ Around these it uses mainstream engineering: full-stack Java/Spring Boot plus An
 | SNMP | SNMP4J **3.13.x** (Apache-2.0). The simulator's agents are hand-written on SNMP4J core (§7). SNMP4J-Agent is **not** used. |
 | Frontend | Angular **22**, TypeScript, standalone components, signals, zoneless change detection, and Angular CDK. No Angular Material: the look is custom. |
 | Node | **Node 26 LTS** (Angular 22 needs `^22.22.3 \|\| ^24.15.0 \|\| >=26`). Development uses Node 26.13.1 and Angular CLI 22.2.7. |
-| Database | MySQL **8.4 LTS**, Spring Data JPA/Hibernate, Flyway |
+| Database | PostgreSQL **18**, Spring Data JPA/Hibernate, Liquibase |
 | Build | Maven multi-module for Java, npm for `ui/` |
 | Images | `eclipse-temurin:25-jre` for the Java apps, `nginx` (stable alpine) for the UI |
 | Runtime | One laptop (macOS arm64 and Linux amd64), whole stack under about 3 GB RAM, everything offline once the images are built |
@@ -87,7 +87,7 @@ Around these it uses mainstream engineering: full-stack Java/Spring Boot plus An
 
 1. **Modular monolith supervisor plus a separate simulator (chosen).** There are two Spring Boot apps:
    - The **simulator** hosts 15 fake devices as SNMP agents.
-   - The **supervisor** polls them, receives traps, manages alarms, sends SET commands, stores an event log in MySQL, and serves REST and SSE to Angular.
+   - The **supervisor** polls them, receives traps, manages alarms, sends SET commands, stores an event log in PostgreSQL, and serves REST and SSE to Angular.
 
    Prometheus and Grafana run alongside. Spring Modulith enforces the module boundaries inside the supervisor. *Why:* it has few moving parts, it touches every requirement, it fits the time available, and it is easy to explain. The boundaries are clean enough that a module could later move behind a broker.
 2. **Broker-centred microservices** (collector → Kafka/RabbitMQ → state, history/replay and control services). This would show middleware, and replay falls out of the Kafka log. It was rejected because four services for 15 devices is over-engineering that is hard to justify, and it roughly doubles the build time.
@@ -465,7 +465,7 @@ Traps still raise and clear alarms at once, as hints; the walk then confirms or 
 - **Supervisor-sourced alarms:** the device walk never touches them (9xx, 1001, 1002).
   - **1001 and 1002:** the switches apply the same table to their interface alarms, using the re-read `ifTable` as D.
   - **901:** `CONTACT_RESTORED` clears it.
-- **Duplicates:** `open_key` uniqueness (§8.4) is the safety net, but the table above is what prevents them.
+- **Duplicates:** the open-alarm unique index (§8.4) is the safety net, but the table above is what prevents them.
 
 Every row of the table, plus the partial-walk case, has its own unit test.
 
@@ -551,13 +551,13 @@ Results:
 - **Window expires:** after `noError` the status becomes `TIMED_OUT`. After `UNCERTAIN` it **stays `UNCERTAIN` (unknown outcome)**: the device's command exclusion is kept until an audited manual resolution releases it (amendment §3).
 - **Restart:** when `RESTART` is accepted, the supervisor immediately sets the device's health to `UNKNOWN` with reason `RESTARTING`. Failed polls inside the 30 s window are expected and do not count toward lost contact. The first successful poll then sets real health. A restarting device is therefore never shown with its old, pre-restart state.
 
-### 8.4 Persistence (MySQL, Flyway)
+### 8.4 Persistence (PostgreSQL, Liquibase)
 
 | Table | Key columns |
 |---|---|
-| `event_log` | `id` BIGINT PK auto, `occurred_at` DATETIME(3), `recorded_at` DATETIME(3), `type`, `entity_kind` (`EQUIPMENT`, `SERVICE`, `ALARM`, `COMMAND` or `SUPERVISOR`), `entity_id`, `equipment_id` NULL, `actor` NULL, `payload` JSON. Indexes on `(occurred_at)` and `(equipment_id, occurred_at)`. **`payload` = the full new state of the entity (§8.1),** plus `schemaVersion` so the format can evolve. |
-| `snapshot` | `id`, `taken_at`, `last_event_id`, `board` JSON. Taken every 5 min and at startup. |
-| `alarm` | `id`, `equipment_id`, `code`, `instance`, `instance_name`, `severity`, `text`, `source`, `state`, `suppressed`, `raised_at`, `acked_at`, `acked_by`, `ack_comment`, `cleared_at`, plus `open_key` VARCHAR NULL **UNIQUE**. `open_key` is set to `equipment\|code\|instance` while the alarm is open and NULL once it closes, so the database enforces deduplication. |
+| `event_log` | `id` bigint identity PK, `occurred_at` timestamptz(3), `recorded_at` timestamptz(3), `type`, `entity_kind` (`EQUIPMENT`, `SERVICE`, `ALARM`, `COMMAND` or `SUPERVISOR`), `entity_id`, `equipment_id` NULL, `actor` NULL, `payload` jsonb. Indexes on `(occurred_at)`, `(equipment_id, occurred_at)` and `(type, occurred_at)`. **`payload` = the full new state of the entity (§8.1),** plus `schemaVersion` so the format can evolve. |
+| `snapshot` | `id`, `taken_at`, `last_event_id`, `board` jsonb. Taken every 5 min and at startup. |
+| `alarm` | `id`, `equipment_id`, `code`, `instance`, `instance_name`, `severity`, `text`, `source`, `state`, `suppressed`, `raised_at`, `acked_at`, `acked_by`, `ack_comment`, `cleared_at`. A partial **unique** index on `(equipment_id, code, instance) where state <> 'CLOSED'` allows one open alarm per identity, so the database enforces deduplication. |
 | `command` | `id`, `equipment_id`, `type`, `reason`, `requested_by`, `requested_at`, `status`, `completed_at`, `detail` |
 
 Retention is 7 days by default and can be configured. A nightly job purges old events and snapshots.
@@ -694,7 +694,7 @@ Actuator (`health`, `prometheus`) runs on a separate management port, 8081, whic
 | Commands | Interlocks; preview equal to the observed outcome for every scenario command (`CommandPreviewConsistencyIT`); every row of the SET-outcome table, driven by agent faults that return each error status (`SetErrorHandlingIT`); restart verification, including that no pre-restart state is shown (`RestartVerificationIT`) |
 | SNMP compliance | The hand-written agent is exercised by three independent clients: the SNMP4J manager in the integration tests, net-snmp `snmpget`, `snmpbulkwalk` and `snmpset` in a CI step, and `snmp_exporter`. There is also an engine-boots test: restart a device, then check that its next v3 trap is accepted. |
 | SNMP integration | The simulator publishes a test-fixture artifact that starts real agents in-process on random UDP ports. Supervisor tests then cover: GET, GETBULK and SET; v3 authPriv success and a wrong-password report; timeout leading to lost contact; trap and inform reception; and alarm-table resync after `DROP_TRAPS`. |
-| Persistence | Testcontainers MySQL 8.4: Flyway migrations, `open_key` uniqueness, snapshot-plus-events replay queries, retention purge |
+| Persistence | Testcontainers PostgreSQL 18: Liquibase changelog and demo seed, open-alarm uniqueness, snapshot-plus-events replay queries, retention purge |
 | Architecture | `ApplicationModules.verify()` (Spring Modulith) |
 | API | MockMvc/RestTestClient slice tests, including security (viewer gets 403 on commands) and `ProblemDetail` errors |
 | Frontend | Vitest: stores, the SSE wrapper (reconnect and resync), status presentation (never green when UNKNOWN), and the replay timer |
@@ -726,7 +726,7 @@ atm-supervisor/
 └── README.md
 ```
 
-**Docker Compose** runs `mysql` (with a healthcheck), `simulator`, `supervisor` (which waits for MySQL to be healthy), `ui`, `prometheus`, `snmp-exporter` and `grafana`. Named volumes: `mysql-data`, and `simulator-data` for the persisted engine boots (§6.1).
+**Docker Compose** runs `postgres` (with a healthcheck), `simulator`, `supervisor` (which waits for PostgreSQL to be healthy), `ui`, `prometheus`, `snmp-exporter` and `grafana`. Named volumes: `postgres-data`, and `simulator-data` for the persisted engine boots (§6.1).
 
 Host ports:
 
@@ -752,7 +752,7 @@ Each phase ends with a tag, and the repo is presentable at every tag.
 
 | Phase | Tag | Scope |
 |---|---|---|
-| 1 "First slice" | `v0.1` | **Three device types only: radar, SDPS, FDPS (7 devices).** Covers the full MIB file (all groups defined), the `mib` module, the hand-written agent (scalars, the SDPS sensor table and the alarm table) with persisted engine boots, and the faults API. In the supervisor: inventory, snmp, polling, traps and informs, the board writer, the `ServiceEvaluator` for `SURV` and `FD`, alarms with acknowledge (no resync yet) and the event log. Also REST plus SSE, the Angular board with alarm list and detail panel, Compose (mysql, simulator, supervisor, ui), **basic CI** (`mvn verify`, `ng test` and build, `smilint`), unit and SNMP integration tests, and a minimal README. |
+| 1 "First slice" | `v0.1` | **Three device types only: radar, SDPS, FDPS (7 devices).** Covers the full MIB file (all groups defined), the `mib` module, the hand-written agent (scalars, the SDPS sensor table and the alarm table) with persisted engine boots, and the faults API. In the supervisor: inventory, snmp, polling, traps and informs, the board writer, the `ServiceEvaluator` for `SURV` and `FD`, alarms with acknowledge (no resync yet) and the event log. Also REST plus SSE, the Angular board with alarm list and detail panel, Compose (database, simulator, supervisor, ui), **basic CI** (`mvn verify`, `ng test` and build, `smilint`), unit and SNMP integration tests, and a minimal README. |
 | 2 "The whole centre" | `v0.2` | The remaining types: ADS-B, VCS, radio, recorder, and the switches (IF-MIB, v2c), bringing the total to 15 devices and all five services. Also alarm resync (already in v0.1.1), lost-contact UI, scenarios and the simulator console. |
 | 3 "It controls and remembers" | `v0.3` | Control commands with interlocks, preview, SET outcome handling and verification. Security and roles, snapshots, and the replay UI with export. |
 | 4 "Production-minded" | `v1.0` | Prometheus, snmp_exporter and Grafana, Playwright end-to-end tests, net-snmp CLI checks in CI, full docs (§15), README with GIF, alarm sound |

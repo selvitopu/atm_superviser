@@ -35,14 +35,14 @@ Chosen option: **Option 1 — Two Spring Boot 4.1 applications on Java 25 (`simu
 * **`polling`** ([`PollScheduler`], [`PollDispatcher`], [`DeviceBreakers`], [`TrapForwarder`]): Schedules lightweight probes and circuit-breaker-guarded full polls, keeps full polls single-flight per device, and submits inputs to the board.
 * **`alarms`** ([`AlarmEngine`], [`AlarmCatalogue`]): Pure alarm lifecycle (`ACTIVE_UNACK`, `ACTIVE_ACK`, `CLEARED_UNACK`, `CLOSED`), escalation, maintenance suppression, and full-table reconciliation (`reconcile`).
 * **`board`** ([`BoardWriter`], [`BoardDecider`], [`StatusDeriver`], [`ServiceEvaluator`], [`BoardReducer`]): Owns the live state and the single writer thread (`derive → commit → apply → publish`).
-* **`history`** ([`JpaBoardStore`], [`EventCodec`], [`EventQueries`]): Persists `event_log` and `alarm` rows in one MySQL transaction and reloads open alarms and last-known equipment states on restart.
+* **`history`** ([`JpaBoardStore`], [`EventCodec`], [`EventQueries`]): Persists `event_log` and `alarm` rows in one PostgreSQL transaction and reloads open alarms and last-known equipment states on restart.
 * **`api`** ([`BoardController`], [`AlarmController`], [`StreamController`], [`SseBroadcaster`]): Exposes REST endpoints and bounded Server-Sent Events (`/api/v1/stream`).
 
 Module boundaries are verified automatically in CI by [`ModularityTest`] (`ApplicationModules.of(SupervisorApplication.class).verify()`).
 
 ### Consequences
 
-* **Good:** A single [`BoardWriter`] thread processes all inputs sequentially and commits equipment events, derived service events, and alarm rows in one MySQL transaction through [`JpaBoardStore`].
+* **Good:** A single [`BoardWriter`] thread processes all inputs sequentially and commits equipment events, derived service events, and alarm rows in one PostgreSQL transaction through [`JpaBoardStore`].
 * **Good:** No outbox relay is needed because `event_log` is committed in the same transaction as the state change, and [`SseBroadcaster`] publishes only committed [`StoredEvent`] records.
 * **Good:** If a module ever needs to be extracted behind a message broker in the future, `event_log` already contains self-contained full-state JSON payloads.
 * **Bad / Trade-off:** Throughput is bounded to a single JVM process (which easily handles the planned 15 devices at a 5 s poll interval, a few inputs per second).
@@ -50,7 +50,7 @@ Module boundaries are verified automatically in CI by [`ModularityTest`] (`Appli
 ## Verification
 
 * [`ModularityTest`] — Verifies that Spring Modulith module boundaries have no illegal dependencies or cycles.
-* [`SupervisorEndToEndIT`] — Exercises the full modular monolith against in-process UDP simulator agents and MySQL 8.4 in Testcontainers.
+* [`SupervisorEndToEndIT`] — Exercises the full modular monolith against in-process UDP simulator agents and PostgreSQL 18 in Testcontainers.
 
 [SnmpClient]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/snmp/SnmpClient.java
 [ObservationMapper]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/snmp/ObservationMapper.java
