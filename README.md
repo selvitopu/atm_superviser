@@ -7,7 +7,9 @@ flight data) and shows it all on a live board. The centre is fictional: **Demo A
 
 ## Status: v0.1
 
-v0.1 is the first slice: three device types only, end to end.
+v0.1 is the first slice: three device types only, end to end. v0.1.1 hardens it and adds alarm-table
+reconciliation (resync): every full poll walks the device's alarm table and corrects the alarms, so a
+lost trap no longer hides a failure.
 
 What works:
 
@@ -21,9 +23,22 @@ What works:
 - A simulator with a fault-injection REST API.
 - Actuator health and metrics on the management port (supervisor: 8081, loopback only).
 
-Not in v0.1 yet: alarm resync, supervisor control commands, security and login, snapshots, replay
+Not in v0.1 yet: supervisor control commands, security and login, snapshots, replay
 and retention, Prometheus and Grafana, and the other device types (VCS, radio, recorder, LAN).
 The roadmap from v0.2 to v1.0 is in [section 13 of the design](docs/design/2026-11-13-atm-supervisor-design.md).
+
+## Known limitations (v0.1)
+
+See [section 13 of the design](docs/design/2026-11-13-atm-supervisor-design.md) for the phases.
+
+- **Service rules use availability only.** A DEGRADED unit counts as available (design §5.2), so a degraded
+  active unit does not degrade its service. v0.2 widens the rules to equipment state.
+- **Database outage.** The board keeps its last persisted state and the tiles turn amber-stale. There is no
+  explicit storage-down signal yet, and the writer queue and the number of SSE clients are not yet bounded (v0.2).
+- **Commands and replay arrive in v0.3.** That covers commands with tracking, idempotency and `UNCERTAIN`
+  outcomes, and replay. `snmpset` from the CLI bypasses the supervisor.
+- **Later phases.** The five scripted scenarios, the remaining device types, security, and Prometheus and
+  Grafana come in later phases.
 
 ## Architecture
 

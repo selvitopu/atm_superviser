@@ -118,16 +118,18 @@ Each piece of equipment has four independent attributes:
   - Custom-MIB devices report the first three themselves in `atmTsEqStatus`. For the switches, health is derived from IF-MIB (§5.3).
   - **The supervisor adds `UNKNOWN`.** `UNKNOWN` always overrides the last known value, and it always carries an `unknownReason`:
     - `NOT_YET_POLLED`: before the first successful poll.
-    - `LOST_CONTACT`: after 3 consecutive failed polls, about 15 s.
+    - `LOST_CONTACT`: after 3 consecutive failed **probes**, about 15 s.
+    - `AWAITING_STATUS`: a probe restored contact, and no full poll has confirmed health yet.
+    - `STATUS_UNAVAILABLE`: probes succeed, but no full poll has succeeded for more than 3 × the poll interval.
     - `RESTARTING`: during a commanded restart (§8.3).
     - `SUPERVISOR_RESTARTED`: after the supervisor itself restarts, until the first poll.
 - **Maintenance**, a boolean flag that is *not* a health value. It comes from `atmTsEqMaintenanceMode`. Because the two are separate, a device in maintenance still shows its real health. In the `fdps-failover` demo the operator sees FDPS-A come back `OPERATIONAL` after the restart, and only then switches maintenance off.
 - **Role**, one of `standalone`, `active` or `standby`.
-- **Contact**, made of `reachable`, `lastPollAt` and the count of consecutive poll failures.
+- **Contact**, made of `reachable`, `lastPollAt` and the time of the last probe (`lastProbeAt`) and the count of consecutive failed probes.
 
 **Freshness:**
 - At more than 2× the poll interval since `lastPollAt`, the UI shows the age in amber. The UI computes the age itself (§9).
-- At 3 failed polls, health becomes `UNKNOWN` and alarm 901 `LOST_CONTACT` is raised.
+- At 3 failed probes, health becomes `UNKNOWN` and alarm 901 `LOST_CONTACT` is raised.
 
 **Availability**, as used by the service rules: a device is *available* when its health is `OPERATIONAL` or `DEGRADED` and it is **not** in maintenance. Maintenance counts as a planned outage.
 
@@ -155,7 +157,7 @@ Each rule only defines FAILED and DEGRADED in terms of which equipment is **avai
 
 1. **Optimistic pass:** evaluate the rule with every `UNKNOWN` device treated as available and in its nominal values.
 2. **Pessimistic pass:** evaluate it again with every `UNKNOWN` device treated as unavailable.
-3. **Equal results:** if both passes give the same result, that is the service state. A known failure therefore is never hidden behind "unknown". For example, RADIO-2 has no TX on `132.855` while RADIO-1 is UNKNOWN: both passes give FAILED, so VOICE shows FAILED.
+3. **Equal status:** if both passes give the same status, that is the service state. Its reasons and redundancy flag come from the optimistic pass, because only those are confirmed. Anything the pessimistic pass adds is shown as one "Unconfirmed: …" reason naming the UNKNOWN equipment. Service alarms 903/904 therefore follow confirmed facts only. A known failure is still never hidden behind "unknown". For example, RADIO-2 has no TX on `132.855` while RADIO-1 is UNKNOWN: both passes give FAILED, so VOICE shows FAILED.
 4. **Different results:** the state is `UNKNOWN`, and it carries the optimistic result as `bestCase`. The UI shows, for example, "UNKNOWN · at best DEGRADED".
 
 A service that is UNKNOWN is never shown as OK. The table-driven tests cover both passes and every row.
@@ -415,7 +417,19 @@ The replay fidelity test (§11) uses exactly this sequence.
 - **What replay shows:** statuses, alarms and commands exactly. For values, it shows the most recent real sample at or before T, together with that sample's own timestamp and age, and never interpolates. The replay UI says so.
 - **Not affected:** health, `UNKNOWN` and lost contact are never coalesced. They are stored events.
 
-**On supervisor restart**, it writes `SUPERVISOR_STARTED`, which marks every device `UNKNOWN`. It then rebuilds open alarms from the `alarm` table and resyncs each device on its first successful poll: the alarm table walk for custom-MIB devices, the `ifTable` for the switches.
+**Probes, full polls, generations and the circuit breaker.** Each device has two kinds of poll (amendment [§1](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md) and [§2](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md)).
+- **Probes** read `sysUpTime.0` at the poll cadence and never go through the circuit breaker.
+- **Full polls** run through the per-device breaker: a count-based window of 5, at least 3 calls, a 50 % failure rate, 30 s in OPEN and one permitted call in HALF_OPEN. There is no time-based move from OPEN to HALF_OPEN.
+- **Recovery:** when a probe restores contact, an OPEN breaker moves to HALF_OPEN and one verification poll runs at once. If it succeeds, the breaker closes and health is set from it. If it fails, the breaker reopens and the device stays `UNKNOWN`.
+- **Two generations per device**, both kept by the board:
+  - the **status generation** is bumped by traps and by contact changes, and full polls are checked against it;
+  - the **contact generation** is bumped by contact changes only, and probes are checked against it.
+  - **Why two:** a probe carries no subsystem state, so a trap cannot invalidate contact evidence. With one shared generation, a trap could discard a probe result and mask a lost contact.
+  - **Failed commits:** both generations are bumped even when the commit fails, so a result that was read before the failure is never accepted afterwards.
+  - **Reading of the amendment:** the split into two generations is this project's reading of amendment §2 (stale-result protection).
+- **Known trade-off:** under a trap flood that outpaces a full poll's round trip, full polls are discarded as stale. The device then goes `UNKNOWN` with `STATUS_UNAVAILABLE` after 3 poll intervals, through the probe path.
+
+**On supervisor restart**, it writes `SUPERVISOR_STARTED`, which marks every device `UNKNOWN`. It then rebuilds open alarms from the `alarm` table and resyncs each device on its first successful poll: the alarm table walk for custom-MIB devices, the `ifTable` for the switches. Last-known maintenance and role are taken from the newest stored equipment event of each device; health is `UNKNOWN` (`SUPERVISOR_RESTARTED`) until the first poll.
 
 ### 8.2 Alarms
 
@@ -430,20 +444,17 @@ The replay fidelity test (§11) uses exactly this sequence.
 - **Maintenance suppression:** alarms from a device in maintenance are still recorded, but flagged `suppressed` and hidden by default. This avoids alarm floods during planned work.
 - **Source of each alarm:** `DEVICE` (from a trap or the alarm table) or `SUPERVISOR` (derived).
 
-**Resync (reconciliation).** For custom-MIB devices, resync runs:
-- when contact is restored
-- when the supervisor starts, on each device's first successful poll
-- as a background check every 5 minutes
+**Resync (reconciliation).** For custom-MIB devices, resync runs on every successful full poll. That is a superset of the three original triggers: contact restored, the first poll after start, and a background check every 5 minutes.
 
-It walks the **whole** `atmTsAlarmTable`.
+Traps still raise and clear alarms at once, as hints; the walk then confirms or corrects them. It walks the **whole** `atmTsAlarmTable`.
 - **Partial walk:** if the walk does not complete (a timeout midway, or the device lost again), **nothing changes** and resync retries at the next poll. A partial walk must never clear alarms.
 - **Comparison:** a complete walk gives the device's set **D**, keyed by `(code, instance)`. The supervisor's set **S** is its open alarms for that device with source `DEVICE`.
 - **One transaction:** the whole comparison is a single board-writer input, so its events commit in one transaction.
 
 | Case | Action | Event |
 |---|---|---|
-| In D, not in S | Raise, using the device's `raisedAt` | `ALARM_RAISED` with `via: RESYNC` |
-| In S, not in D | Clear | `ALARM_CLEARED` with `via: RESYNC` |
+| In D, not in S | Raise, using the device's `raisedAt` (also the re-raise, with the same id, of a `CLEARED_UNACK` alarm) | `ALARM_RAISED` with `via: RESYNC` |
+| In S, not in D | Clear; an acknowledged alarm goes on to `CLOSED`, following the lifecycle | `ALARM_CLEARED` with `via: RESYNC` |
 | In both, D more severe | Update severity, back to unacknowledged | `ALARM_UPDATED` |
 | In both, D less severe | Update severity, acknowledgement kept | `ALARM_UPDATED` |
 | In both, same severity (text may differ) | Update the text only if it differs | `ALARM_UPDATED` or nothing |
@@ -744,6 +755,8 @@ Each phase ends with a tag, and the repo is presentable at every tag.
 | 3 "It controls and remembers" | `v0.3` | Control commands with interlocks, preview, SET outcome handling and verification. Security and roles, snapshots, and the replay UI with export. |
 | 4 "Production-minded" | `v1.0` | Prometheus, snmp_exporter and Grafana, Playwright end-to-end tests, net-snmp CLI checks in CI, full docs (§15), README with GIF, alarm sound |
 
+Alarm resync landed early, in `v0.1.1`.
+
 Phases are split by **device type**, not by device count, because the work grows with the number of types. The three v0.1 types already cover scalars, a table, an A/B pair with automatic switchover, traps and informs. v0.1 is therefore a credible demo on its own: "radar fails, the tracker loses a sensor, FDPS fails over".
 
 ## 14. Risks and mitigations
@@ -780,7 +793,7 @@ Phases are split by **device type**, not by device count, because the work grows
 
   | Hazard | Mitigation | Verified by |
   |---|---|---|
-  | H1 Stale data shown as current | Freshness age; `UNKNOWN` after 3 failed polls; never green when `UNKNOWN`; the "DATA NOT LIVE" overlay when the stream is down; "unconfirmed" marker on alarms | `StatusDeriverTest`, `ServiceEvaluatorTest` (UNKNOWN passes), `status-badge.spec.ts`, `live-connection.spec.ts`, e2e `lost-contact` |
+  | H1 Stale data shown as current | Freshness age; `UNKNOWN` after 3 failed probes; traps cannot mask probe failures; `STATUS_UNAVAILABLE` when probes succeed but full polls fail; never green when `UNKNOWN`; the "DATA NOT LIVE" overlay when the stream is down; "unconfirmed" marker on alarms | `StatusDeriverTest`, `ServiceEvaluatorTest` (UNKNOWN passes), `status-badge.spec.ts`, `live-connection.spec.ts`, e2e `lost-contact` |
   | H2 Replay mistaken for live | Separate `ReplayStore` with no SSE; fixed amber band; commands disabled in replay; `NO_DATA` for gaps | `replay-isolation.spec.ts`, `replay-band.spec.ts`, `ReplayNoDataTest`, e2e replay step |
   | H3 Unintended or unsafe control command | Role check; mandatory reason; interlocks; preview through the same `ServiceEvaluator`; confirmation dialog; idempotent `becomeActive`; SETs with 0 retries | `CommandInterlockTest`, `CommandSecurityTest`, `CommandPreviewConsistencyIT`, `SetErrorHandlingIT` |
   | H4 An alarm flood hides a critical alarm | Ordered by severity, then time; maintenance suppression; escalation goes back to unacknowledged; critical tone | `AlarmLifecycleTest`, `alarm-list.spec.ts` |
