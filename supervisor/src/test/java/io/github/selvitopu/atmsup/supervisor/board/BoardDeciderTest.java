@@ -325,6 +325,24 @@ class BoardDeciderTest {
     }
 
     @Test
+    void anUnknownSdpsBesideAConfirmedDegradationRaisesNo903() {
+        LiveBoard lb = with(Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED));
+        assertThat(lb.board().services().get(ServiceId.SURV).status()).isEqualTo(ServiceStatus.DEGRADED);
+        assertThat(lb.board().openAlarms()).doesNotContainKey(new AlarmKey("SURV", 903, 0));
+        lb = withProbeFailures(lb, "SDPS-B", 2);
+
+        Decision d = decider.decide(lb, new ProbeFailed("SDPS-B", t0, "TIMEOUT: no response", 0), t0);
+
+        assertThat(merged(lb, d).board().openAlarms()).doesNotContainKey(new AlarmKey("SURV", 903, 0));
+        assertThat(d.events()).filteredOn(e -> e instanceof ServiceEvent)
+                .map(e -> ((ServiceEvent) e).state())
+                .anySatisfy(st -> {
+                    assertThat(st.id()).isEqualTo(ServiceId.SURV);
+                    assertThat(st.redundancyLost()).isFalse();
+                });
+    }
+
+    @Test
     void serviceFailedAlarmComesBeforeRedundancyLost() {
         LiveBoard lb = with(Map.of("SDPS-A", Health.UNKNOWN, "SDPS-B", Health.FAILED));
         assertThat(lb.board().services().get(ServiceId.SURV).status()).isEqualTo(ServiceStatus.UNKNOWN);

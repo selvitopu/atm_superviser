@@ -69,8 +69,21 @@ class ServiceEvaluatorTest {
                 Arguments.of("all radars failed, SDPS-A unknown",
                         Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED, "RAD-S", Health.FAILED,
                                 "SDPS-A", UNK), Set.of(),
-                        ServiceStatus.FAILED, null, true, List.of("No radar available",
-                                "Only one SDPS unit available"), ServiceStatus.OK, false),
+                        ServiceStatus.FAILED, null, false, List.of("No radar available",
+                                "Unconfirmed: Only one SDPS unit available (equipment in UNKNOWN state: SDPS-A)"),
+                        ServiceStatus.OK, false),
+                Arguments.of("one radar unknown, two operational", Map.of("RAD-N", UNK), Set.of(),
+                        ServiceStatus.OK, null, false, List.of(), ServiceStatus.OK, false),
+                Arguments.of("SDPS-A failed, RAD-N and RAD-E unknown",
+                        Map.of("SDPS-A", Health.FAILED, "RAD-N", UNK, "RAD-E", UNK), Set.of(),
+                        ServiceStatus.DEGRADED, null, true,
+                        List.of("Only one SDPS unit available", "Unconfirmed: Fewer than 2 radars available "
+                                + "(equipment in UNKNOWN state: RAD-N, RAD-E)"), ServiceStatus.OK, false),
+                Arguments.of("RAD-N and RAD-E failed, SDPS-B unknown",
+                        Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED, "SDPS-B", UNK), Set.of(),
+                        ServiceStatus.DEGRADED, null, false,
+                        List.of("Fewer than 2 radars available", "Unconfirmed: Only one SDPS unit available "
+                                + "(equipment in UNKNOWN state: SDPS-B)"), ServiceStatus.OK, false),
                 Arguments.of("no SDPS and no radar lists both, FAILED first",
                         Map.of("SDPS-A", Health.FAILED, "SDPS-B", Health.FAILED, "RAD-N", Health.FAILED,
                                 "RAD-E", Health.FAILED, "RAD-S", Health.FAILED), Set.of(),
@@ -134,6 +147,26 @@ class ServiceEvaluatorTest {
         assertThat(failed.status()).isEqualTo(ServiceStatus.DEGRADED);
         assertThat(failed.reasons()).containsExactly("ADS-B unavailable");
         assertThat(failed.redundancyLost()).isFalse();
+    }
+
+    @Test
+    void allRadarsFailedWithAdsbAvailableIsDegraded() {
+        Inventory withAdsb = BoardFixtures.inventory(true);
+        var ev = new ServiceEvaluator(withAdsb, List.of(new SurveillanceRule()));
+        var surv = ev.evaluate(board(withAdsb, Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED,
+                "RAD-S", Health.FAILED), Set.of()), NOW).get(ServiceId.SURV);
+        assertThat(surv.status()).isEqualTo(ServiceStatus.DEGRADED);
+        assertThat(surv.reasons()).containsExactly("No radar available");
+    }
+
+    @Test
+    void noRadarAndNoAdsbIsFailed() {
+        Inventory withAdsb = BoardFixtures.inventory(true);
+        var ev = new ServiceEvaluator(withAdsb, List.of(new SurveillanceRule()));
+        var surv = ev.evaluate(board(withAdsb, Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED,
+                "RAD-S", Health.FAILED, "ADSB-1", Health.FAILED), Set.of()), NOW).get(ServiceId.SURV);
+        assertThat(surv.status()).isEqualTo(ServiceStatus.FAILED);
+        assertThat(surv.reasons()).containsExactly("No sensor input available (radar or ADS-B)");
     }
 
     @Test

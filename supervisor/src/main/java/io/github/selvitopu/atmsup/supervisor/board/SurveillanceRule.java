@@ -17,7 +17,8 @@ public final class SurveillanceRule implements ServiceRule {
     public RuleOutcome evaluate(Inventory inv, Predicate<String> available) {
         long sdps = count(inv, DeviceType.SDPS, available);
         long radars = count(inv, DeviceType.RADAR, available);
-        boolean adsbMissing = !inv.byType(DeviceType.ADSB).isEmpty() && count(inv, DeviceType.ADSB, available) == 0;
+        boolean hasAdsb = !inv.byType(DeviceType.ADSB).isEmpty();
+        long adsb = count(inv, DeviceType.ADSB, available);
 
         List<String> failed = new ArrayList<>();
         List<String> degraded = new ArrayList<>();
@@ -26,13 +27,15 @@ public final class SurveillanceRule implements ServiceRule {
         } else if (sdps == 1) {
             degraded.add("Only one SDPS unit available");
         }
-        if (radars == 0) {
-            failed.add("No radar available");
-        } else if (radars < 2) {
-            degraded.add("Fewer than 2 radars available");
-        }
-        if (adsbMissing) {
-            degraded.add("ADS-B unavailable");
+        if (radars == 0 && (!hasAdsb || adsb == 0)) {
+            failed.add(hasAdsb ? "No sensor input available (radar or ADS-B)" : "No radar available");
+        } else {
+            if (radars < 2) {
+                degraded.add(radars == 0 ? "No radar available" : "Fewer than 2 radars available");
+            }
+            if (hasAdsb && adsb == 0) {
+                degraded.add("ADS-B unavailable");
+            }
         }
         return Outcomes.of(failed, degraded, sdps < 2);
     }
