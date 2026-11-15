@@ -1,8 +1,17 @@
 import { Routes } from '@angular/router';
+import { authGuard } from './core/auth/auth.guard';
+import { RegisterPage } from './features/auth/register-page/register-page';
+import { SignInPage } from './features/auth/sign-in-page/sign-in-page';
 import { BoardPage } from './features/board/board-page/board-page';
 
 /** BoardPage is a single parent route so selecting equipment never recreates it (and never restarts the stream). */
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'board' },
-  { path: 'board', component: BoardPage, children: [{ path: '', children: [] }, { path: ':equipmentId', children: [] }] },
+  { path: 'signin', component: SignInPage, title: 'Sign in · ATM Supervisor' },
+  { path: 'register', component: RegisterPage, title: 'Create account · ATM Supervisor' },
+  {
+    path: 'board', component: BoardPage, canActivate: [authGuard], title: 'Board · ATM Supervisor',
+    children: [{ path: '', children: [] }, { path: ':equipmentId', children: [] }],
+  },
+  { path: '**', redirectTo: 'board' },
 ];

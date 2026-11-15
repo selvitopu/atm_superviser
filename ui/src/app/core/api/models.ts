@@ -128,3 +128,29 @@ export type StreamMessage =
   | { kind: 'resync' }
   | { kind: 'open' }
   | { kind: 'error' };
+
+// --- sign-in and accounts (security module) ---------------------------------------------------------------------
+
+export interface UserDto {
+  username: string;
+  displayName: string;
+  roles: string[];
+}
+
+export interface DemoAccount {
+  username: string;
+  role: string;
+  password: string;
+}
+
+export interface AuthConfigDto {
+  demoMode: boolean;
+  registrationEnabled: boolean;
+  demoAccounts: DemoAccount[];
+}
+
+export interface RegisterRequest {
+  username: string;
+  displayName: string;
+  password: string;
+}

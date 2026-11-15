@@ -1,7 +1,9 @@
 import { EnvironmentProviders, Provider, Signal, Type, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Observable, of } from 'rxjs';
-import { AckResultDto, BoardDto } from '../core/api/models';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Observable, of, throwError } from 'rxjs';
+import { AckResultDto, AuthConfigDto, BoardDto, UserDto } from '../core/api/models';
+import { AuthService, RoleName, roleAllows } from '../core/auth/auth.service';
 import { BoardSource } from '../core/state/board-source';
 import { Clock } from '../core/state/clock';
 import { Connection, LiveBoardStore } from '../core/state/live-board-store';
@@ -55,4 +57,25 @@ export function render<T>(type: Type<T>, inputs: Record<string, unknown> = {}, p
     text: () => (el.textContent ?? '').replace(/\s+/g, ' ').trim(),
     all: (selector: string) => Array.from(el.querySelectorAll<HTMLElement>(selector)),
   };
+}
+
+/** A signed-in (or, with no roles, signed-out) user for components that read AuthService. */
+export class FakeAuth {
+  readonly user = signal<UserDto | null>(null);
+  readonly config = signal<AuthConfigDto | null>(null);
+  signedOut = 0;
+  constructor(roles: string[] = ['SUPERVISOR'], displayName = 'Supervisor One', username = 'supervisor1') {
+    this.user.set(roles.length ? { username, displayName, roles } : null);
+  }
+  hasRole(role: RoleName): boolean { return roleAllows(this.user()?.roles ?? [], role); }
+  me(): Observable<UserDto> {
+    const u = this.user();
+    return u ? of(u) : throwError(() => new HttpErrorResponse({ status: 401, statusText: 'Unauthorized' }));
+  }
+  signOut(): Observable<void> { this.signedOut++; this.user.set(null); return of(undefined); }
+  sessionEnded(): void { this.user.set(null); }
+}
+
+export function authProvider(auth: FakeAuth): Provider {
+  return { provide: AuthService, useValue: auth };
 }

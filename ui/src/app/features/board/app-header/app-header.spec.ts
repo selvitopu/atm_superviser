@@ -1,11 +1,14 @@
-import { clockProvider, FakeStore, render, storeProviders } from '../../../testing/render';
+import { Router, provideRouter } from '@angular/router';
+import { TestBed } from '@angular/core/testing';
+import { authProvider, clockProvider, FakeAuth, FakeStore, render, storeProviders } from '../../../testing/render';
 import { AppHeader } from './app-header';
 
 describe('AppHeader', () => {
-  function setup(connection: 'LIVE' | 'RECONNECTING' | 'OFFLINE') {
+  function setup(connection: 'LIVE' | 'RECONNECTING' | 'OFFLINE', auth = new FakeAuth()) {
     const store = new FakeStore();
     store.connection.set(connection);
-    return render(AppHeader, {}, [...storeProviders(store), clockProvider('2026-11-13T14:05:09Z')]);
+    return render(AppHeader, {}, [...storeProviders(store), clockProvider('2026-11-13T14:05:09Z'), authProvider(auth),
+      provideRouter([])]);
   }
 
   it('shows the title and the UTC server clock', () => {
@@ -23,5 +26,20 @@ describe('AppHeader', () => {
       expect(ind.textContent?.trim()).toBe(label);
       expect(ind.classList).toContain(cls);
     }
+  });
+
+  it('showsTheUserAndRole', () => {
+    const f = setup('LIVE', new FakeAuth(['ADMIN'], 'Admin One', 'admin1'));
+    expect(f.el.querySelector('.user')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Admin One · ADMIN');
+  });
+
+  it('signOutReturnsToSignIn', async () => {
+    const auth = new FakeAuth();
+    const f = setup('LIVE', auth);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    (f.el.querySelector('button.sign-out') as HTMLButtonElement).click();
+    expect(auth.signedOut).toBe(1);
+    expect(navigate).toHaveBeenCalledWith(['/signin']);
   });
 });

@@ -1,16 +1,16 @@
 import { applyMessage } from '../../../core/state/apply-message';
 import { alarm, board, eq } from '../../../core/state/test-fixtures';
-import { FakeStore, render, storeProviders } from '../../../testing/render';
+import { FakeAuth, FakeStore, authProvider, render, storeProviders } from '../../../testing/render';
 import { AlarmList } from './alarm-list';
 
 function setup(alarms = [
   alarm('minor', { severity: 'MINOR', raisedAt: '2026-11-13T14:02:00Z' }),
   alarm('crit', { severity: 'CRITICAL', raisedAt: '2026-11-13T14:01:00Z' }),
   alarm('major', { severity: 'MAJOR', raisedAt: '2026-11-13T14:03:00Z', state: 'ACTIVE_ACK' }),
-]) {
+], roles: string[] = ['SUPERVISOR']) {
   const store = new FakeStore();
   store.board.set(board({ alarms }));
-  return { store, f: render(AlarmList, {}, storeProviders(store)) };
+  return { store, f: render(AlarmList, {}, [...storeProviders(store), authProvider(new FakeAuth(roles))]) };
 }
 
 describe('AlarmList', () => {
@@ -130,5 +130,19 @@ describe('AlarmList', () => {
     const f = render(AlarmList, {}, storeProviders(store));
     expect(f.all('tbody tr').length).toBe(2);
     expect(f.all('.unconfirmed').length).toBe(0);
+  });
+
+  it('aViewerSeesNoAckControls', () => {
+    const { f } = setup(undefined, ['VIEWER']);
+    expect(f.all('input.select')).toHaveLength(0);
+    expect(f.text()).not.toContain('Ack selected');
+    expect(f.text()).not.toContain('Ack all visible');
+  });
+
+  it('aSupervisorSeesThem', () => {
+    const { f } = setup(undefined, ['SUPERVISOR']);
+    expect(f.all('input.select')).toHaveLength(3);
+    expect(f.text()).toContain('Ack selected');
+    expect(f.text()).toContain('Ack all visible');
   });
 });

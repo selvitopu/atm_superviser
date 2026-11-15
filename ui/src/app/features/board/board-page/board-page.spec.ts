@@ -5,7 +5,7 @@ import { of } from 'rxjs';
 import { BoardApi } from '../../../core/api/board-api';
 import { board, eq, svc } from '../../../core/state/test-fixtures';
 import { routes } from '../../../app.routes';
-import { FakeStore, clockProvider, storeProviders } from '../../../testing/render';
+import { FakeAuth, FakeStore, authProvider, clockProvider, storeProviders } from '../../../testing/render';
 import { BoardPage } from './board-page';
 
 describe('BoardPage', () => {
@@ -14,7 +14,7 @@ describe('BoardPage', () => {
     store.board.set(board({ services: [svc('SURV', 'OK')], equipment: [eq('RAD-N', { pair: null }), eq('RAD-E', { pair: null })] }));
     TestBed.configureTestingModule({
       providers: [
-        provideRouter(routes), ...storeProviders(store), clockProvider('2026-11-13T14:00:00Z'),
+        provideRouter(routes), ...storeProviders(store), clockProvider('2026-11-13T14:00:00Z'), authProvider(new FakeAuth()),
         { provide: BoardApi, useValue: { equipment: (id: string) => of({ equipment: eq(id), recentEvents: [] }) } },
       ],
     });

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, sig
 import { AlarmDto, AlarmState, Severity } from '../../../core/api/models';
 import { BoardSource } from '../../../core/state/board-source';
 import { LiveBoardStore } from '../../../core/state/live-board-store';
+import { AuthService } from '../../../core/auth/auth.service';
 import { formatUtc } from '../../../shared/format';
 
 const SEVERITY: Record<Severity, { tag: string; rank: number }> = {
@@ -24,8 +25,10 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
           (change)="showSuppressed.set(!showSuppressed())" />
         Show suppressed ({{ suppressedCount() }})
       </label>
-      <button type="button" [disabled]="selectedIds().length === 0" (click)="ackSelected()">Ack selected</button>
-      <button type="button" [disabled]="unackedIds().length === 0" (click)="ackAllVisible()">Ack all visible</button>
+      @if (canAck()) {
+        <button type="button" [disabled]="selectedIds().length === 0" (click)="ackSelected()">Ack selected</button>
+        <button type="button" [disabled]="unackedIds().length === 0" (click)="ackAllVisible()">Ack all visible</button>
+      }
       @if (failed()) {
         <span class="error" role="alert">Acknowledge failed</span>
       }
@@ -33,15 +36,17 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
     <div class="scroll">
       <table>
         <thead>
-          <tr><th></th><th>Sev</th><th>Time</th><th>Equipment</th><th>Alarm</th><th>State</th></tr>
+          <tr>@if (canAck()) {<th></th>}<th>Sev</th><th>Time</th><th>Equipment</th><th>Alarm</th><th>State</th></tr>
         </thead>
         <tbody>
           @for (a of rows(); track a.id) {
             <tr [class]="'sev-' + a.severity.toLowerCase()">
-              <td>
-                <input type="checkbox" class="select" [attr.aria-label]="'Select alarm ' + a.id"
-                  [checked]="selected().has(a.id)" (change)="toggle(a.id)" />
-              </td>
+              @if (canAck()) {
+                <td>
+                  <input type="checkbox" class="select" [attr.aria-label]="'Select alarm ' + a.id"
+                    [checked]="selected().has(a.id)" (change)="toggle(a.id)" />
+                </td>
+              }
               <td class="sev">{{ sev(a).tag }}</td>
               <td class="mono">{{ time(a.raisedAt) }}</td>
               <td class="mono">{{ a.equipmentId }}</td>
@@ -54,7 +59,7 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
               <td class="mono state">{{ state(a) }}</td>
             </tr>
           } @empty {
-            <tr><td colspan="6" class="empty">No alarms</td></tr>
+            <tr><td [attr.colspan]="canAck() ? 6 : 5" class="empty">No alarms</td></tr>
           }
         </tbody>
       </table>
@@ -85,6 +90,9 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
   `,
 })
 export class AlarmList {
+  private readonly auth = inject(AuthService);
+  /** Acknowledging needs SUPERVISOR or ADMIN; the server enforces it too. */
+  protected readonly canAck = computed(() => this.auth.hasRole('SUPERVISOR'));
   private readonly source = inject(BoardSource);
   private readonly store = inject(LiveBoardStore);
 
