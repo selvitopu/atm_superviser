@@ -200,6 +200,14 @@ class SupervisorEndToEndIT {
 
     // --- tests --------------------------------------------------------------------------------------------------
 
+    /** The real application selects the demo Liquibase context: the configured default would seed no accounts. */
+    @Test
+    @Order(0)
+    void demoModeSeedsTheDemoAccounts() {
+        assertThat(jdbc.queryForList("select username from app_user order by username", String.class))
+                .containsExactly("admin1", "demo1", "supervisor1");
+    }
+
     @Test
     @Order(1)
     void openApiIsServed() {

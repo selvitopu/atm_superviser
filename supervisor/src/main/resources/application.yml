@@ -25,6 +25,11 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+  liquibase:
+    # LiquibaseDemoContext switches this to "demo" in demo mode; if it is ever missed, no demo accounts are seeded
+    contexts: default
+    # Liquibase 5 otherwise fetches a remote analytics configuration on every run and may send usage data
+    analytics-enabled: false
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:5432/atmsup
     username: ${DB_USER:atmsup}

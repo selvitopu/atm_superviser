@@ -1,8 +1,10 @@
 package io.github.selvitopu.atmsup.supervisor.history;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.selvitopu.atmsup.supervisor.DemoAccountGuard;
 import io.github.selvitopu.atmsup.supervisor.LiquibaseDemoContext;
 import java.util.List;
 import javax.sql.DataSource;
@@ -71,5 +73,26 @@ class DemoSeedIT {
     void usernamesMustBeLowerCase() {
         assertThatThrownBy(() -> jdbc.update("insert into app_user (username, display_name, password_hash)"
                 + " values ('Admin2', 'Admin Two', 'x')")).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void outsideDemoModeTheDefaultDemoAccountsRefuseStartup() {
+        assertThatThrownBy(() -> DemoAccountGuard.check(jdbc, false)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("admin1, supervisor1, demo1");
+    }
+
+    @Test
+    void inDemoModeTheDemoAccountsAreAllowed() {
+        assertThatCode(() -> DemoAccountGuard.check(jdbc, true)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void disabledOrChangedDemoAccountsNoLongerBlockStartup() {
+        jdbc.update("update app_user set enabled = false where username = 'admin1'");
+        jdbc.update("update app_user set password_hash = ? where username = 'supervisor1'",
+                PasswordEncoderFactories.createDelegatingPasswordEncoder().encode("a-new-password"));
+        jdbc.update("update app_user set password_hash = 'not-a-delegating-hash' where username = 'demo1'");
+
+        assertThatCode(() -> DemoAccountGuard.check(jdbc, false)).doesNotThrowAnyException();
     }
 }

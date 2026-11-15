@@ -22,8 +22,8 @@ and starts the demo should be able to sign in immediately, without a manual setu
 
 * **Database-enforced invariants:** the open-alarm rule belongs in the schema, not in a column the code must keep in step.
 * **Readable, reviewable schema history:** migrations should read as plain SQL.
-* **Safe defaults:** default accounts with known passwords must never appear outside demo mode, following the same rule
-  as the demo SNMP passwords.
+* **Safe defaults:** default accounts with known passwords must never be usable outside demo mode, following the same
+  rule as the demo SNMP passwords.
 
 ## Considered Options
 
@@ -43,15 +43,22 @@ Chosen option: **Option 3.**
   * `003` (context `demo`): `admin1` (ADMIN), `supervisor1` (SUPERVISOR) and `demo1` (VIEWER). The passwords are
     stored only as `{bcrypt}` hashes in Spring Security's `DelegatingPasswordEncoder` format.
 * **Demo context:** [`LiquibaseDemoContext`] sets the Liquibase context to `demo` when `atm.demo-mode` is true, and to
-  `default` otherwise. It never leaves the context empty, because Liquibase runs every changeset, the demo ones
-  included, when no context is set.
+  `default` otherwise. The context is never empty, because Liquibase runs every changeset, the demo ones included,
+  when no context is set. `application.yml` also sets `spring.liquibase.contexts: default`, so if the post-processor
+  were ever missed, no demo accounts would be seeded: it fails closed.
+* **Startup guard:** the demo changeset runs once, so a database first started in demo mode keeps its accounts.
+  Outside demo mode, [`DemoAccountGuard`] therefore refuses to start while any demo account is still enabled with its
+  default password. It runs at every start, like the check of the demo SNMP passwords.
+* **No analytics:** `spring.liquibase.analytics-enabled: false`. By default Liquibase 5 fetches a remote analytics
+  configuration on every run and may send usage data, which a supervision tool should not do.
 * **Rule:** a changeset is never edited once committed. Schema changes come as new changesets.
 
 ### Consequences
 
 * **Good:** the database itself guarantees one open alarm per identity, and the application no longer maintains a key column.
-* **Good:** a fresh clone starts with roles and, in demo mode, with ready-to-use accounts. A database outside demo mode
-  gets the roles but no accounts.
+* **Good:** a fresh clone starts with roles and, in demo mode, with ready-to-use accounts. A fresh database outside demo
+  mode gets the roles but no accounts. A database once seeded in demo mode refuses to start outside demo mode until the
+  demo accounts are disabled or their passwords changed.
 * **Good:** `jsonb` payloads can be queried directly, for example `payload->>'via'` in [`SupervisorEndToEndIT`].
 * **Trade-off:** `jsonb` normalises key order and whitespace, so tests compare parsed JSON, never payload text.
 * **Licence note:** Liquibase 5.x is released under the Functional Source License (FSL-1.1-ALv2). It is
@@ -68,6 +75,10 @@ Chosen option: **Option 3.**
   stored hash, and that upper-case usernames are rejected.
 * [`NoDemoSeedIT`] — Outside demo mode the roles exist and there are no accounts.
 * [`LiquibaseDemoContextTest`] — The context is `demo` in demo mode and `default` otherwise, never empty.
+* [`LiquibaseDefaultsIT`] — Without the post-processor, demo mode seeds no accounts, and Liquibase analytics are off.
+* [`DemoSeedIT`] — `outsideDemoModeTheDefaultDemoAccountsRefuseStartup` and
+  `disabledOrChangedDemoAccountsNoLongerBlockStartup` cover [`DemoAccountGuard`].
+* [`SupervisorEndToEndIT`] — `demoModeSeedsTheDemoAccounts` proves that the real application selects the demo context.
 
 [`db.changelog-master.yaml`]: ../../supervisor/src/main/resources/db/changelog/db.changelog-master.yaml
 [`LiquibaseDemoContext`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/LiquibaseDemoContext.java
@@ -76,3 +87,5 @@ Chosen option: **Option 3.**
 [`DemoSeedIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/DemoSeedIT.java
 [`NoDemoSeedIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/NoDemoSeedIT.java
 [`LiquibaseDemoContextTest`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/LiquibaseDemoContextTest.java
+[`LiquibaseDefaultsIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/LiquibaseDefaultsIT.java
+[`DemoAccountGuard`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/DemoAccountGuard.java
