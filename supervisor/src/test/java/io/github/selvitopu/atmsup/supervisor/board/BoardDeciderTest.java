@@ -3,6 +3,7 @@ package io.github.selvitopu.atmsup.supervisor.board;
 import static io.github.selvitopu.atmsup.mib.EquipmentStatus.FAILED;
 import static io.github.selvitopu.atmsup.mib.EquipmentStatus.OPERATIONAL;
 import static io.github.selvitopu.atmsup.mib.Severity.CRITICAL;
+import static io.github.selvitopu.atmsup.mib.Severity.MINOR;
 import static io.github.selvitopu.atmsup.supervisor.board.EventType.ALARM_ACKNOWLEDGED;
 import static io.github.selvitopu.atmsup.supervisor.board.EventType.ALARM_CLEARED;
 import static io.github.selvitopu.atmsup.supervisor.board.EventType.ALARM_RAISED;
@@ -29,6 +30,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
+import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.AcknowledgeAlarms;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.HeartbeatTick;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollFailed;
@@ -45,6 +47,7 @@ import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.TelemetrySampleEvent;
+import io.github.selvitopu.atmsup.supervisor.snmp.DeviceAlarm;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmRaisedNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.StatusChangeNotification;
@@ -146,6 +149,12 @@ class BoardDeciderTest {
     private Observation obs(String id, EquipmentStatus status, Map<String, Object> values) {
         Role role = Board.initial(inv, List.of()).equipment().get(id).role();
         return new Observation(id, t0, status, role, false, values, Map.of(), List.of());
+    }
+
+    /** A full poll whose alarm table walk returned {@code alarms}. */
+    private Observation obs(String id, EquipmentStatus status, List<DeviceAlarm> alarms) {
+        Role role = Board.initial(inv, List.of()).equipment().get(id).role();
+        return new Observation(id, t0, status, role, false, Map.of(), Map.of(), alarms);
     }
 
     private static Notification raisedN(String id, int code, Severity severity) {
@@ -390,6 +399,58 @@ class BoardDeciderTest {
         assertThat(alarmEvent(d, 1).alarm().suppressed()).isTrue();
         assertThat(alarmEvent(d, 2).alarm().state()).isEqualTo(AlarmState.CLEARED_UNACK);
         assertThat(d.invalidated()).containsExactly("RAD-N");
+    }
+
+    // ---- alarm table reconciliation (spec §8.2)
+
+    @Test
+    void aPollReconcilesDeviceAlarmsInOneDecision() {
+        LiveBoard lb = allOperational();
+        lb = merged(lb, decider.decide(lb, new TrapReceived(raisedN("RAD-N", 201, MINOR)), t0));
+        assertThat(lb.board().openAlarms().get(new AlarmKey("RAD-N", 201, 0)).state())
+                .isEqualTo(AlarmState.ACTIVE_UNACK);
+        Instant raisedOnDevice = t0.minusSeconds(20);
+        Instant t1 = t0.plusSeconds(5);
+        var table = List.of(new DeviceAlarm(101, 0, "", CRITICAL, "Transmitter fault", raisedOnDevice));
+
+        Decision d = decider.decide(lb, new PollSucceeded(obs("RAD-N", OPERATIONAL, table), lb.generation("RAD-N")),
+                t1);
+
+        assertThat(d.stale()).isFalse();
+        assertThat(d.events()).filteredOn(AlarmEvent.class::isInstance).map(AlarmEvent.class::cast)
+                .extracting(AlarmEvent::type, e -> e.alarm().key(), AlarmEvent::via)
+                .containsExactly(tuple(ALARM_RAISED, new AlarmKey("RAD-N", 101, 0), Via.RESYNC),
+                        tuple(ALARM_CLEARED, new AlarmKey("RAD-N", 201, 0), Via.RESYNC));
+        Map<AlarmKey, Alarm> after = merged(lb, d).board().openAlarms();
+        assertThat(after.get(new AlarmKey("RAD-N", 101, 0)))
+                .extracting(Alarm::state, Alarm::severity, Alarm::raisedAt)
+                .containsExactly(AlarmState.ACTIVE_UNACK, CRITICAL, raisedOnDevice);
+        assertThat(after.get(new AlarmKey("RAD-N", 201, 0)).state()).isEqualTo(AlarmState.CLEARED_UNACK);
+    }
+
+    @Test
+    void aStaleAlarmWalkChangesNoAlarms() {
+        LiveBoard lb = allOperational();
+        lb = merged(lb, decider.decide(lb, new TrapReceived(raisedN("RAD-N", 201, MINOR)), t0));
+        assertThat(lb.generation("RAD-N")).isEqualTo(1);
+
+        // walked before the trap: its empty table would otherwise clear 201
+        Decision d = decider.decide(lb, new PollSucceeded(obs("RAD-N", OPERATIONAL, List.of()), 0),
+                t0.plusSeconds(5));
+
+        assertThat(d).isEqualTo(Decision.discarded());
+    }
+
+    @Test
+    void aTrapRaisedAlarmConfirmedByTheTableProducesNoEvent() {
+        LiveBoard lb = allOperational();
+        lb = merged(lb, decider.decide(lb, new TrapReceived(raisedN("RAD-N", 101, CRITICAL)), t0));
+        var table = List.of(new DeviceAlarm(101, 0, "", CRITICAL, "Transmitter fault", t0.minusSeconds(1)));
+
+        Decision d = decider.decide(lb, new PollSucceeded(obs("RAD-N", OPERATIONAL, table), lb.generation("RAD-N")),
+                t0.plusSeconds(5));
+
+        assertThat(d.events()).extracting(DomainEvent::type).containsExactly(TELEMETRY_SAMPLED);
     }
 
     // ---- telemetry samples (amendment §5)

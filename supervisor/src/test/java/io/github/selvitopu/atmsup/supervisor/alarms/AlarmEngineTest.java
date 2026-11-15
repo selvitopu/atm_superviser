@@ -14,8 +14,10 @@ import static io.github.selvitopu.atmsup.supervisor.alarms.AlarmState.ACTIVE_ACK
 import static io.github.selvitopu.atmsup.supervisor.alarms.AlarmState.ACTIVE_UNACK;
 import static io.github.selvitopu.atmsup.supervisor.alarms.AlarmState.CLEARED_UNACK;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.selvitopu.atmsup.mib.Severity;
+import io.github.selvitopu.atmsup.supervisor.snmp.DeviceAlarm;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmClearedNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmRaisedNotification;
@@ -301,5 +303,152 @@ class AlarmEngineTest {
     @Test
     void openKeyFormat() {
         assertThat(new AlarmKey("SDPS-A", 401, 1).openKey()).isEqualTo("SDPS-A|401|1");
+    }
+
+    // ---- reconciliation against the device's alarm table (spec §8.2)
+
+    /** When the device says the alarm was raised: before the poll, and different from the supervisor's clock. */
+    private static final Instant DEVICE_RAISED_AT = Instant.parse("2026-01-01T09:59:18Z");
+
+    /** A table row that matches {@link #alarm} in instance name and text. */
+    private static DeviceAlarm row(int code, int instance, Severity sev) {
+        return row(code, instance, sev, "text " + code);
+    }
+
+    private static DeviceAlarm row(int code, int instance, Severity sev, String text) {
+        return new DeviceAlarm(code, instance, "inst", sev, text, DEVICE_RAISED_AT);
+    }
+
+    @Test
+    void raisesATableAlarmMissingFromTheBoard() {
+        var other = alarm("s1", "RAD-S", 101, 0, CRITICAL, ACTIVE_UNACK);
+
+        var changes = engine.reconcile(open(other), "RAD-N", List.of(row(101, 0, CRITICAL, "Transmitter fault")),
+                false, T1);
+
+        assertThat(changes).extracting(AlarmChange::type, AlarmChange::via).containsExactly(tuple(RAISED, Via.RESYNC));
+        assertThat(changes.get(0).alarm())
+                .extracting(Alarm::id, Alarm::key, Alarm::instanceName, Alarm::severity, Alarm::text, Alarm::source,
+                        Alarm::state, Alarm::suppressed, Alarm::raisedAt, Alarm::clearedAt)
+                .containsExactly("a1", new AlarmKey("RAD-N", 101, 0), "inst", CRITICAL, "Transmitter fault", DEVICE,
+                        ACTIVE_UNACK, false, DEVICE_RAISED_AT, null);
+    }
+
+    @Test
+    void clearsAnActiveAlarmMissingFromTheTable() {
+        var unacked = alarm("s1", "RAD-N", 201, 0, MINOR, ACTIVE_UNACK);
+        var ackedOne = acked(alarm("s2", "RAD-N", 202, 0, MINOR, ACTIVE_UNACK));
+        var alreadyCleared = alarm("s3", "RAD-N", 204, 0, MINOR, CLEARED_UNACK);
+        var otherDevice = alarm("s4", "RAD-S", 201, 0, MINOR, ACTIVE_UNACK);
+
+        var changes = engine.reconcile(open(unacked, ackedOne, alreadyCleared, otherDevice), "RAD-N", List.of(),
+                false, T1);
+
+        // the same lifecycle as a trap clear: an unacknowledged alarm waits for its ack, an acknowledged one closes
+        assertThat(changes).extracting(c -> c.alarm().id(), AlarmChange::type, c -> c.alarm().state(),
+                        c -> c.alarm().clearedAt(), AlarmChange::via)
+                .containsExactly(tuple("s1", CLEARED, CLEARED_UNACK, T1, Via.RESYNC),
+                        tuple("s2", CLOSED, AlarmState.CLOSED, T1, Via.RESYNC));
+    }
+
+    @Test
+    void escalationGoesBackToUnacknowledged() {
+        var a = acked(alarm("s1", "RAD-N", 201, 0, MINOR, ACTIVE_UNACK));
+
+        var changes = engine.reconcile(open(a), "RAD-N", List.of(row(201, 0, MAJOR)), false, T1);
+
+        assertThat(changes).extracting(AlarmChange::type, AlarmChange::via).containsExactly(tuple(UPDATED, Via.RESYNC));
+        assertThat(changes.get(0).alarm())
+                .extracting(Alarm::id, Alarm::severity, Alarm::state, Alarm::ackedAt, Alarm::ackedBy, Alarm::ackComment)
+                .containsExactly("s1", MAJOR, ACTIVE_UNACK, null, null, null);
+    }
+
+    @Test
+    void deEscalationKeepsTheAcknowledgement() {
+        var a = acked(alarm("s1", "RAD-N", 201, 0, MAJOR, ACTIVE_UNACK));
+
+        var changes = engine.reconcile(open(a), "RAD-N", List.of(row(201, 0, MINOR)), false, T1);
+
+        assertThat(changes).extracting(AlarmChange::type, AlarmChange::via).containsExactly(tuple(UPDATED, Via.RESYNC));
+        assertThat(changes.get(0).alarm())
+                .extracting(Alarm::id, Alarm::severity, Alarm::state, Alarm::ackedAt, Alarm::ackedBy, Alarm::ackComment)
+                .containsExactly("s1", MINOR, ACTIVE_ACK, T0, "demo-user", "seen");
+    }
+
+    @Test
+    void sameSeverityUpdatesOnlyAChangedText() {
+        var a = acked(alarm("s1", "RAD-N", 201, 0, MINOR, ACTIVE_UNACK));
+
+        var changes = engine.reconcile(open(a), "RAD-N", List.of(row(201, 0, MINOR, "Channel A failed")), false, T1);
+
+        assertThat(changes).extracting(AlarmChange::type, AlarmChange::via).containsExactly(tuple(UPDATED, Via.RESYNC));
+        var expected = new Alarm("s1", a.key(), "inst", MINOR, "Channel A failed", DEVICE, ACTIVE_ACK, false, T0, T0,
+                "demo-user", "seen", null);
+        assertThat(changes.get(0).alarm()).isEqualTo(expected);
+    }
+
+    @Test
+    void anIdenticalTableChangesNothing() {
+        var a = alarm("s1", "RAD-N", 201, 0, MINOR, ACTIVE_UNACK);
+        var b = acked(alarm("s2", "RAD-N", 401, 1, MAJOR, ACTIVE_UNACK));
+
+        assertThat(engine.reconcile(open(a, b), "RAD-N", List.of(row(201, 0, MINOR), row(401, 1, MAJOR)), false, T1))
+                .isEmpty();
+    }
+
+    @Test
+    void aClearedUnacknowledgedAlarmStillInTheTableIsReRaisedWithTheSameId() {
+        var cu = alarm("s1", "RAD-N", 201, 0, MINOR, CLEARED_UNACK);
+
+        var changes = engine.reconcile(open(cu), "RAD-N", List.of(row(201, 0, MAJOR, "Channel A failed")), false, T1);
+
+        assertThat(changes).extracting(AlarmChange::type, AlarmChange::via).containsExactly(tuple(RAISED, Via.RESYNC));
+        // the re-raise lifecycle of a trap: the same alarm record, active again, keeping its first raise time
+        assertThat(changes.get(0).alarm())
+                .extracting(Alarm::id, Alarm::severity, Alarm::text, Alarm::state, Alarm::raisedAt, Alarm::clearedAt)
+                .containsExactly("s1", MAJOR, "Channel A failed", ACTIVE_UNACK, T0, null);
+    }
+
+    @Test
+    void raisesDuringMaintenanceAreSuppressed() {
+        var cu = alarm("s1", "RAD-N", 201, 0, MINOR, CLEARED_UNACK);
+
+        var changes = engine.reconcile(open(cu), "RAD-N", List.of(row(101, 0, CRITICAL), row(201, 0, MINOR)), true,
+                T1);
+
+        assertThat(changes).extracting(c -> c.alarm().key().code(), AlarmChange::type, c -> c.alarm().suppressed(),
+                        AlarmChange::via)
+                .containsExactly(tuple(101, RAISED, true, Via.RESYNC), tuple(201, RAISED, true, Via.RESYNC));
+    }
+
+    @Test
+    void supervisorAlarmsAreNeverReconciled() {
+        var lostContact = engine.onContact(Map.of(), "RAD-N", true, false, T0).get(0).alarm();
+        var failed = new ServiceAlarmInput("SURV", "Surveillance", true, true);
+        var serviceAlarms = engine.onServiceTransition(Map.of(), null, failed, T0).stream()
+                .map(AlarmChange::alarm).toArray(Alarm[]::new);
+        var open = open(serviceAlarms);
+        open.put(lostContact.key(), lostContact);
+
+        assertThat(engine.reconcile(open, "RAD-N", List.of(), false, T1)).isEmpty();
+        assertThat(engine.reconcile(open, "SURV", List.of(), false, T1)).isEmpty();
+        // a table row on the key of a supervisor alarm does not take it over either
+        assertThat(engine.reconcile(open, "RAD-N", List.of(row(901, 0, CRITICAL, "Device text")), false, T1))
+                .isEmpty();
+    }
+
+    @Test
+    void changesAreOrderedByCodeThenInstance() {
+        var a = alarm("s1", "SDPS-A", 401, 2, MINOR, ACTIVE_UNACK);
+        var b = alarm("s2", "SDPS-A", 201, 0, MINOR, ACTIVE_UNACK);
+        var table = List.of(row(401, 3, MINOR), row(101, 0, MINOR), row(401, 1, MINOR));
+
+        var changes = engine.reconcile(open(a, b), "SDPS-A", table, false, T1);
+
+        assertThat(changes).extracting(c -> c.alarm().key().code(), c -> c.alarm().key().instance(),
+                        AlarmChange::type, AlarmChange::via)
+                .containsExactly(tuple(101, 0, RAISED, Via.RESYNC), tuple(201, 0, CLEARED, Via.RESYNC),
+                        tuple(401, 1, RAISED, Via.RESYNC), tuple(401, 2, CLEARED, Via.RESYNC),
+                        tuple(401, 3, RAISED, Via.RESYNC));
     }
 }

@@ -83,8 +83,10 @@ public final class BoardDecider {
     }
 
     /**
-     * A probe or poll result: freshness gate, then equipment event, maintenance updates, contact alarm, service
-     * events, service alarms and (for a successful poll only) the telemetry sample, in that order.
+     * A probe or poll result: freshness gate, then equipment event, maintenance updates, contact alarm, (for a
+     * successful poll) the reconciliation of the device alarms against its alarm table (spec §8.2), service events,
+     * service alarms and (for a successful poll only) the telemetry sample, in that order. All of it is one decision,
+     * so the resync events commit in one transaction.
      *
      * <p>A probe is checked against the contact generation and a full poll against the status generation. A probe
      * only proves reachability and never sets health, so a trap does not make it stale: a trapping device that stops
@@ -125,6 +127,10 @@ public final class BoardDecider {
         boolean contacted = in instanceof ProbeSucceeded || in instanceof PollSucceeded;
         if (contacted && lostContactActive(w.open(), id)) {
             w.addAlarms(alarms.onContact(w.open(), id, false, maintenance, now), now);
+        }
+        if (in instanceof PollSucceeded poll) {
+            // the complete alarm table of this poll; a stale walk never gets here (the generation gate above)
+            w.addAlarms(alarms.reconcile(w.open(), id, poll.obs().alarms(), maintenance, now), now);
         }
         serviceChanges(w, now);
 

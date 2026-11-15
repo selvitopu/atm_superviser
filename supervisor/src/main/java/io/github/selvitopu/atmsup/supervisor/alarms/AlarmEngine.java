@@ -1,21 +1,29 @@
 package io.github.selvitopu.atmsup.supervisor.alarms;
 
 import io.github.selvitopu.atmsup.mib.Severity;
+import io.github.selvitopu.atmsup.supervisor.snmp.DeviceAlarm;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmClearedNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmRaisedNotification;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.SortedSet;
+import java.util.TreeSet;
 
 /**
  * Pure alarm state machine. No clock, I/O or mutation of its inputs: every method takes the currently open
  * (non-CLOSED) alarms and returns the changes to apply.
  */
 public final class AlarmEngine {
+
+    private static final Comparator<AlarmKey> BY_CODE_THEN_INSTANCE =
+            Comparator.comparingInt(AlarmKey::code).thenComparingInt(AlarmKey::instance);
 
     private final IdGenerator ids;
 
@@ -70,6 +78,44 @@ public final class AlarmEngine {
         return changes;
     }
 
+    /**
+     * Reconciles the {@code DEVICE} alarms of one device against its alarm table (spec §8.2), through the same raise
+     * and clear paths as a trap but {@code via RESYNC}. A row with no active alarm is raised with the device's raise
+     * time (a CLEARED_UNACK alarm on its key comes back with its id); an active alarm with no row is cleared; a row
+     * that differs from its active alarm in severity or text updates it. Supervisor alarms are never touched, not even
+     * by a row on their key. Changes are ordered by (code, instance).
+     *
+     * <p>{@code table} must be a complete walk that is not stale: a partial or outdated one would clear alarms the
+     * device still holds.
+     */
+    public List<AlarmChange> reconcile(Map<AlarmKey, Alarm> open, String equipmentId, List<DeviceAlarm> table,
+                                       boolean maintenance, Instant now) {
+        Map<AlarmKey, DeviceAlarm> device = new HashMap<>();
+        for (DeviceAlarm row : table) {
+            device.put(new AlarmKey(equipmentId, row.code(), row.instance()), row);
+        }
+        SortedSet<AlarmKey> keys = new TreeSet<>(BY_CODE_THEN_INSTANCE);
+        keys.addAll(device.keySet());
+        for (Alarm a : open.values()) {
+            if (a.key().equipmentId().equals(equipmentId) && a.source() == AlarmSource.DEVICE) {
+                keys.add(a.key());
+            }
+        }
+        var changes = new ArrayList<AlarmChange>();
+        for (AlarmKey key : keys) {
+            Alarm current = open.get(key);
+            if (current != null && current.source() != AlarmSource.DEVICE) {
+                continue;
+            }
+            DeviceAlarm row = device.get(key);
+            changes.addAll(row != null
+                    ? raise(open, key, row.instanceName(), row.severity(), row.text(), AlarmSource.DEVICE, Via.RESYNC,
+                            maintenance, row.raisedAt())
+                    : clear(open, key, Via.RESYNC, now));
+        }
+        return changes;
+    }
+
     public AckResult acknowledge(Map<AlarmKey, Alarm> open, Collection<String> idsToAck, String actor,
                                  String comment, Instant now) {
         var changes = new ArrayList<AlarmChange>();
@@ -116,12 +162,13 @@ public final class AlarmEngine {
                 a.suppressed(), a.raisedAt(), now, actor, comment, a.clearedAt());
     }
 
+    /** {@code raisedAt} is the raise time of a new alarm; a re-raised CLEARED_UNACK alarm keeps its own. */
     private List<AlarmChange> raise(Map<AlarmKey, Alarm> open, AlarmKey key, String instanceName, Severity severity,
-                                    String text, AlarmSource source, Via via, boolean maintenance, Instant now) {
+                                    String text, AlarmSource source, Via via, boolean maintenance, Instant raisedAt) {
         Alarm old = open.get(key);
         if (old == null) {
             var created = new Alarm(ids.next(), key, instanceName, severity, text, source, AlarmState.ACTIVE_UNACK,
-                    maintenance, now, null, null, null, null);
+                    maintenance, raisedAt, null, null, null, null);
             return List.of(new AlarmChange(AlarmEventType.RAISED, created, via, null));
         }
         if (old.state() == AlarmState.CLEARED_UNACK) {

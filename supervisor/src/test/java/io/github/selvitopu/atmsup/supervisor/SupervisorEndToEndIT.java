@@ -1,5 +1,6 @@
 package io.github.selvitopu.atmsup.supervisor;
 
+import static io.github.selvitopu.atmsup.simulator.model.Fault.DROP_TRAPS;
 import static io.github.selvitopu.atmsup.simulator.model.Fault.FAIL;
 import static io.github.selvitopu.atmsup.simulator.model.Fault.RECOVER;
 import static io.github.selvitopu.atmsup.simulator.model.Fault.UNREACHABLE;
@@ -293,6 +294,33 @@ class SupervisorEndToEndIT {
     private List<Long> samples(String equipmentId) {
         return jdbc.queryForList("select id from event_log where type = 'TELEMETRY_SAMPLED' and equipment_id = ?",
                 Long.class, equipmentId);
+    }
+
+    @Test
+    @Order(5)
+    void trapLossIsReconciledFromTheAlarmTable() {
+        await().atMost(ofSeconds(20)).until(() -> eq("RAD-S").health().equals("OPERATIONAL"));
+        assertThat(raisedVia("RAD-S", 101)).isEmpty();
+
+        // the device fails without telling anyone: only the next full poll's alarm table walk can find 101
+        fixture.centre().applyFault("RAD-S", new FaultRequest(DROP_TRAPS, null));
+        fixture.centre().applyFault("RAD-S", new FaultRequest(FAIL, null));
+        await().atMost(ofSeconds(15)).untilAsserted(() -> {
+            assertThat(openAlarm("RAD-S", 101)).isNotNull();
+            assertThat(raisedVia("RAD-S", 101)).containsExactly("RESYNC");
+        });
+
+        fixture.centre().applyFault("RAD-S", new FaultRequest(RECOVER, null));
+        await().atMost(ofSeconds(15)).until(() -> openAlarm("RAD-S", 101) == null);
+        // the polls in between confirmed the alarm without raising it again
+        assertThat(raisedVia("RAD-S", 101)).containsExactly("RESYNC");
+    }
+
+    /** The {@code via} of every stored ALARM_RAISED event of one alarm code; the codec keeps it in the payload. */
+    private List<String> raisedVia(String equipmentId, int code) {
+        return jdbc.queryForList("select payload->>'$.via' from event_log where type = 'ALARM_RAISED'"
+                + " and equipment_id = ? and payload->'$.alarm.key.code' = ? order by id", String.class,
+                equipmentId, code);
     }
 
     /** A minimal text/event-stream client on java.net.http that records every message until it is closed. */
