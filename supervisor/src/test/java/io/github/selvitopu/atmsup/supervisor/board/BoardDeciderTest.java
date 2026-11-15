@@ -374,6 +374,40 @@ class BoardDeciderTest {
     }
 
     @Test
+    void aConfirmedRedundancyLossSurvivesTheFailedUnitGoingUnknown() {
+        AlarmKey redundancyLost = new AlarmKey("SURV", 903, 0);
+        LiveBoard lb = with(Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED));
+        lb = merged(lb, decider.decide(lb, new PollSucceeded(obs("SDPS-A", FAILED), 0), t0));
+        assertThat(lb.board().openAlarms().get(redundancyLost).state()).isEqualTo(AlarmState.ACTIVE_UNACK);
+        lb = withProbeFailures(lb, "SDPS-A", 2);
+        Instant t1 = t0.plusSeconds(5);
+
+        // SDPS-A may be back or still failed: the optimistic pass keeps redundancy, the pessimistic pass loses it
+        Decision lost = decider.decide(lb, new ProbeFailed("SDPS-A", t1, "TIMEOUT: no response", 0), t1);
+
+        assertThat(lost.events()).extracting(DomainEvent::type).doesNotContain(ALARM_CLEARED);
+        assertThat(lost.events()).filteredOn(ServiceEvent.class::isInstance).map(e -> ((ServiceEvent) e).state())
+                .singleElement().satisfies(st -> {
+                    assertThat(st.status()).isEqualTo(ServiceStatus.DEGRADED);
+                    assertThat(st.redundancyLost()).isFalse();
+                    assertThat(st.redundancyUnconfirmed()).isTrue();
+                });
+        lb = merged(lb, lost);
+        assertThat(lb.board().equipment().get("SDPS-A").unknownReason()).isEqualTo(UnknownReason.LOST_CONTACT);
+        assertThat(lb.board().openAlarms().get(redundancyLost).state()).isEqualTo(AlarmState.ACTIVE_UNACK);
+        Instant t2 = t1.plusSeconds(5);
+
+        Decision back = decider.decide(lb, new PollSucceeded(obs("SDPS-A", OPERATIONAL), lb.generation("SDPS-A")),
+                t2);
+
+        assertThat(back.events()).filteredOn(AlarmEvent.class::isInstance).map(AlarmEvent.class::cast)
+                .filteredOn(e -> e.alarm().key().equals(redundancyLost))
+                .extracting(AlarmEvent::type, e -> e.alarm().state())
+                .containsExactly(tuple(ALARM_CLEARED, AlarmState.CLEARED_UNACK));
+        assertThat(merged(lb, back).board().services().get(ServiceId.SURV).redundancyUnconfirmed()).isFalse();
+    }
+
+    @Test
     void serviceFailedAlarmComesBeforeRedundancyLost() {
         LiveBoard lb = with(Map.of("SDPS-A", Health.UNKNOWN, "SDPS-B", Health.FAILED));
         assertThat(lb.board().services().get(ServiceId.SURV).status()).isEqualTo(ServiceStatus.UNKNOWN);

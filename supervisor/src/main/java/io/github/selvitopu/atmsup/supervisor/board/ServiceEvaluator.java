@@ -29,7 +29,8 @@ public final class ServiceEvaluator {
 
     /**
      * Only the optimistic pass's detail is confirmed: when both passes agree on the status, the reasons and
-     * {@code redundancyLost} come from it, so alarms 903/904 follow confirmed facts only. What the pessimistic pass
+     * {@code redundancyLost} come from it, so alarms 903/904 follow confirmed facts only. A redundancy flag the two
+     * passes disagree on is marked {@code redundancyUnconfirmed}, which leaves 903 as it is. What the pessimistic pass
      * adds is reported as a single "Unconfirmed" reason.
      */
     public Map<ServiceId, ServiceState> evaluate(Board b, Instant now) {
@@ -48,12 +49,13 @@ public final class ServiceEvaluator {
                     reasons.add("Unconfirmed: " + String.join("; ", extra)
                             + " (equipment in UNKNOWN state: " + ids + ")");
                 }
+                boolean redundancyUnconfirmed = best.redundancyLost() != worst.redundancyLost();
                 out.put(rule.id(), new ServiceState(rule.id(), best.status(), null, best.redundancyLost(),
-                        List.copyOf(reasons), since(prev, best.status(), now)));
+                        redundancyUnconfirmed, List.copyOf(reasons), since(prev, best.status(), now)));
             } else {
                 String ids = String.join(", ", dependsOn(b, rule, best,
                         (o, ref) -> o.status() != ref.status()));
-                out.put(rule.id(), new ServiceState(rule.id(), ServiceStatus.UNKNOWN, best.status(), false,
+                out.put(rule.id(), new ServiceState(rule.id(), ServiceStatus.UNKNOWN, best.status(), false, false,
                         List.of("Depends on equipment in UNKNOWN state: " + ids),
                         since(prev, ServiceStatus.UNKNOWN, now)));
             }

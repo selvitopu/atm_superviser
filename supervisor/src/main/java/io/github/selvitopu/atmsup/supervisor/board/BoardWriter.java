@@ -42,8 +42,8 @@ import org.springframework.context.SmartLifecycle;
  * ({@code lastProbeAt}, {@code consecutiveFailures}, {@code fullPollFailures}); {@code lastPollAt}, the values, the
  * tables and {@code lastSampleAt} stay as they were, so an unpersisted result never looks like a fresh poll and an
  * unstored sample stays due. A {@link TelemetryUpdated} is still published with that counter-only telemetry, so the
- * stream matches {@code /board}; its poll time and values are the old ones. A trap's {@link RepollRequested} is
- * published even then, so a follow-up poll retries.
+ * stream matches {@code /board}; its poll time and values are the old ones. Every {@link RepollRequested} (TRAP and
+ * CONTACT_RESTORED) is published even then, so a follow-up poll retries.
  *
  * <p>Readers get an immutable snapshot through {@link #current()}.
  */
@@ -90,7 +90,8 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
 
     private static Counter staleCounter(MeterRegistry meters, String kind) {
         return Counter.builder(STALE_RESULTS).tag("kind", kind)
-                .description("Probe or poll results discarded because the device generation moved on")
+                .description("A probe or poll result discarded because the generation that applies to it "
+                        + "(contact for a probe, status for a full poll) moved on")
                 .register(meters);
     }
 

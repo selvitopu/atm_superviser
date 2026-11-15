@@ -16,9 +16,10 @@ public interface EventLogRepository extends JpaRepository<EventLogEntity, Long> 
 
     /**
      * The newest row per equipment id among the given event types. The inner query groups by {@code equipment_id}
-     * and selects only {@code max(id)}, so it walks {@code ix_event_log_equipment} (equipment_id, occurred_at, and the
-     * primary key id the index carries) without reading payloads; the outer query then fetches one row per device by
-     * primary key.
+     * and selects only {@code max(id)}. {@code type} is not in {@code ix_event_log_equipment} (equipment_id,
+     * occurred_at, and the primary key id the index carries), so the inner query needs row lookups to check the type,
+     * and its cost grows with the log until retention or a covering index exists (v0.3). The outer query then fetches
+     * one row per device by primary key.
      */
     @Query("""
             select e from EventLogEntity e where e.id in (

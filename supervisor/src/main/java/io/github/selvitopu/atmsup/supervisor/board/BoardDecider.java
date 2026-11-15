@@ -157,7 +157,10 @@ public final class BoardDecider {
         return tel.lastSampleAt() == null || Duration.between(tel.lastSampleAt(), now).compareTo(sampleInterval) >= 0;
     }
 
-    /** Service events for every service whose status, best case, redundancy or reasons changed, then their alarms. */
+    /**
+     * Service events for every service whose status, best case, redundancy flags or reasons changed, then their
+     * alarms.
+     */
     private void serviceChanges(Working w, Instant now) {
         Map<ServiceId, ServiceState> before = w.board.services();
         Map<ServiceId, ServiceState> changed = new EnumMap<>(ServiceId.class);
@@ -173,17 +176,22 @@ public final class BoardDecider {
 
     private static boolean differs(ServiceState prev, ServiceState s) {
         return prev == null || prev.status() != s.status() || !Objects.equals(prev.bestCase(), s.bestCase())
-                || prev.redundancyLost() != s.redundancyLost() || !prev.reasons().equals(s.reasons());
+                || prev.redundancyLost() != s.redundancyLost()
+                || prev.redundancyUnconfirmed() != s.redundancyUnconfirmed() || !prev.reasons().equals(s.reasons());
     }
 
-    /** UNKNOWN leaves both flags null, so the service alarms stay as they are. */
+    /**
+     * A null flag leaves its alarm as it is: UNKNOWN makes both flags null, and an unconfirmed redundancy flag makes
+     * the redundancy flag null (the failed flag is confirmed whenever the status is known).
+     */
     private static ServiceAlarmInput alarmInput(ServiceState s) {
         if (s == null) {
             return null;
         }
         boolean unknown = s.status() == ServiceStatus.UNKNOWN;
         return new ServiceAlarmInput(s.id().name(), s.id().label(),
-                unknown ? null : s.status() == ServiceStatus.FAILED, unknown ? null : s.redundancyLost());
+                unknown ? null : s.status() == ServiceStatus.FAILED,
+                unknown || s.redundancyUnconfirmed() ? null : s.redundancyLost());
     }
 
     /**

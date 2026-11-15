@@ -95,7 +95,7 @@ class BoardControllerTest {
         Map<AlarmKey, Alarm> open = new LinkedHashMap<>();
         alarms.forEach(a -> open.put(a.key(), a));
         Map<ServiceId, ServiceState> services = Map.of(ServiceId.SURV,
-                new ServiceState(ServiceId.SURV, ServiceStatus.OK, null, false, List.of(), T));
+                new ServiceState(ServiceId.SURV, ServiceStatus.OK, null, false, false, List.of(), T));
         given(writer.current())
                 .willReturn(new LiveBoard(new Board(eq, services, open, 17), telemetry, Map.of(), Map.of()));
     }

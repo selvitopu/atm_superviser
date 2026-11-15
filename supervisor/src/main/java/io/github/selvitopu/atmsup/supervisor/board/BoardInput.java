@@ -7,8 +7,9 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Everything the board writer processes, one at a time. Probe and poll results carry the device generation read
- * when the probe or poll <em>started</em>; a result from an older generation is discarded (amendment §2).
+ * Everything the board writer processes, one at a time. Probe and poll results carry the generation that applies to
+ * them (contact for a probe, status for a full poll), read when the probe or poll <em>started</em>; a result from an
+ * older generation is discarded (amendment §2).
  */
 public sealed interface BoardInput {
 

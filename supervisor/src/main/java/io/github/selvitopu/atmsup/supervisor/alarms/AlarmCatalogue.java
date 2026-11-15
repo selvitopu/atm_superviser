@@ -18,6 +18,11 @@ public final class AlarmCatalogue {
     private AlarmCatalogue() {
     }
 
+    /** A code this catalogue defines for source SUPERVISOR. A device's trap or alarm table row cannot carry one. */
+    public static boolean isSupervisorCode(int code) {
+        return code == LOST_CONTACT || code == REDUNDANCY_LOST || code == SERVICE_FAILED;
+    }
+
     public static String redundancyLostText(String serviceName) {
         return "Service redundancy lost: " + serviceName;
     }

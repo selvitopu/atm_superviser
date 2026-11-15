@@ -67,7 +67,7 @@ class BoardReducerTest {
 
     @Test
     void serviceEventPutsItsState() {
-        var s = new ServiceState(ServiceId.SURV, ServiceStatus.OK, null, false, List.of(), NOW);
+        var s = new ServiceState(ServiceId.SURV, ServiceStatus.OK, null, false, false, List.of(), NOW);
         var b = BoardReducer.apply(initial, new ServiceEvent(NOW, s));
         assertThat(b.services()).containsEntry(ServiceId.SURV, s);
     }
@@ -131,7 +131,8 @@ class BoardReducerTest {
         assertThat(EventType.CONTACT_LOST.kind()).isEqualTo(EntityKind.EQUIPMENT);
         assertThat(EventType.TELEMETRY_SAMPLED.kind()).isEqualTo(EntityKind.TELEMETRY);
         assertThat(EventType.ofAlarm(AlarmEventType.CLEARED)).isEqualTo(EventType.ALARM_CLEARED);
-        assertThat(new ServiceEvent(NOW, new ServiceState(ServiceId.FD, ServiceStatus.OK, null, false, List.of(), NOW))
+        assertThat(new ServiceEvent(NOW,
+                new ServiceState(ServiceId.FD, ServiceStatus.OK, null, false, false, List.of(), NOW))
                 .type()).isEqualTo(EventType.SERVICE_STATE_CHANGED);
     }
 

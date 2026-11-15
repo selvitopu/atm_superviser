@@ -451,6 +451,28 @@ class AlarmEngineTest {
     }
 
     @Test
+    void supervisorCodesInTheTableAreIgnored() {
+        var table = List.of(row(901, 0, MAJOR, "Lost contact"), row(903, 0, MAJOR), row(904, 0, CRITICAL),
+                row(101, 0, CRITICAL));
+
+        var changes = engine.reconcile(Map.of(), "RAD-N", table, false, T1);
+
+        // a DEVICE 901 would be cleared by the next probe and raised again by the next poll, every few seconds
+        assertThat(changes).extracting(c -> c.alarm().key().code(), AlarmChange::type, AlarmChange::via)
+                .containsExactly(tuple(101, RAISED, Via.RESYNC));
+    }
+
+    @Test
+    void supervisorCodesInATrapAreIgnored() {
+        var lostContact = engine.onContact(Map.of(), "RAD-N", true, false, T0).get(0).alarm();
+
+        for (int code : List.of(901, 903, 904)) {
+            assertThat(engine.onNotification(Map.of(), raised("RAD-N", code, 0, MAJOR), false, T1)).isEmpty();
+            assertThat(engine.onNotification(open(lostContact), cleared("RAD-N", code, 0), false, T1)).isEmpty();
+        }
+    }
+
+    @Test
     void changesAreOrderedByCodeThenInstance() {
         var a = alarm("s1", "SDPS-A", 401, 2, MINOR, ACTIVE_UNACK);
         var b = alarm("s2", "SDPS-A", 201, 0, MINOR, ACTIVE_UNACK);

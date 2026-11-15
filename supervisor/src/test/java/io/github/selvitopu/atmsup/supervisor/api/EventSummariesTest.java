@@ -102,7 +102,7 @@ class EventSummariesTest {
 
     @Test
     void serviceState() {
-        var state = new ServiceState(ServiceId.SURV, ServiceStatus.DEGRADED, null, false, List.of(), T);
+        var state = new ServiceState(ServiceId.SURV, ServiceStatus.DEGRADED, null, false, false, List.of(), T);
         assertThat(EventSummaries.describe(stored(new ServiceEvent(T, state)))).isEqualTo("Surveillance DEGRADED");
     }
 

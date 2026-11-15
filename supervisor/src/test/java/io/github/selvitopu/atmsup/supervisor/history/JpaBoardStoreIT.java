@@ -127,7 +127,7 @@ class JpaBoardStoreIT {
                 event(EventType.ALARM_RAISED, raised, Via.TRAP, null),
                 event(EventType.ALARM_ACKNOWLEDGED, acknowledged(raised, AlarmState.ACTIVE_ACK), Via.OPERATOR,
                         "demo-user"),
-                new ServiceEvent(t0, new ServiceState(ServiceId.SURV, ServiceStatus.FAILED, null, true,
+                new ServiceEvent(t0, new ServiceState(ServiceId.SURV, ServiceStatus.FAILED, null, true, false,
                         List.of("No SDPS unit available"), t0)),
                 event(EventType.ALARM_RAISED, failed, Via.SUPERVISOR, null),
                 new TelemetrySampleEvent(t0, "SDPS-A", t0.minusMillis(5),
@@ -173,7 +173,8 @@ class JpaBoardStoreIT {
                 new EquipmentEvent(EventType.CONTACT_LOST, t0.plusSeconds(15), lost),
                 event(EventType.ALARM_RAISED, deviceAlarm("a1", AlarmState.ACTIVE_UNACK), Via.TRAP, null)));
         store.commit(List.of(
-                new ServiceEvent(t0, new ServiceState(ServiceId.FD, ServiceStatus.OK, null, false, List.of(), t0)),
+                new ServiceEvent(t0, new ServiceState(ServiceId.FD, ServiceStatus.OK, null, false, false, List.of(),
+                        t0)),
                 new TelemetrySampleEvent(t0, "SDPS-A", t0, Map.of("trackCount", 1L), Map.of())));
         em.flush();
         em.clear();
@@ -186,7 +187,8 @@ class JpaBoardStoreIT {
         store.commit(List.of(
                 new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, t0, new EquipmentState("RAD-N",
                         Health.OPERATIONAL, null, false, Role.STANDALONE, t0, new Contact(true, t0, null))),
-                new ServiceEvent(t0, new ServiceState(ServiceId.FD, ServiceStatus.OK, null, false, List.of(), t0)),
+                new ServiceEvent(t0, new ServiceState(ServiceId.FD, ServiceStatus.OK, null, false, false, List.of(),
+                        t0)),
                 event(EventType.ALARM_RAISED, deviceAlarm("a1", AlarmState.ACTIVE_UNACK), Via.TRAP, null),
                 new SupervisorEvent(EventType.SUPERVISOR_STARTED, t0, UnknownReason.SUPERVISOR_RESTARTED),
                 new TelemetrySampleEvent(t0, "RAD-N", t0, Map.of("plotsPerScan", 300L), Map.of())));

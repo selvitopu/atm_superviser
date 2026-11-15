@@ -279,7 +279,7 @@ class SseBroadcasterTest {
     void durableMessagesCarryTheEntityStateAndCurrentTelemetry() {
         EquipmentState failed = new EquipmentState("RAD-N", Health.FAILED, null, false, Role.STANDALONE, T0,
                 new Contact(true, T0, null));
-        ServiceState surv = new ServiceState(ServiceId.SURV, ServiceStatus.OK, null, false, List.of(), T0);
+        ServiceState surv = new ServiceState(ServiceId.SURV, ServiceStatus.OK, null, false, false, List.of(), T0);
         AlarmEvent alarm = alarmEvent();
 
         broadcaster.onCommitted(committed(

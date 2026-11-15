@@ -31,9 +31,12 @@ public final class AlarmEngine {
         this.ids = ids;
     }
 
+    /** A raise or clear with a supervisor code ({@link AlarmCatalogue#isSupervisorCode}) is ignored. */
     public List<AlarmChange> onNotification(Map<AlarmKey, Alarm> open, Notification n, boolean maintenance,
                                             Instant now) {
         return switch (n) {
+            case AlarmRaisedNotification r when AlarmCatalogue.isSupervisorCode(r.code()) -> List.of();
+            case AlarmClearedNotification c when AlarmCatalogue.isSupervisorCode(c.code()) -> List.of();
             case AlarmRaisedNotification r -> raise(open, new AlarmKey(r.equipmentId(), r.code(), r.instance()),
                     r.instanceName(), r.severity(), r.text(), AlarmSource.DEVICE, Via.TRAP, maintenance, now);
             case AlarmClearedNotification c -> clear(open, new AlarmKey(c.equipmentId(), c.code(), c.instance()),
@@ -83,7 +86,8 @@ public final class AlarmEngine {
      * and clear paths as a trap but {@code via RESYNC}. A row with no active alarm is raised with the device's raise
      * time, also when a CLEARED_UNACK alarm on its key comes back with its id; an active alarm with no row is
      * cleared; a row that differs from its active alarm in severity or text updates it. Supervisor alarms are never
-     * touched, not even by a row on their key. Changes are ordered by (code, instance).
+     * touched, not even by a row on their key, and a row with a supervisor code
+     * ({@link AlarmCatalogue#isSupervisorCode}) is skipped. Changes are ordered by (code, instance).
      *
      * <p>{@code table} must be a complete walk that is not stale: a partial or outdated one would clear alarms the
      * device still holds.
@@ -92,7 +96,9 @@ public final class AlarmEngine {
                                        boolean maintenance, Instant now) {
         Map<AlarmKey, DeviceAlarm> device = new HashMap<>();
         for (DeviceAlarm row : table) {
-            device.put(new AlarmKey(equipmentId, row.code(), row.instance()), row);
+            if (!AlarmCatalogue.isSupervisorCode(row.code())) {
+                device.put(new AlarmKey(equipmentId, row.code(), row.instance()), row);
+            }
         }
         SortedSet<AlarmKey> keys = new TreeSet<>(BY_CODE_THEN_INSTANCE);
         keys.addAll(device.keySet());

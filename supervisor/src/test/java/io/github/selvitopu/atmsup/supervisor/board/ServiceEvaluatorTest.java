@@ -46,75 +46,80 @@ class ServiceEvaluatorTest {
     static List<Arguments> rows() {
         return List.of(
                 Arguments.of("all operational", Map.of(), Set.of(),
-                        ServiceStatus.OK, null, false, List.of(), ServiceStatus.OK, false),
+                        ServiceStatus.OK, null, false, false, List.of(), ServiceStatus.OK, false),
                 Arguments.of("one radar failed", Map.of("RAD-N", Health.FAILED), Set.of(),
-                        ServiceStatus.OK, null, false, List.of(), ServiceStatus.OK, false),
+                        ServiceStatus.OK, null, false, false, List.of(), ServiceStatus.OK, false),
                 Arguments.of("two radars failed", Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED), Set.of(),
-                        ServiceStatus.DEGRADED, null, false, List.of("Fewer than 2 radars available"),
+                        ServiceStatus.DEGRADED, null, false, false, List.of("Fewer than 2 radars available"),
                         ServiceStatus.OK, false),
                 Arguments.of("all radars failed",
                         Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED, "RAD-S", Health.FAILED), Set.of(),
-                        ServiceStatus.FAILED, null, false, List.of("No radar available"), ServiceStatus.OK, false),
+                        ServiceStatus.FAILED, null, false, false, List.of("No radar available"),
+                        ServiceStatus.OK, false),
                 Arguments.of("SDPS-A failed", Map.of("SDPS-A", Health.FAILED), Set.of(),
-                        ServiceStatus.DEGRADED, null, true, List.of("Only one SDPS unit available"),
+                        ServiceStatus.DEGRADED, null, true, false, List.of("Only one SDPS unit available"),
                         ServiceStatus.OK, false),
                 Arguments.of("SDPS-A maintenance, SDPS-B failed", Map.of("SDPS-B", Health.FAILED), Set.of("SDPS-A"),
-                        ServiceStatus.FAILED, null, true, List.of("No SDPS unit available"), ServiceStatus.OK, false),
+                        ServiceStatus.FAILED, null, true, false, List.of("No SDPS unit available"),
+                        ServiceStatus.OK, false),
                 Arguments.of("SDPS-A unknown", Map.of("SDPS-A", UNK), Set.of(),
-                        ServiceStatus.UNKNOWN, ServiceStatus.OK, false, List.of(UNKNOWN_PREFIX + "SDPS-A"),
+                        ServiceStatus.UNKNOWN, ServiceStatus.OK, false, false, List.of(UNKNOWN_PREFIX + "SDPS-A"),
                         ServiceStatus.OK, false),
                 Arguments.of("SDPS-A unknown, SDPS-B failed", Map.of("SDPS-A", UNK, "SDPS-B", Health.FAILED), Set.of(),
-                        ServiceStatus.UNKNOWN, ServiceStatus.DEGRADED, false, List.of(UNKNOWN_PREFIX + "SDPS-A"),
-                        ServiceStatus.OK, false),
+                        ServiceStatus.UNKNOWN, ServiceStatus.DEGRADED, false, false,
+                        List.of(UNKNOWN_PREFIX + "SDPS-A"), ServiceStatus.OK, false),
                 Arguments.of("all radars failed, SDPS-A unknown",
                         Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED, "RAD-S", Health.FAILED,
                                 "SDPS-A", UNK), Set.of(),
-                        ServiceStatus.FAILED, null, false, List.of("No radar available",
+                        ServiceStatus.FAILED, null, false, true, List.of("No radar available",
                                 "Unconfirmed: Only one SDPS unit available (equipment in UNKNOWN state: SDPS-A)"),
                         ServiceStatus.OK, false),
                 Arguments.of("one radar unknown, two operational", Map.of("RAD-N", UNK), Set.of(),
-                        ServiceStatus.OK, null, false, List.of(), ServiceStatus.OK, false),
+                        ServiceStatus.OK, null, false, false, List.of(), ServiceStatus.OK, false),
                 Arguments.of("SDPS-A failed, RAD-N and RAD-E unknown",
                         Map.of("SDPS-A", Health.FAILED, "RAD-N", UNK, "RAD-E", UNK), Set.of(),
-                        ServiceStatus.DEGRADED, null, true,
+                        ServiceStatus.DEGRADED, null, true, false,
                         List.of("Only one SDPS unit available", "Unconfirmed: Fewer than 2 radars available "
                                 + "(equipment in UNKNOWN state: RAD-N, RAD-E)"), ServiceStatus.OK, false),
                 Arguments.of("RAD-N and RAD-E failed, SDPS-B unknown",
                         Map.of("RAD-N", Health.FAILED, "RAD-E", Health.FAILED, "SDPS-B", UNK), Set.of(),
-                        ServiceStatus.DEGRADED, null, false,
+                        ServiceStatus.DEGRADED, null, false, true,
                         List.of("Fewer than 2 radars available", "Unconfirmed: Only one SDPS unit available "
                                 + "(equipment in UNKNOWN state: SDPS-B)"), ServiceStatus.OK, false),
                 Arguments.of("no SDPS and no radar lists both, FAILED first",
                         Map.of("SDPS-A", Health.FAILED, "SDPS-B", Health.FAILED, "RAD-N", Health.FAILED,
                                 "RAD-E", Health.FAILED, "RAD-S", Health.FAILED), Set.of(),
-                        ServiceStatus.FAILED, null, true, List.of("No SDPS unit available", "No radar available"),
-                        ServiceStatus.OK, false),
+                        ServiceStatus.FAILED, null, true, false,
+                        List.of("No SDPS unit available", "No radar available"), ServiceStatus.OK, false),
                 Arguments.of("SDPS-A failed and one radar left lists FAILED-free degraded reasons in order",
                         Map.of("SDPS-A", Health.FAILED, "RAD-N", Health.FAILED, "RAD-E", Health.FAILED), Set.of(),
-                        ServiceStatus.DEGRADED, null, true,
+                        ServiceStatus.DEGRADED, null, true, false,
                         List.of("Only one SDPS unit available", "Fewer than 2 radars available"),
                         ServiceStatus.OK, false),
                 Arguments.of("FDPS-B unknown and in maintenance", Map.of("FDPS-B", UNK), Set.of("FDPS-B"),
-                        ServiceStatus.OK, null, false, List.of(), ServiceStatus.DEGRADED, true),
+                        ServiceStatus.OK, null, false, false, List.of(), ServiceStatus.DEGRADED, true),
                 Arguments.of("FDPS-A failed, FDPS-B failed", Map.of("FDPS-A", Health.FAILED, "FDPS-B", Health.FAILED),
-                        Set.of(), ServiceStatus.OK, null, false, List.of(), ServiceStatus.FAILED, true),
+                        Set.of(), ServiceStatus.OK, null, false, false, List.of(), ServiceStatus.FAILED, true),
                 Arguments.of("both unknown FDPS", Map.of("FDPS-A", UNK, "FDPS-B", UNK), Set.of(),
-                        ServiceStatus.OK, null, false, List.of(), ServiceStatus.UNKNOWN, false));
+                        ServiceStatus.OK, null, false, false, List.of(), ServiceStatus.UNKNOWN, false));
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("rows")
     void evaluatesServices(String name, Map<String, Object> overrides, Set<String> maintenance,
                            ServiceStatus survStatus, ServiceStatus survBest, boolean survRedundancyLost,
-                           List<String> survReasons, ServiceStatus fdStatus, boolean fdRedundancyLost) {
+                           boolean survRedundancyUnconfirmed, List<String> survReasons, ServiceStatus fdStatus,
+                           boolean fdRedundancyLost) {
         var services = evaluator.evaluate(board(inv, overrides, maintenance), NOW);
         var surv = services.get(ServiceId.SURV);
         assertThat(surv.status()).isEqualTo(survStatus);
         assertThat(surv.bestCase()).isEqualTo(survBest);
         assertThat(surv.redundancyLost()).isEqualTo(survRedundancyLost);
+        assertThat(surv.redundancyUnconfirmed()).isEqualTo(survRedundancyUnconfirmed);
         assertThat(surv.reasons()).isEqualTo(survReasons);
         var fd = services.get(ServiceId.FD);
         assertThat(fd.status()).isEqualTo(fdStatus);
+        assertThat(fd.redundancyUnconfirmed()).isFalse();
         if (fdStatus != ServiceStatus.UNKNOWN) {
             assertThat(fd.redundancyLost()).isEqualTo(fdRedundancyLost);
         } else {

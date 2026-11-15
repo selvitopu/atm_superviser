@@ -10,7 +10,9 @@ import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.TelemetrySampleEvent;
 import io.github.selvitopu.atmsup.supervisor.board.EquipmentState;
 import io.github.selvitopu.atmsup.supervisor.board.EventType;
+import io.github.selvitopu.atmsup.supervisor.board.ServiceId;
 import io.github.selvitopu.atmsup.supervisor.board.ServiceState;
+import io.github.selvitopu.atmsup.supervisor.board.ServiceStatus;
 import io.github.selvitopu.atmsup.supervisor.board.UnknownReason;
 import java.time.Instant;
 import java.util.List;
@@ -40,7 +42,7 @@ public class EventCodec {
             case EquipmentEvent ev -> row(ev, recordedAt, ev.state().id(), ev.state().id(), null,
                     new EquipmentPayload(SCHEMA_VERSION, ev.state()));
             case ServiceEvent ev -> row(ev, recordedAt, ev.state().id().name(), null, null,
-                    new ServicePayload(SCHEMA_VERSION, ev.state()));
+                    new ServicePayload(SCHEMA_VERSION, StoredServiceState.of(ev.state())));
             case AlarmEvent ev -> row(ev, recordedAt, ev.alarm().id(), ev.alarm().key().equipmentId(), ev.actor(),
                     new AlarmPayload(SCHEMA_VERSION, ev.alarm(), ev.via()));
             case SupervisorEvent ev -> row(ev, recordedAt, null, null, null,
@@ -56,7 +58,7 @@ public class EventCodec {
         Instant at = row.getOccurredAt();
         return switch (type.kind()) {
             case EQUIPMENT -> new EquipmentEvent(type, at, read(row, EquipmentPayload.class).state());
-            case SERVICE -> new ServiceEvent(at, read(row, ServicePayload.class).state());
+            case SERVICE -> new ServiceEvent(at, read(row, ServicePayload.class).state().toState());
             case ALARM -> {
                 AlarmPayload p = read(row, AlarmPayload.class);
                 yield new AlarmEvent(type, at, p.alarm(), p.via(), row.getActor());
@@ -91,7 +93,26 @@ public class EventCodec {
     private record EquipmentPayload(int schemaVersion, EquipmentState state) implements Payload {
     }
 
-    private record ServicePayload(int schemaVersion, ServiceState state) implements Payload {
+    private record ServicePayload(int schemaVersion, StoredServiceState state) implements Payload {
+    }
+
+    /**
+     * A service state as stored. Payloads written before {@code redundancyUnconfirmed} existed lack it, and Jackson 3
+     * refuses to map a missing value to a primitive, so it is read as a {@link Boolean}: absent means false.
+     */
+    private record StoredServiceState(ServiceId id, ServiceStatus status, ServiceStatus bestCase,
+                                      boolean redundancyLost, Boolean redundancyUnconfirmed, List<String> reasons,
+                                      Instant since) {
+
+        static StoredServiceState of(ServiceState s) {
+            return new StoredServiceState(s.id(), s.status(), s.bestCase(), s.redundancyLost(),
+                    s.redundancyUnconfirmed(), s.reasons(), s.since());
+        }
+
+        ServiceState toState() {
+            return new ServiceState(id, status, bestCase, redundancyLost, Boolean.TRUE.equals(redundancyUnconfirmed),
+                    reasons, since);
+        }
     }
 
     private record AlarmPayload(int schemaVersion, Alarm alarm, Via via) implements Payload {
