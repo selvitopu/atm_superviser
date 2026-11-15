@@ -145,7 +145,7 @@ class BoardDeciderTest {
 
     private Observation obs(String id, EquipmentStatus status, Map<String, Object> values) {
         Role role = Board.initial(inv, List.of()).equipment().get(id).role();
-        return new Observation(id, t0, status, role, false, values, Map.of());
+        return new Observation(id, t0, status, role, false, values, Map.of(), List.of());
     }
 
     private static Notification raisedN(String id, int code, Severity severity) {
@@ -381,7 +381,7 @@ class BoardDeciderTest {
     void maintenanceUpdatesComeBeforeContactAlarms() {
         LiveBoard lb = lostContact("RAD-N");
         Instant t1 = t0.plusSeconds(5);
-        var inMaintenance = new Observation("RAD-N", t1, OPERATIONAL, Role.STANDALONE, true, Map.of(), Map.of());
+        var inMaintenance = new Observation("RAD-N", t1, OPERATIONAL, Role.STANDALONE, true, Map.of(), Map.of(), List.of());
 
         Decision d = decider.decide(lb, new PollSucceeded(inMaintenance, 1), t1);
 
@@ -465,7 +465,7 @@ class BoardDeciderTest {
     @Test
     void trapInMaintenanceRaisesSuppressedAlarm() {
         LiveBoard lb = allOperational();
-        var inMaintenance = new Observation("RAD-N", t0, OPERATIONAL, Role.STANDALONE, true, Map.of(), Map.of());
+        var inMaintenance = new Observation("RAD-N", t0, OPERATIONAL, Role.STANDALONE, true, Map.of(), Map.of(), List.of());
         lb = merged(lb, decider.decide(lb, new PollSucceeded(inMaintenance, 0), t0));
 
         Decision d = decider.decide(lb, new TrapReceived(raisedN("RAD-N", 101, CRITICAL)), t0);

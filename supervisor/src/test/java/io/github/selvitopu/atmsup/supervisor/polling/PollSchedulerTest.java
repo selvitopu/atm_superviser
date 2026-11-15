@@ -3,10 +3,12 @@ package io.github.selvitopu.atmsup.supervisor.polling;
 import static io.github.resilience4j.circuitbreaker.CircuitBreaker.State.CLOSED;
 import static io.github.resilience4j.circuitbreaker.CircuitBreaker.State.HALF_OPEN;
 import static io.github.resilience4j.circuitbreaker.CircuitBreaker.State.OPEN;
+import static io.github.selvitopu.atmsup.mib.AtmTsOids.ALARM_ENTRY;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_ID;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_MAINTENANCE_MODE;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_ROLE;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_STATUS;
+import static io.github.selvitopu.atmsup.mib.AtmTsOids.SDPS_SENSOR_ENTRY;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.scalar;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -192,8 +194,10 @@ class PollSchedulerTest {
         done(scheduler.fullPollNow("SDPS-A"));
 
         assertThat(sink.only(PollSucceeded.class).obs().tables()).containsKey("sensors");
-        assertThat(client.calls()).containsExactly("SDPS-A full", "SDPS-A walk " + PollPlan.forType(
-                inventory.device("SDPS-A").type()).walks().getFirst());
+        List<OID> walks = PollPlan.forType(inventory.device("SDPS-A").type()).walks();
+        assertThat(walks).containsExactly(SDPS_SENSOR_ENTRY, ALARM_ENTRY);
+        assertThat(client.calls()).containsExactly("SDPS-A full", "SDPS-A walk " + walks.get(0),
+                "SDPS-A walk " + walks.get(1));
     }
 
     @Test
@@ -260,6 +264,16 @@ class PollSchedulerTest {
 
         assertThat(sink.only(PollSucceeded.class)).isNotNull();
         assertThat(b.getState()).isEqualTo(CLOSED);
+    }
+
+    @Test
+    void aWalkThatFailsMidwaySubmitsOnlyPollFailed() {
+        client.failWalkMidway("RAD-N", timeout());
+
+        done(scheduler.fullPollNow("RAD-N"));
+
+        assertThat(sink.inputs()).hasSize(1).first().isInstanceOf(PollFailed.class);
+        assertThat(sink.inputs()).noneMatch(in -> in instanceof PollSucceeded);
     }
 
     @Test
@@ -331,7 +345,8 @@ class PollSchedulerTest {
         client.release("RAD-N");
 
         List.of(active, refresh, queuedProbe, queuedPoll).forEach(PollSchedulerTest::done);
-        assertThat(client.calls()).containsExactly("RAD-N full", "RAD-N full", "RAD-E probe", "RAD-E full");
+        assertThat(client.calls()).containsExactly("RAD-N full", "RAD-N walk " + ALARM_ENTRY,
+                "RAD-N full", "RAD-N walk " + ALARM_ENTRY, "RAD-E probe", "RAD-E full", "RAD-E walk " + ALARM_ENTRY);
     }
 
     @Test
@@ -640,6 +655,7 @@ class PollSchedulerTest {
 
         private static final class Script {
             volatile RuntimeException failure;
+            volatile RuntimeException walkFailure;
             volatile Runnable duringGet;
             volatile Duration fullPollTakes = Duration.ZERO;
             volatile CountDownLatch release;
@@ -657,6 +673,11 @@ class PollSchedulerTest {
 
         void failWith(String id, SnmpRequestException e) {
             script(id).failure = e;
+        }
+
+        /** The GET works, but a walk fails after it has read part of the table. */
+        void failWalkMidway(String id, SnmpRequestException e) {
+            script(id).walkFailure = e;
         }
 
         void throwError(String id, RuntimeException e) {
@@ -762,6 +783,10 @@ class PollSchedulerTest {
             RuntimeException failure = script(d.id()).failure;
             if (failure != null) {
                 throw failure;
+            }
+            RuntimeException walkFailure = script(d.id()).walkFailure;
+            if (walkFailure != null) {
+                throw walkFailure;
             }
             return List.of();
         }

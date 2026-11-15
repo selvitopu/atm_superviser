@@ -15,6 +15,7 @@ import io.github.selvitopu.atmsup.mib.DateAndTimes;
 import io.github.selvitopu.atmsup.mib.EquipmentStatus;
 import io.github.selvitopu.atmsup.mib.Role;
 import io.github.selvitopu.atmsup.mib.SensorInputStatus;
+import io.github.selvitopu.atmsup.mib.Severity;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -99,6 +100,56 @@ class ObservationMapperTest {
             rows.add(new VariableBinding(new OID(SDPS_SENSOR_INPUT_STATUS).append(i + 1), new Integer32(status[i])));
         }
         return rows;
+    }
+
+    private static List<VariableBinding> alarmRow(int code, int instance, String name, int severity, String text,
+                                                   Instant raisedAt) {
+        return List.of(
+                new VariableBinding(new OID(ALARM_INSTANCE_NAME).append(code).append(instance), new OctetString(name)),
+                new VariableBinding(new OID(ALARM_SEVERITY).append(code).append(instance), new Integer32(severity)),
+                new VariableBinding(new OID(ALARM_TEXT).append(code).append(instance), new OctetString(text)),
+                new VariableBinding(new OID(ALARM_RAISED_AT).append(code).append(instance),
+                        DateAndTimes.encode(raisedAt)));
+    }
+
+    private Observation mapWithAlarms(List<VariableBinding> rows) {
+        return mapper.map(RAD_N, bindings(radar()), Map.of(ALARM_ENTRY, rows), T0);
+    }
+
+    @Test
+    void alarmTableRowsBecomeDeviceAlarms() {
+        Instant raised = Instant.parse("2026-11-13T14:00:00Z");
+        List<VariableBinding> rows = new ArrayList<>();
+        // a walk returns the table column by column; the rows here arrive out of (code, instance) order
+        rows.addAll(alarmRow(201, 0, "", Severity.MAJOR.code(), "Channel degraded", raised.plusSeconds(60)));
+        rows.addAll(alarmRow(101, 0, "", Severity.CRITICAL.code(), "Equipment failed", raised));
+
+        Observation o = mapWithAlarms(rows);
+
+        assertThat(o.alarms()).containsExactly(
+                new DeviceAlarm(101, 0, "", Severity.CRITICAL, "Equipment failed", raised),
+                new DeviceAlarm(201, 0, "", Severity.MAJOR, "Channel degraded", raised.plusSeconds(60)));
+    }
+
+    @Test
+    void anEmptyAlarmTableGivesNoAlarms() {
+        assertThat(mapWithAlarms(List.of()).alarms()).isEmpty();
+    }
+
+    @Test
+    void aMalformedAlarmRowFailsTheObservation() {
+        Instant raised = Instant.parse("2026-11-13T14:00:00Z");
+        List<VariableBinding> missingSeverity = new ArrayList<>(alarmRow(101, 0, "", Severity.CRITICAL.code(), "x", raised));
+        missingSeverity.removeIf(vb -> vb.getOid().startsWith(ALARM_SEVERITY));
+        List<VariableBinding> unknownSeverity = alarmRow(101, 0, "", 99, "x", raised);
+
+        for (List<VariableBinding> rows : List.of(missingSeverity, unknownSeverity)) {
+            assertThatThrownBy(() -> mapWithAlarms(rows))
+                    .isInstanceOfSatisfying(SnmpRequestException.class, e -> {
+                        assertThat(e.kind()).isEqualTo(SnmpRequestException.Kind.MALFORMED);
+                        assertThat(e.getMessage()).startsWith("MALFORMED: alarm table");
+                    });
+        }
     }
 
     @Test
@@ -284,11 +335,12 @@ class ObservationMapperTest {
     @Test
     void pollPlanPerType() {
         assertThat(PollPlan.forType(DeviceType.RADAR).scalars()).hasSize(14);
-        assertThat(PollPlan.forType(DeviceType.RADAR).walks()).isEmpty();
+        assertThat(PollPlan.forType(DeviceType.RADAR).walks()).containsExactly(AtmTsOids.ALARM_ENTRY);
         PollPlan sdps = PollPlan.forType(DeviceType.SDPS);
         assertThat(sdps.scalars()).hasSize(11).contains(scalar(SDPS_TRACK_COUNT), scalar(EQ_STATUS));
-        assertThat(sdps.walks()).containsExactly(AtmTsOids.SDPS_SENSOR_ENTRY);
+        assertThat(sdps.walks()).containsExactly(AtmTsOids.SDPS_SENSOR_ENTRY, AtmTsOids.ALARM_ENTRY);
         assertThat(PollPlan.forType(DeviceType.FDPS).scalars()).hasSize(12);
+        assertThat(PollPlan.forType(DeviceType.FDPS).walks()).containsExactly(AtmTsOids.ALARM_ENTRY);
         assertThatThrownBy(() -> PollPlan.forType(DeviceType.ADSB)).isInstanceOf(IllegalArgumentException.class);
         assertThat(PollPlan.PROBE).isEqualTo(SnmpConstants.sysUpTime);
     }

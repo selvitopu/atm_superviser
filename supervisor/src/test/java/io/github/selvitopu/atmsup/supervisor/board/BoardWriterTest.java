@@ -88,7 +88,7 @@ class BoardWriterTest {
     }
 
     private static Observation obs(String id, Instant at, EquipmentStatus status, Map<String, Object> values) {
-        return new Observation(id, at, status, Role.STANDALONE, false, values, Map.of());
+        return new Observation(id, at, status, Role.STANDALONE, false, values, Map.of(), List.of());
     }
 
     private PollSucceeded pollSucceeded(String id, EquipmentStatus status) {

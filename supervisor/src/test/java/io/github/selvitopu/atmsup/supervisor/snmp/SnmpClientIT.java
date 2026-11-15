@@ -10,6 +10,7 @@ import io.github.selvitopu.atmsup.inventory.DeviceType;
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.inventory.SnmpProperties;
 import io.github.selvitopu.atmsup.inventory.UserCredentials;
+import io.github.selvitopu.atmsup.mib.Severity;
 import io.github.selvitopu.atmsup.simulator.fixture.FreePorts;
 import io.github.selvitopu.atmsup.simulator.fixture.SimulatorFixture;
 import io.github.selvitopu.atmsup.simulator.fixture.TestInventories;
@@ -17,6 +18,7 @@ import io.github.selvitopu.atmsup.simulator.model.Fault;
 import io.github.selvitopu.atmsup.simulator.model.FaultRequest;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.snmp4j.mp.SnmpConstants;
+import org.snmp4j.smi.OID;
 import org.snmp4j.smi.TimeTicks;
 import org.snmp4j.smi.VariableBinding;
 
@@ -79,6 +82,24 @@ class SnmpClientIT {
     @Test
     void walksSensorTable() throws Exception {
         assertThat(client.walk(inv.device("SDPS-A"), SDPS_SENSOR_ENTRY)).hasSize(6);
+    }
+
+    @Test
+    void fullPollReadsTheAlarmTable() throws Exception {
+        fixture.centre().applyFault("RAD-N", new FaultRequest(Fault.FAIL, null));
+        PollPlan plan = PollPlan.forType(DeviceType.RADAR);
+        List<VariableBinding> scalars = client.get(inv.device("RAD-N"), plan.scalars());
+        Map<OID, List<VariableBinding>> walks = new LinkedHashMap<>();
+        for (OID subtree : plan.walks()) {
+            walks.put(subtree, client.walk(inv.device("RAD-N"), subtree));
+        }
+
+        Observation o = new ObservationMapper().map(inv.device("RAD-N"), scalars, walks, Instant.now());
+
+        assertThat(o.alarms()).anySatisfy(a -> {
+            assertThat(a.code()).isEqualTo(101);
+            assertThat(a.severity()).isEqualTo(Severity.CRITICAL);
+        });
     }
 
     @Test

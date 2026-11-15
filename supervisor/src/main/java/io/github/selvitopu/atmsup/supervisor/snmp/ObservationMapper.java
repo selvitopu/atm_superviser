@@ -9,6 +9,7 @@ import io.github.selvitopu.atmsup.mib.DateAndTimes;
 import io.github.selvitopu.atmsup.mib.EquipmentStatus;
 import io.github.selvitopu.atmsup.mib.Role;
 import io.github.selvitopu.atmsup.mib.SensorInputStatus;
+import io.github.selvitopu.atmsup.mib.Severity;
 import io.github.selvitopu.atmsup.mib.SnmpEnum;
 import io.github.selvitopu.atmsup.supervisor.snmp.SnmpRequestException.Kind;
 import java.time.DateTimeException;
@@ -126,7 +127,71 @@ public class ObservationMapper {
             default -> throw new IllegalArgumentException("No observation mapping for device type " + d.type());
         }
         return new Observation(d.id(), at, status, role, maintenance, Collections.unmodifiableMap(values),
-                Collections.unmodifiableMap(tables));
+                Collections.unmodifiableMap(tables), alarms(walks.get(ALARM_ENTRY)));
+    }
+
+    /**
+     * Groups the walked alarm columns by row index. The index is (code, instance), the two OID sub-identifiers after
+     * the column; those two columns are not-accessible, so a row is the four served columns.
+     */
+    private static List<DeviceAlarm> alarms(List<VariableBinding> rows) {
+        if (rows == null) {
+            return List.of();
+        }
+        Map<List<Long>, Map<OID, Variable>> byRow = new TreeMap<>((x, y) -> {
+            int c = Long.compare(x.get(0), y.get(0));
+            return c != 0 ? c : Long.compare(x.get(1), y.get(1));
+        });
+        for (VariableBinding vb : rows) {
+            OID oid = vb.getOid();
+            OID column = alarmColumn(oid);
+            if (column == null) {
+                continue; // not a column of the alarm entry
+            }
+            if (oid.size() != column.size() + 2) {
+                throw malformed("alarm table row index of " + oid);
+            }
+            List<Long> index = List.of(oid.get(column.size()) & 0xFFFFFFFFL, oid.get(column.size() + 1) & 0xFFFFFFFFL);
+            byRow.computeIfAbsent(index, k -> new HashMap<>()).put(column, vb.getVariable());
+        }
+        List<DeviceAlarm> alarms = new java.util.ArrayList<>();
+        for (Map.Entry<List<Long>, Map<OID, Variable>> row : byRow.entrySet()) {
+            long code = row.getKey().get(0);
+            long instance = row.getKey().get(1);
+            if (code > Integer.MAX_VALUE || instance > Integer.MAX_VALUE) {
+                throw malformed("alarm table row index " + code + "." + instance + " is out of range");
+            }
+            alarms.add(alarm((int) code, (int) instance, row.getValue()));
+        }
+        return List.copyOf(alarms);
+    }
+
+    private static OID alarmColumn(OID oid) {
+        for (OID column : List.of(ALARM_INSTANCE_NAME, ALARM_SEVERITY, ALARM_TEXT, ALARM_RAISED_AT)) {
+            if (oid.startsWith(column)) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    private static DeviceAlarm alarm(int code, int instance, Map<OID, Variable> columns) {
+        String row = "alarm table row " + code + "." + instance;
+        Variable name = columns.get(ALARM_INSTANCE_NAME);
+        Variable severity = columns.get(ALARM_SEVERITY);
+        Variable text = columns.get(ALARM_TEXT);
+        Variable raisedAt = columns.get(ALARM_RAISED_AT);
+        if (!(name instanceof OctetString) || !(text instanceof OctetString) || !(severity instanceof Integer32)
+                || !(raisedAt instanceof OctetString)) {
+            throw malformed(row + " is incomplete or has the wrong syntax");
+        }
+        try {
+            return new DeviceAlarm(code, instance, name.toString(),
+                    SnmpEnum.fromCode(Severity.class, ((Integer32) severity).getValue()), text.toString(),
+                    DateAndTimes.decode((OctetString) raisedAt));
+        } catch (IllegalArgumentException | DateTimeException e) {
+            throw malformed(row + " is invalid: " + e.getMessage());
+        }
     }
 
     private static List<Map<String, Object>> sensors(List<VariableBinding> rows) {

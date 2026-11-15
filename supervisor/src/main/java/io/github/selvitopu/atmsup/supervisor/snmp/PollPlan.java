@@ -26,9 +26,9 @@ public record PollPlan(List<OID> scalars, List<OID> walks) {
     public static PollPlan forType(DeviceType type) {
         return switch (type) {
             case RADAR -> plan(List.of(RADAR_ROTATION_PERIOD_MS, RADAR_PLOTS_PER_SCAN, RADAR_ACTIVE_CHANNEL,
-                    RADAR_CHANNEL_A_STATUS, RADAR_CHANNEL_B_STATUS), List.of());
-            case SDPS -> plan(List.of(SDPS_TRACK_COUNT, SDPS_LATENCY_MS), List.of(SDPS_SENSOR_ENTRY));
-            case FDPS -> plan(List.of(FDPS_FLIGHT_PLAN_COUNT, FDPS_QUEUE_DEPTH, FDPS_LATENCY_MS), List.of());
+                    RADAR_CHANNEL_A_STATUS, RADAR_CHANNEL_B_STATUS), List.of(ALARM_ENTRY));
+            case SDPS -> plan(List.of(SDPS_TRACK_COUNT, SDPS_LATENCY_MS), List.of(SDPS_SENSOR_ENTRY, ALARM_ENTRY));
+            case FDPS -> plan(List.of(FDPS_FLIGHT_PLAN_COUNT, FDPS_QUEUE_DEPTH, FDPS_LATENCY_MS), List.of(ALARM_ENTRY));
             default -> throw new IllegalArgumentException("No poll plan for device type " + type);
         };
     }

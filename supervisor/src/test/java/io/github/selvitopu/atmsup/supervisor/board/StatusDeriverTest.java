@@ -49,7 +49,7 @@ class StatusDeriverTest {
 
     private static Observation obs(EquipmentStatus status) {
         return new Observation("RAD-N", t0, status, Role.STANDALONE, false, Map.of("rate", 12),
-                Map.of("rows", List.of(Map.of("a", 1))));
+                Map.of("rows", List.of(Map.of("a", 1))), List.of());
     }
 
     private static ProbeObservation probe() {
@@ -89,7 +89,7 @@ class StatusDeriverTest {
 
     @Test
     void maintenanceOrRoleChangeEmitsEventAndKeepsHealthSince() {
-        var o = new Observation("RAD-N", t1, EquipmentStatus.OPERATIONAL, Role.STANDALONE, true, Map.of(), Map.of());
+        var o = new Observation("RAD-N", t1, EquipmentStatus.OPERATIONAL, Role.STANDALONE, true, Map.of(), Map.of(), List.of());
         var d = deriver.pollSucceeded(operational("RAD-N"), tel(t0, 0), o, t1);
         assertThat(d.event().get().state().maintenance()).isTrue();
         assertThat(d.event().get().state().healthSince()).isEqualTo(t0);
