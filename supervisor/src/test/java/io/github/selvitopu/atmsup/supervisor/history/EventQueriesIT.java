@@ -35,7 +35,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.mysql.MySQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -46,9 +46,7 @@ class EventQueriesIT {
 
     @Container
     @ServiceConnection
-    static final MySQLContainer mysql = new MySQLContainer("mysql:8.4")
-            .withUrlParam("connectionTimeZone", "UTC")
-            .withUrlParam("preserveInstants", "true");
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18");
 
     private static final Instant T = Instant.parse("2026-01-01T10:00:00Z");
 

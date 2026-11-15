@@ -26,9 +26,9 @@ spring:
         jdbc:
           time_zone: UTC
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/atmsup?connectionTimeZone=UTC&preserveInstants=true
-    username: ${MYSQL_USER:atmsup}
-    password: ${MYSQL_PASSWORD:atmsup-demo}
+    url: jdbc:postgresql://${DB_HOST:localhost}:5432/atmsup
+    username: ${DB_USER:atmsup}
+    password: ${DB_PASSWORD:atmsup-demo}
 
 springdoc:
   api-docs:

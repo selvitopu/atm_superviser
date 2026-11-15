@@ -58,11 +58,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.mysql.MySQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The whole supervisor against a real simulator and MySQL: polling, traps, alarms, services, acknowledgement over
+ * The whole supervisor against a real simulator and PostgreSQL: polling, traps, alarms, services, acknowledgement over
  * REST, the SSE stream, lost contact and recovery. The tests share one context and run in order.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
@@ -72,7 +72,7 @@ import tools.jackson.databind.json.JsonMapper;
         // OpenAPI document and Swagger UI are served (which this API does on purpose)
         "logging.level.io.github.selvitopu.atmsup.supervisor.SupervisorConfig=ERROR",
         "logging.level.org.springdoc.core.events.SpringDocAppInitializer=ERROR"})
-@DirtiesContext // close the supervisor (and the simulator bean) after this class, while MySQL still runs
+@DirtiesContext // close the supervisor (and the simulator bean) after this class, while PostgreSQL still runs
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SupervisorEndToEndIT {
 
@@ -81,12 +81,10 @@ class SupervisorEndToEndIT {
      * closes, and the board writer still commits SUPERVISOR_STOPPING on shutdown.
      */
     @ServiceConnection
-    static final MySQLContainer mysql = new MySQLContainer("mysql:8.4")
-            .withUrlParam("connectionTimeZone", "UTC")
-            .withUrlParam("preserveInstants", "true");
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18");
 
     static {
-        mysql.start();
+        postgres.start();
     }
 
     private static final int TRAP_PORT = FreePorts.udp(1)[0];
@@ -318,8 +316,8 @@ class SupervisorEndToEndIT {
 
     /** The {@code via} of every stored ALARM_RAISED event of one alarm code; the codec keeps it in the payload. */
     private List<String> raisedVia(String equipmentId, int code) {
-        return jdbc.queryForList("select payload->>'$.via' from event_log where type = 'ALARM_RAISED'"
-                + " and equipment_id = ? and payload->'$.alarm.key.code' = ? order by id", String.class,
+        return jdbc.queryForList("select payload->>'via' from event_log where type = 'ALARM_RAISED'"
+                + " and equipment_id = ? and (payload->'alarm'->'key'->>'code')::int = ? order by id", String.class,
                 equipmentId, code);
     }
 

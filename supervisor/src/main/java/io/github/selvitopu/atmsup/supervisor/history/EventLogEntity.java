@@ -7,6 +7,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** One row of the append-only event log; {@code payload} is the JSON written by {@link EventCodec}. */
 @Entity
@@ -17,10 +19,10 @@ public class EventLogEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "occurred_at", nullable = false, columnDefinition = "datetime(3)")
+    @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 
-    @Column(name = "recorded_at", nullable = false, columnDefinition = "datetime(3)")
+    @Column(name = "recorded_at", nullable = false)
     private Instant recordedAt;
 
     @Column(name = "type", nullable = false, length = 40)
@@ -38,7 +40,8 @@ public class EventLogEntity {
     @Column(name = "actor", length = 64)
     private String actor;
 
-    @Column(name = "payload", nullable = false, columnDefinition = "json")
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "payload", nullable = false, columnDefinition = "jsonb")
     private String payload;
 
     protected EventLogEntity() {

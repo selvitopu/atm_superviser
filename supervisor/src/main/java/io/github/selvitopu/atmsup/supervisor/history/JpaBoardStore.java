@@ -18,7 +18,7 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** The board's MySQL store: the event log plus the current state of every alarm, written in one transaction. */
+/** The board's PostgreSQL store: the event log plus the current state of every alarm, written in one transaction. */
 @Component
 public class JpaBoardStore implements BoardStore {
 

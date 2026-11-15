@@ -16,9 +16,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * The current state of one alarm. {@code open_key} is unique and set for every alarm that is not CLOSED, so at most
- * one alarm per (equipment, code, instance) is open. For the service alarms 903 and 904 {@code equipment_id} holds
- * the service id.
+ * The current state of one alarm. The partial unique index {@code uk_alarm_open} allows at most one alarm per
+ * (equipment, code, instance) that is not CLOSED. For the service alarms 903 and 904 {@code equipment_id} holds the
+ * service id.
  */
 @Entity
 @Table(name = "alarm")
@@ -61,10 +61,10 @@ public class AlarmEntity {
     @Column(name = "suppressed", nullable = false)
     private boolean suppressed;
 
-    @Column(name = "raised_at", nullable = false, columnDefinition = "datetime(3)")
+    @Column(name = "raised_at", nullable = false)
     private Instant raisedAt;
 
-    @Column(name = "acked_at", columnDefinition = "datetime(3)")
+    @Column(name = "acked_at")
     private Instant ackedAt;
 
     @Column(name = "acked_by", length = 64)
@@ -73,11 +73,8 @@ public class AlarmEntity {
     @Column(name = "ack_comment", length = 500)
     private String ackComment;
 
-    @Column(name = "cleared_at", columnDefinition = "datetime(3)")
+    @Column(name = "cleared_at")
     private Instant clearedAt;
-
-    @Column(name = "open_key", length = 64)
-    private String openKey;
 
     protected AlarmEntity() {
     }
@@ -106,7 +103,6 @@ public class AlarmEntity {
         ackedBy = a.ackedBy();
         ackComment = a.ackComment();
         clearedAt = a.clearedAt();
-        openKey = a.state() == AlarmState.CLOSED ? null : a.key().openKey();
     }
 
     public Alarm toAlarm() {

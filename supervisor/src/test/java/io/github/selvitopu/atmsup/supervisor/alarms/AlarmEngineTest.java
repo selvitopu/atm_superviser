@@ -300,11 +300,6 @@ class AlarmEngineTest {
         assertThat(again.get(0).alarm().state()).isEqualTo(ACTIVE_UNACK);
     }
 
-    @Test
-    void openKeyFormat() {
-        assertThat(new AlarmKey("SDPS-A", 401, 1).openKey()).isEqualTo("SDPS-A|401|1");
-    }
-
     // ---- reconciliation against the device's alarm table (spec §8.2)
 
     /** When the device says the alarm was raised: before the poll, and different from the supervisor's clock. */

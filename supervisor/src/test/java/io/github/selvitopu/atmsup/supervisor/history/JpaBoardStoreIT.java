@@ -46,7 +46,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.mysql.MySQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -59,9 +59,7 @@ class JpaBoardStoreIT {
 
     @Container
     @ServiceConnection
-    static final MySQLContainer mysql = new MySQLContainer("mysql:8.4")
-            .withUrlParam("connectionTimeZone", "UTC")
-            .withUrlParam("preserveInstants", "true");
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18");
 
     private static final Instant t0 = Instant.parse("2026-01-01T10:00:00.123Z");
     private static final Instant RECORDED = t0.plusMillis(7);
@@ -213,25 +211,25 @@ class JpaBoardStoreIT {
         em.flush();
 
         Object stored = em.getEntityManager()
-                .createNativeQuery("select date_format(occurred_at, '%Y-%m-%dT%H:%i:%s.%f') from event_log")
+                .createNativeQuery("select to_char(occurred_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US') from event_log")
                 .getSingleResult();
 
         assertThat(stored).isEqualTo("2026-01-01T10:00:00.123000");
     }
 
     @Test
-    void openKeyUniqueness() {
+    void openAlarmIdentityIsUnique() {
         alarms.saveAndFlush(new AlarmEntity(deviceAlarm("a1", AlarmState.ACTIVE_UNACK)));
 
         try (CapturedLogs logs = new CapturedLogs("org.hibernate.orm.jdbc.error")) {
             assertThatThrownBy(() -> alarms.saveAndFlush(new AlarmEntity(deviceAlarm("a2",
                     AlarmState.ACTIVE_UNACK)))).isInstanceOf(DataIntegrityViolationException.class);
-            assertThat(logs.warnings()).anyMatch(w -> w.contains("uk_alarm_open_key"));
+            assertThat(logs.warnings()).anyMatch(w -> w.contains("uk_alarm_open"));
         }
     }
 
     @Test
-    void closedAlarmFreesKey() {
+    void closedAlarmFreesItsIdentity() {
         Alarm a1 = deviceAlarm("a1", AlarmState.ACTIVE_UNACK);
         Alarm a2 = deviceAlarm("a2", AlarmState.ACTIVE_UNACK);
 
