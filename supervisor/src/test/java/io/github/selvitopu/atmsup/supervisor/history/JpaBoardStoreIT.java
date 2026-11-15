@@ -163,6 +163,25 @@ class JpaBoardStoreIT {
     }
 
     @Test
+    void lastEquipmentStatesAreTheNewestEquipmentEventPerDevice() {
+        EquipmentState first = new EquipmentState("RAD-N", Health.OPERATIONAL, null, false, Role.STANDALONE, t0,
+                new Contact(true, t0, null));
+        EquipmentState lost = new EquipmentState("RAD-N", Health.UNKNOWN, UnknownReason.LOST_CONTACT, true,
+                Role.STANDALONE, null, new Contact(false, t0, t0.plusSeconds(15)));
+        store.commit(List.of(
+                new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, t0, first),
+                new EquipmentEvent(EventType.CONTACT_LOST, t0.plusSeconds(15), lost),
+                event(EventType.ALARM_RAISED, deviceAlarm("a1", AlarmState.ACTIVE_UNACK), Via.TRAP, null)));
+        store.commit(List.of(
+                new ServiceEvent(t0, new ServiceState(ServiceId.FD, ServiceStatus.OK, null, false, List.of(), t0)),
+                new TelemetrySampleEvent(t0, "SDPS-A", t0, Map.of("trackCount", 1L), Map.of())));
+        em.flush();
+        em.clear();
+
+        assertThat(store.loadLastEquipmentStates()).containsOnlyKeys("RAD-N").containsEntry("RAD-N", lost);
+    }
+
+    @Test
     void payloadsHaveTheDocumentedShapes() {
         store.commit(List.of(
                 new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, t0, new EquipmentState("RAD-N",

@@ -404,6 +404,41 @@ class BoardWriterTest {
     }
 
     @Test
+    void restartKeepsLastKnownMaintenanceAndRole() {
+        store.preload(new SupervisorEvent(EventType.SUPERVISOR_HEARTBEAT, t0.minusSeconds(60), null));
+        store.lastStates.put("FDPS-A", new EquipmentState("FDPS-A", Health.OPERATIONAL, null, true, Role.STANDBY, null,
+                new Contact(true, null, null)));
+        store.lastStates.put("FDPS-B", new EquipmentState("FDPS-B", Health.OPERATIONAL, null, false, Role.ACTIVE, null,
+                new Contact(true, null, null)));
+
+        started();
+
+        Map<String, EquipmentState> eq = writer.current().board().equipment();
+        assertThat(eq.get("FDPS-A")).extracting(EquipmentState::health, EquipmentState::unknownReason,
+                EquipmentState::maintenance, EquipmentState::role)
+                .containsExactly(Health.UNKNOWN, UnknownReason.SUPERVISOR_RESTARTED, true, Role.STANDBY);
+        assertThat(eq.get("FDPS-B")).extracting(EquipmentState::health, EquipmentState::unknownReason,
+                EquipmentState::maintenance, EquipmentState::role)
+                .containsExactly(Health.UNKNOWN, UnknownReason.SUPERVISOR_RESTARTED, false, Role.ACTIVE);
+        ServiceState fd = writer.current().board().services().get(ServiceId.FD);
+        assertThat(fd.status()).isEqualTo(ServiceStatus.UNKNOWN);
+        assertThat(fd.bestCase()).isEqualTo(ServiceStatus.DEGRADED);
+    }
+
+    @Test
+    void restartIgnoresStoredStateForUnknownIdsAndDefaultsTheRest() {
+        store.preload(new SupervisorEvent(EventType.SUPERVISOR_HEARTBEAT, t0.minusSeconds(60), null));
+        store.lastStates.put("OLD-1", new EquipmentState("OLD-1", Health.OPERATIONAL, null, true, Role.STANDBY, null,
+                new Contact(true, null, null)));
+
+        started();
+
+        assertThat(writer.current().board().equipment()).doesNotContainKey("OLD-1");
+        assertThat(writer.current().board().equipment().get("RAD-N")).extracting(EquipmentState::maintenance,
+                EquipmentState::role).containsExactly(false, Role.STANDALONE);
+    }
+
+    @Test
     void heartbeatTicksAreCommitted() {
         writer(Duration.ofMillis(20)).start();
 
@@ -449,6 +484,7 @@ class BoardWriterTest {
         final List<StoredEvent> events = new CopyOnWriteArrayList<>();
         final List<Alarm> openAlarms = new CopyOnWriteArrayList<>();
         final List<String> commitThreads = new CopyOnWriteArrayList<>();
+        final Map<String, EquipmentState> lastStates = new java.util.concurrent.ConcurrentHashMap<>();
         private volatile boolean failNext;
         private long nextId = 1;
 
@@ -478,6 +514,11 @@ class BoardWriterTest {
         @Override
         public List<Alarm> loadOpenAlarms() {
             return List.copyOf(openAlarms);
+        }
+
+        @Override
+        public Map<String, EquipmentState> loadLastEquipmentStates() {
+            return Map.copyOf(lastStates);
         }
 
         @Override

@@ -139,7 +139,8 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             return;
         }
         boolean firstStart = !store.hasEvents();
-        live = new LiveBoard(Board.initial(inv, store.loadOpenAlarms()), Map.of(), zeroGenerations(inv),
+        live = new LiveBoard(Board.initial(inv, store.loadOpenAlarms(),
+                firstStart ? Map.of() : store.loadLastEquipmentStates()), Map.of(), zeroGenerations(inv),
                 zeroGenerations(inv));
         shutDown = false;
         ScheduledExecutorService ex = Executors.newSingleThreadScheduledExecutor(

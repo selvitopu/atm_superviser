@@ -22,12 +22,22 @@ public record Board(Map<String, EquipmentState> equipment, Map<ServiceId, Servic
 
     /** Every device UNKNOWN/NOT_YET_POLLED, not in maintenance, no services; the role comes from the inventory. */
     public static Board initial(Inventory inv, Collection<Alarm> openAlarms) {
+        return initial(inv, openAlarms, Map.of());
+    }
+
+    /**
+     * As {@link #initial(Inventory, Collection)}, but maintenance and role come from {@code lastKnown} where it has
+     * the device; health is always UNKNOWN/NOT_YET_POLLED. Ids that are not in the inventory are ignored.
+     */
+    public static Board initial(Inventory inv, Collection<Alarm> openAlarms, Map<String, EquipmentState> lastKnown) {
         Map<String, EquipmentState> eq = new LinkedHashMap<>();
         for (Device d : inv.devices()) {
             Role role = inv.partner(d.id()).isEmpty() ? Role.STANDALONE
                     : inv.startsActive(d.id()) ? Role.ACTIVE : Role.STANDBY;
-            eq.put(d.id(), new EquipmentState(d.id(), Health.UNKNOWN, UnknownReason.NOT_YET_POLLED, false, role,
-                    null, new Contact(false, null, null)));
+            EquipmentState known = lastKnown.get(d.id());
+            eq.put(d.id(), new EquipmentState(d.id(), Health.UNKNOWN, UnknownReason.NOT_YET_POLLED,
+                    known != null && known.maintenance(), known != null ? known.role() : role, null,
+                    new Contact(false, null, null)));
         }
         Map<AlarmKey, Alarm> alarms = new LinkedHashMap<>();
         openAlarms.forEach(a -> alarms.put(a.key(), a));
