@@ -170,9 +170,9 @@ class SupervisorEndToEndIT {
                 .map(HttpCookie::getValue).findFirst().orElse("");
     }
 
-    /** Signs in through the real form-login endpoint: first a GET for the CSRF cookie, then the login POST. */
+    /** Signs in through the real form-login endpoint: first the sign-in configuration (which sets the CSRF cookie). */
     private HttpResponse<String> signIn(String username, String password) {
-        get(baseUrl() + "/api/v1/auth/me");
+        get(baseUrl() + "/api/v1/auth/config");
         return send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/auth/login")).timeout(ofSeconds(10))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("X-XSRF-TOKEN", csrfToken())
@@ -276,6 +276,7 @@ class SupervisorEndToEndIT {
 
             AlarmDto acked = postAck(alarm("RAD-N", 101).id(), "seen");
             assertThat(acked.state()).isEqualTo("ACTIVE_ACK");
+            assertThat(acked.ackedBy()).isEqualTo("supervisor1");
             await().atMost(ofSeconds(5)).until(() -> sse.has("alarm",
                     m -> m.data().contains("\"state\":\"ACTIVE_ACK\"")));
 
@@ -311,6 +312,47 @@ class SupervisorEndToEndIT {
                 assertThat(again.ids()).startsWith(ids.toArray(Long[]::new));
             }
         }
+    }
+
+    // --- sign-in and roles over the real server; each test leaves signed out, so the next one signs in again ------
+
+    @Test
+    @Order(10)
+    void anonymousRequestsAreRefused() {
+        COOKIES.getCookieStore().removeAll();
+
+        assertThat(get(baseUrl() + "/api/v1/board").statusCode()).isEqualTo(401);
+        HttpResponse<String> stream = send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/stream"))
+                .timeout(ofSeconds(10)).header("Accept", "text/event-stream").build());
+        assertThat(stream.statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    @Order(11)
+    void signInNeedsTheCsrfToken() {
+        COOKIES.getCookieStore().removeAll();
+        get(baseUrl() + "/api/v1/auth/config");
+
+        HttpResponse<String> response = send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/auth/login"))
+                .timeout(ofSeconds(10)).header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(BodyPublishers.ofString("username=supervisor1&password=supervisor1-demo")).build());
+
+        assertThat(response.statusCode()).isEqualTo(403);
+        COOKIES.getCookieStore().removeAll();
+    }
+
+    @Test
+    @Order(12)
+    void aViewerCannotAcknowledge() {
+        COOKIES.getCookieStore().removeAll();
+        assertThat(signIn("demo1", "demo1-demo").statusCode()).isEqualTo(200);
+
+        HttpResponse<String> response = send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/alarms/any/ack"))
+                .timeout(ofSeconds(10)).header("Content-Type", "application/json").header("X-XSRF-TOKEN", csrfToken())
+                .POST(BodyPublishers.ofString("{}")).build());
+
+        assertThat(response.statusCode()).isEqualTo(403);
+        COOKIES.getCookieStore().removeAll();
     }
 
     @Test
