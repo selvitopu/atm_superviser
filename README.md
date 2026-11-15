@@ -66,13 +66,23 @@ See [section 13 of the design](docs/design/2026-11-13-atm-supervisor-design.md) 
 
 ## Quickstart
 
-Requires Docker with Compose.
+Requires Docker with Compose. The first time, while online, build the images:
 
 ```sh
-docker compose -f deploy/docker-compose.yml up -d --build
+scripts/demo-preflight.sh --build
 ```
 
-Open <http://localhost:8080>. The board fills in after a few seconds.
+The script builds the images, starts the stack, resets the simulator and waits until the board is
+`READY`. From then on the demo runs offline. Start it again from the repository root with:
+
+```sh
+docker compose up -d --wait
+```
+
+`--wait` returns once all four services are healthy. Open <http://localhost:8080>. The root
+`compose.yaml` includes `deploy/docker-compose.yml`, so `docker compose -f deploy/docker-compose.yml up -d --wait`
+is equivalent. `scripts/demo-preflight.sh --fresh` first removes the demo volumes (alarm history), and
+`--help` lists the options. The scripted tour is in [docs/demo-v0.1.md](docs/demo-v0.1.md).
 
 Inject a fault into the north radar, then undo it:
 

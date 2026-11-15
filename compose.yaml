@@ -1,0 +1,3 @@
+name: atm-supervisor
+include:
+  - deploy/docker-compose.yml
