@@ -363,10 +363,9 @@ public final class Centre {
 
     private <T> T mutate(Function<Batch, T> body) {
         if (lock.isHeldByCurrentThread() && outer != null) {
-            // Nested in SetHandler.atomically: join the outer batch, which delivers once the outer hold is released.
-            T nested = body.apply(outer);
-            rebuildViews(clock.instant());
-            return nested;
+            // Nested in SetHandler.atomically: join the outer batch. The outer mutation publishes the views and
+            // delivers the events once, when its hold is released; checks read the models, not the views.
+            return body.apply(outer);
         }
         Batch batch = new Batch();
         T result;
@@ -376,14 +375,18 @@ public final class Centre {
         try {
             outer = batch;
             result = body.apply(batch);
-            rebuildViews(clock.instant());
             events = batch.events();
             if (!events.isEmpty()) {
                 ticket = nextTicket++;
             }
         } finally {
             outer = null;
-            lock.unlock();
+            try {
+                // the one publication of this mutation, also after a body that threw: views never lag the models
+                rebuildViews(clock.instant());
+            } finally {
+                lock.unlock();
+            }
         }
         if (ticket >= 0) {
             deliver(ticket, events);

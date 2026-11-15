@@ -19,8 +19,11 @@ import io.github.selvitopu.atmsup.inventory.Group;
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.inventory.InventoryProperties;
 import io.github.selvitopu.atmsup.inventory.TrapTarget;
+import io.github.selvitopu.atmsup.mib.AtmTsOids;
 import io.github.selvitopu.atmsup.mib.EquipmentStatus;
 import io.github.selvitopu.atmsup.mib.Role;
+import io.github.selvitopu.atmsup.simulator.agent.MibView;
+import io.github.selvitopu.atmsup.simulator.agent.SetHandler;
 import io.github.selvitopu.atmsup.simulator.api.DeviceStateDto;
 import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.DropTraps;
 import io.github.selvitopu.atmsup.simulator.centre.CentreEvent.Notify;
@@ -45,6 +48,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.slf4j.LoggerFactory;
+import org.snmp4j.PDU;
+import org.snmp4j.smi.Integer32;
+import org.snmp4j.smi.OID;
 
 class CentreTest {
 
@@ -192,6 +198,47 @@ class CentreTest {
             return null;
         });
         fault.get(2, TimeUnit.SECONDS);
+    }
+
+    private static final OID MAINTENANCE = AtmTsOids.scalar(AtmTsOids.EQ_MAINTENANCE_MODE);
+    private static final OID COMMAND = AtmTsOids.scalar(AtmTsOids.EQ_COMMAND);
+    private static final int RESET_COUNTERS = 4;
+
+    private int maintenanceInView(String id) {
+        return centre.view(id).get(MAINTENANCE).orElseThrow().getVariable().toInt();
+    }
+
+    @Test
+    void aMultiBindingSetReachesTheViewsOnlyOnceItIsComplete() {
+        SetHandler set = centre.setHandler("FDPS-A");
+        MibView before = centre.view("FDPS-A");
+
+        set.atomically(() -> {
+            assertThat(set.check(MAINTENANCE, new Integer32(1)).errorStatus()).isEqualTo(PDU.noError);
+            assertThat(set.check(COMMAND, new Integer32(RESET_COUNTERS)).errorStatus()).isEqualTo(PDU.noError);
+            set.apply(MAINTENANCE, new Integer32(1));
+            set.apply(COMMAND, new Integer32(RESET_COUNTERS));
+            // agents read the views without the lock: mid-SET they must still see the state from before it
+            assertThat(centre.view("FDPS-A")).isSameAs(before);
+            return null;
+        });
+
+        assertThat(centre.view("FDPS-A")).isNotSameAs(before);
+        assertThat(maintenanceInView("FDPS-A")).isEqualTo(1);
+    }
+
+    @Test
+    void aSetThatFailsMidwayStillPublishesWhatItChanged() {
+        SetHandler set = centre.setHandler("FDPS-A");
+
+        assertThatThrownBy(() -> set.atomically(() -> {
+            set.apply(MAINTENANCE, new Integer32(1));
+            throw new IllegalStateException("second binding failed");
+        })).hasMessage("second binding failed");
+
+        // the views never disagree with the models, even after a body that threw
+        assertThat(centre.device("FDPS-A").maintenance()).isTrue();
+        assertThat(maintenanceInView("FDPS-A")).isEqualTo(1);
     }
 
     @Test
