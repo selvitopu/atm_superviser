@@ -79,6 +79,8 @@ class SecurityRulesTest {
     BoardWriter writer;
     @MockitoBean
     EventQueries queries;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    AccountService accounts;
 
     @BeforeEach
     void liveBoard() {

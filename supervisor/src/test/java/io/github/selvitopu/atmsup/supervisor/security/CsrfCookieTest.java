@@ -21,6 +21,8 @@ class CsrfCookieTest {
 
     @Autowired
     MockMvc mvc;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    AccountService accounts;
 
     @Test
     void aSignedOutBrowserReceivesTheCsrfCookie() throws Exception {
