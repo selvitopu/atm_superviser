@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.github.selvitopu.atmsup.supervisor.DemoAccountGuard;
+import io.github.selvitopu.atmsup.supervisor.security.DemoAccountGuard;
 import io.github.selvitopu.atmsup.supervisor.LiquibaseDemoContext;
 import java.util.List;
 import javax.sql.DataSource;

@@ -25,6 +25,9 @@ import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceDto;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublishers;
@@ -42,6 +45,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -89,7 +93,9 @@ class SupervisorEndToEndIT {
 
     private static final int TRAP_PORT = FreePorts.udp(1)[0];
     private static final InventoryProperties INVENTORY = TestInventories.v01(FreePorts.udpBlock(7), TRAP_PORT);
-    private static final HttpClient http = HttpClient.newHttpClient();
+    /** One cookie jar for the REST client and the SSE recorders: the session and the CSRF token live there. */
+    private static final CookieManager COOKIES = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+    private static final HttpClient http = HttpClient.newBuilder().cookieHandler(COOKIES).build();
 
     @TempDir
     static Path dataDir;
@@ -159,6 +165,29 @@ class SupervisorEndToEndIT {
         return json.readValue(response.body(), type);
     }
 
+    private static String csrfToken() {
+        return COOKIES.getCookieStore().getCookies().stream().filter(c -> c.getName().equals("XSRF-TOKEN"))
+                .map(HttpCookie::getValue).findFirst().orElse("");
+    }
+
+    /** Signs in through the real form-login endpoint: first a GET for the CSRF cookie, then the login POST. */
+    private HttpResponse<String> signIn(String username, String password) {
+        get(baseUrl() + "/api/v1/auth/me");
+        return send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/auth/login")).timeout(ofSeconds(10))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-XSRF-TOKEN", csrfToken())
+                .POST(BodyPublishers.ofString("username=" + username + "&password=" + password))
+                .build());
+    }
+
+    @BeforeEach
+    void signedInAsSupervisor() {
+        boolean signedIn = COOKIES.getCookieStore().getCookies().stream().anyMatch(c -> c.getName().equals("JSESSIONID"));
+        if (!signedIn) {
+            assertThat(signIn("supervisor1", "supervisor1-demo").statusCode()).isEqualTo(200);
+        }
+    }
+
     private BoardDto board() {
         return getJson("/api/v1/board", BoardDto.class);
     }
@@ -188,6 +217,7 @@ class SupervisorEndToEndIT {
                         URI.create(baseUrl() + "/api/v1/alarms/" + alarmId + "/ack"))
                 .timeout(ofSeconds(10))
                 .header("Content-Type", "application/json")
+                .header("X-XSRF-TOKEN", csrfToken())
                 .POST(BodyPublishers.ofString(json.writeValueAsString(Map.of("comment", comment))))
                 .build());
         assertThat(response.statusCode()).isEqualTo(200);
@@ -335,7 +365,7 @@ class SupervisorEndToEndIT {
         record Message(String name, Long id, String data) {
         }
 
-        private final HttpClient client = HttpClient.newHttpClient();
+        private final HttpClient client = HttpClient.newBuilder().cookieHandler(COOKIES).build();
         private final List<Message> messages = new CopyOnWriteArrayList<>();
         private final Stream<String> lines;
         private final Thread reader;

@@ -1,6 +1,12 @@
 server:
   port: 8080
   address: ${ATM_SUPERVISOR_HTTP_ADDRESS:127.0.0.1}
+  servlet:
+    session:
+      # a supervision console stays open for a whole shift
+      timeout: 12h
+      cookie:
+        same-site: lax
 
 management:
   server:

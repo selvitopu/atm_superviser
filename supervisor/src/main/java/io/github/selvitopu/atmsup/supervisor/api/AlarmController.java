@@ -19,6 +19,7 @@ import jakarta.validation.constraints.Pattern;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.security.Principal;
 import java.time.Duration;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +30,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -41,8 +43,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/alarms")
 public class AlarmController {
 
-    /** Until v0.3 adds security, every acknowledgement is made by this actor. */
-    static final String ACTOR = "demo-user";
     static final int MAX_PAGE_SIZE = 500;
     private static final Logger log = LoggerFactory.getLogger(AlarmController.class);
 
@@ -75,28 +75,31 @@ public class AlarmController {
         return new PageDto<>(items, result.getNumber(), result.getSize(), result.getTotalElements());
     }
 
+    @PreAuthorize("hasRole('SUPERVISOR')")
     @PostMapping("/{id}/ack")
-    public AlarmDto acknowledge(@PathVariable String id, @RequestBody(required = false) @Valid AckRequest body) {
-        BoardResult result = submit(List.of(id), body == null ? null : body.comment());
+    public AlarmDto acknowledge(@PathVariable String id, @RequestBody(required = false) @Valid AckRequest body,
+                                Principal principal) {
+        BoardResult result = submit(List.of(id), body == null ? null : body.comment(), principal.getName());
         if (!result.notFound().isEmpty() || result.acknowledged().isEmpty()) {
             throw new NoSuchElementException("Unknown alarm " + id);
         }
         return mapper.alarm(result.acknowledged().getFirst(), writer.current().board());
     }
 
+    @PreAuthorize("hasRole('SUPERVISOR')")
     @PostMapping("/ack")
-    public AckResultDto acknowledgeMany(@RequestBody @Valid AckManyRequest body) {
-        BoardResult result = submit(body.ids(), body.comment());
+    public AckResultDto acknowledgeMany(@RequestBody @Valid AckManyRequest body, Principal principal) {
+        BoardResult result = submit(body.ids(), body.comment(), principal.getName());
         Board board = writer.current().board();
         return new AckResultDto(result.acknowledged().stream().map(a -> mapper.alarm(a, board)).toList(),
                 result.notFound());
     }
 
-    private BoardResult submit(List<String> ids, String comment) {
+    private BoardResult submit(List<String> ids, String comment, String actor) {
         BoardResult result;
         try {
             // get(timeout) leaves the writer's own future untouched
-            result = writer.submit(new AcknowledgeAlarms(ids, comment, ACTOR))
+            result = writer.submit(new AcknowledgeAlarms(ids, comment, actor))
                     .get(submitTimeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             log.warn("The board writer did not answer an acknowledgement within {}", submitTimeout, e);
