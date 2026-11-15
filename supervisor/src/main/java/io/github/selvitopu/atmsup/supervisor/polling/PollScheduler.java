@@ -171,9 +171,20 @@ public final class PollScheduler implements SmartLifecycle {
         return PHASE;
     }
 
-    /** A trap asked for a prompt full poll. Runs on the board writer thread, so it only enqueues. */
+    /**
+     * A trap, or a probe that restored contact, asked for a prompt full poll (amendment §1). After CONTACT_RESTORED
+     * the device's breaker is usually still OPEN from the failed polls, but a probe has proved the device reachable,
+     * so exactly one HALF_OPEN full poll verifies its health, and only that poll's success closes the breaker. A trap
+     * leaves an OPEN breaker alone. Runs on the board writer thread and does not block: it only enqueues.
+     */
     @EventListener
     public void onRepoll(RepollRequested r) {
+        if (r.reason() == RepollRequested.Reason.CONTACT_RESTORED) {
+            CircuitBreaker breaker = breakers.forDevice(r.equipmentId());
+            if (breaker.getState() == CircuitBreaker.State.OPEN) {
+                breaker.transitionToHalfOpenState();
+            }
+        }
         requestRefresh(r.equipmentId());
     }
 

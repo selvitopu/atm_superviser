@@ -15,6 +15,8 @@ import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.alarms.ServiceAlarmInput;
+import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested;
+import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested.Reason;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.AcknowledgeAlarms;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.HeartbeatTick;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollFailed;
@@ -128,7 +130,9 @@ public final class BoardDecider {
             next = new Telemetry(next.lastPollAt(), next.lastProbeAt(), next.consecutiveFailures(),
                     next.fullPollFailures(), now, next.values(), next.tables());
         }
-        return new Decision(w.events, Map.of(id, next), List.of(), contactChanged ? Set.of(id) : Set.of(), false,
+        List<RepollRequested> repoll = derived.event().filter(ev -> ev.type() == CONTACT_RESTORED).isPresent()
+                ? List.of(new RepollRequested(id, Reason.CONTACT_RESTORED)) : List.of();
+        return new Decision(w.events, Map.of(id, next), repoll, contactChanged ? Set.of(id) : Set.of(), false,
                 BoardResult.ok());
     }
 
@@ -177,7 +181,7 @@ public final class BoardDecider {
         EquipmentState s = live.board().equipment().get(id);
         Working w = new Working(live.board());
         w.addAlarms(alarms.onNotification(w.open(), t.n(), s != null && s.maintenance(), now), now);
-        return new Decision(w.events, Map.of(), List.of(id), Set.of(id), false, BoardResult.ok());
+        return new Decision(w.events, Map.of(), List.of(new RepollRequested(id, Reason.TRAP)), Set.of(id), false, BoardResult.ok());
     }
 
     private Decision acknowledge(LiveBoard live, AcknowledgeAlarms a, Instant now) {

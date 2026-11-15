@@ -210,7 +210,7 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             Map<String, Telemetry> counters = countersOnly(before.telemetry(), d.telemetry());
             live = new LiveBoard(before.board(), merged(before.telemetry(), counters), before.generations());
             publishTelemetry(counters, now);
-            d.repoll().forEach(id -> publish(new RepollRequested(id)));
+            d.repoll().forEach(this::publish);
             return BoardResult.failed(e.getMessage());
         }
 
@@ -225,7 +225,7 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             publish(new BoardCommitted(stored, after));
         }
         publishTelemetry(d.telemetry(), now);
-        d.repoll().forEach(id -> publish(new RepollRequested(id)));
+        d.repoll().forEach(this::publish);
         return d.result();
     }
 

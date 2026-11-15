@@ -34,6 +34,8 @@ import io.github.selvitopu.atmsup.supervisor.board.BoardInput.HeartbeatTick;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollFailed;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollSucceeded;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.ProbeFailed;
+import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested;
+import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested.Reason;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.ProbeSucceeded;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.Shutdown;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.Startup;
@@ -216,6 +218,28 @@ class BoardDeciderTest {
     }
 
     @Test
+    void probeThatRestoresContactAsksForAVerificationPoll() {
+        LiveBoard lb = lostContact("RAD-N");
+        assertThat(lb.board().equipment().get("RAD-N").unknownReason()).isEqualTo(UnknownReason.LOST_CONTACT);
+        Instant t1 = t0.plusSeconds(5);
+
+        Decision d = decider.decide(lb, new ProbeSucceeded(new ProbeObservation("RAD-N", t1, 1000), 1), t1);
+
+        assertThat(d.repoll()).containsExactly(new RepollRequested("RAD-N", Reason.CONTACT_RESTORED));
+        assertThat(d.invalidated()).contains("RAD-N");
+    }
+
+    @Test
+    void probeWithoutContactChangeAsksForNoPoll() {
+        Instant t1 = t0.plusSeconds(5);
+
+        Decision d = decider.decide(allOperational(),
+                new ProbeSucceeded(new ProbeObservation("RAD-N", t1, 1000), 0), t1);
+
+        assertThat(d.repoll()).isEmpty();
+    }
+
+    @Test
     void probeAfterSupervisorRestartClears901() {
         LiveBoard lb = restartedWithOpen901("RAD-N");
         Instant t1 = t0.plusSeconds(5);
@@ -375,7 +399,7 @@ class BoardDeciderTest {
         assertThat(d.events()).extracting(DomainEvent::type).containsExactly(ALARM_RAISED);
         assertThat(alarmEvent(d, 0).alarm()).extracting(Alarm::key, Alarm::severity)
                 .containsExactly(new AlarmKey("RAD-N", 101, 0), CRITICAL);
-        assertThat(d.repoll()).containsExactly("RAD-N");
+        assertThat(d.repoll()).containsExactly(new RepollRequested("RAD-N", Reason.TRAP));
         assertThat(d.invalidated()).containsExactly("RAD-N");
         assertThat(d.telemetry()).isEmpty();
     }
@@ -386,7 +410,7 @@ class BoardDeciderTest {
                 t0);
 
         assertThat(d.events()).isEmpty();
-        assertThat(d.repoll()).containsExactly("RAD-N");
+        assertThat(d.repoll()).containsExactly(new RepollRequested("RAD-N", Reason.TRAP));
         assertThat(d.invalidated()).containsExactly("RAD-N");
     }
 

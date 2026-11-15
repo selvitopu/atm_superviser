@@ -251,11 +251,12 @@ class SupervisorEndToEndIT {
             });
 
             fixture.centre().applyFault("FDPS-B", new FaultRequest(RECOVER, null));
-            // The probe restores contact at once; health needs a full poll, which the device's circuit breaker
-            // (opened by the failed polls) only lets through 30 s after it opened.
-            await().atMost(ofSeconds(50)).untilAsserted(() -> {
+            // The probe restores contact and triggers a HALF_OPEN verification poll at once.
+            await().atMost(ofSeconds(20)).untilAsserted(() -> {
                 assertThat(eq("FDPS-B").health()).isEqualTo("OPERATIONAL");
                 assertThat(openAlarm("FDPS-B", 901)).isNull();
+                assertThat(get("http://127.0.0.1:" + managementPort + "/actuator/metrics/resilience4j.circuitbreaker.state"
+                        + "?tag=name:FDPS-B&tag=state:closed").body()).contains("\"value\":1.0");
             });
 
             await().atMost(ofSeconds(10)).until(() -> sse.has("telemetry", m -> m.id() == null

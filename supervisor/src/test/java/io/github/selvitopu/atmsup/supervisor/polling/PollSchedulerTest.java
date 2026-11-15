@@ -20,6 +20,7 @@ import io.github.selvitopu.atmsup.simulator.fixture.TestInventories;
 import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.BoardReady;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested;
+import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested.Reason;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollFailed;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollSucceeded;
@@ -322,10 +323,63 @@ class PollSchedulerTest {
 
     @Test
     void repollEventRequestsARefresh() {
-        scheduler.onRepoll(new RepollRequested("RAD-N"));
+        scheduler.onRepoll(new RepollRequested("RAD-N", Reason.TRAP));
 
         await().atMost(WAIT).until(() -> sink.inputs().size() == 1);
         assertThat(sink.only(PollSucceeded.class).obs().equipmentId()).isEqualTo("RAD-N");
+    }
+
+    @Test
+    void contactRestoredMovesAnOpenBreakerToHalfOpenAndVerifiesAtOnce() {
+        CircuitBreaker b = breakers.forDevice("RAD-N");
+        b.transitionToOpenState();
+        client.succeed("RAD-N");
+
+        scheduler.onRepoll(new RepollRequested("RAD-N", Reason.CONTACT_RESTORED));
+
+        await().atMost(WAIT).until(() -> sink.inputs().size() == 1);
+        assertThat(client.fullPolls("RAD-N")).isEqualTo(1);
+        assertThat(sink.only(PollSucceeded.class)).isNotNull();
+        await().atMost(WAIT).until(() -> b.getState() == CLOSED);
+    }
+
+    @Test
+    void failedVerificationPollReopensTheBreaker() {
+        CircuitBreaker b = breakers.forDevice("RAD-N");
+        b.transitionToOpenState();
+        client.failWith("RAD-N", timeout());
+
+        scheduler.onRepoll(new RepollRequested("RAD-N", Reason.CONTACT_RESTORED));
+
+        await().atMost(WAIT).until(() -> sink.inputs().size() == 1);
+        assertThat(sink.only(PollFailed.class)).isNotNull();
+        await().atMost(WAIT).until(() -> b.getState() == OPEN);
+    }
+
+    @Test
+    void trapRepollLeavesAnOpenBreakerOpen() {
+        CircuitBreaker b = breakers.forDevice("RAD-N");
+        b.transitionToOpenState();
+
+        scheduler.onRepoll(new RepollRequested("RAD-N", Reason.TRAP));
+
+        await().atMost(WAIT).until(() -> meters.counter("atmsup.poll.rejected").count() == 1.0);
+        assertThat(client.fullPolls("RAD-N")).isZero();
+        assertThat(b.getState()).isEqualTo(OPEN);
+    }
+
+    @Test
+    void contactRestoredDuringAnActivePollVerifiesOnceAfterIt() {
+        client.blockUntilReleased("RAD-N");
+        CompletableFuture<Void> active = scheduler.fullPollNow("RAD-N");
+
+        scheduler.onRepoll(new RepollRequested("RAD-N", Reason.CONTACT_RESTORED));
+        scheduler.onRepoll(new RepollRequested("RAD-N", Reason.CONTACT_RESTORED));
+        client.release("RAD-N");
+
+        done(active);
+        await().during(SHORT).atMost(WAIT).until(() -> client.fullPolls("RAD-N") == 2);
+        assertThat(sink.inputs()).hasSize(2).allSatisfy(in -> assertThat(in).isInstanceOf(PollSucceeded.class));
     }
 
     // --- loop timing ---------------------------------------------------------------------------------------------
@@ -444,7 +498,7 @@ class PollSchedulerTest {
             assertThat(scheduler.isRunning()).isTrue();
             assertThat(delayer.delays()).hasSize(2 * inventory.devices().size());
 
-            ctx.publishEvent(new RepollRequested("RAD-N"));
+            ctx.publishEvent(new RepollRequested("RAD-N", Reason.TRAP));
             await().atMost(WAIT).until(() -> client.fullPolls("RAD-N") == 1);
         }
 

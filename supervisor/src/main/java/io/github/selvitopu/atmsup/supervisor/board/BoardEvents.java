@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * Spring application events published by the board writer, synchronously on its thread. {@link BoardCommitted} is
  * published only after a successful commit; after a failed one the writer still publishes the counter-only
- * {@link TelemetryUpdated} and a trap's {@link RepollRequested}. Listeners must not block (amendment §4): they only
+ * {@link TelemetryUpdated} and its {@link RepollRequested}. Listeners must not block (amendment §4): they only
  * enqueue, and never join a {@link BoardInputSink#submit} future, which would deadlock the writer.
  */
 public final class BoardEvents {
@@ -22,8 +22,11 @@ public final class BoardEvents {
     public record TelemetryUpdated(String equipmentId, Telemetry telemetry, Instant serverTime) {
     }
 
-    /** A trap asks for a prompt full poll of the device. */
-    public record RepollRequested(String equipmentId) {
+    /** A trap or a probe that restored contact asks for a prompt full poll. */
+    public record RepollRequested(String equipmentId, Reason reason) {
+
+        /** Why the poll is wanted. */
+        public enum Reason { TRAP, CONTACT_RESTORED }
     }
 
     /** The board has been initialised and the start-up events committed; polling may begin. */

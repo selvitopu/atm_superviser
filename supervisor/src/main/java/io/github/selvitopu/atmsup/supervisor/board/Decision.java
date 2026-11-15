@@ -9,10 +9,10 @@ import java.util.Set;
 
 /**
  * What the board writer must do for one input: commit {@code events}, merge {@code telemetry}, bump the generation of
- * every {@code invalidated} device and ask for a follow-up poll of every {@code repoll} device. A {@code stale}
+ * every {@code invalidated} device and ask for a follow-up poll of every {@code repoll} request. A {@code stale}
  * decision has no effect at all.
  */
-public record Decision(List<DomainEvent> events, Map<String, Telemetry> telemetry, List<String> repoll,
+public record Decision(List<DomainEvent> events, Map<String, Telemetry> telemetry, List<BoardEvents.RepollRequested> repoll,
                        Set<String> invalidated, boolean stale, BoardResult result) {
 
     private static final Decision STALE = new Decision(List.of(), Map.of(), List.of(), Set.of(), true,

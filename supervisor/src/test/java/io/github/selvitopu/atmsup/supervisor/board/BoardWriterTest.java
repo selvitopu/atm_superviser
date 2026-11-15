@@ -22,10 +22,12 @@ import io.github.selvitopu.atmsup.supervisor.alarms.IdGenerator;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.BoardCommitted;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.BoardReady;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested;
+import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested.Reason;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.TelemetryUpdated;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.HeartbeatTick;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollSucceeded;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.ProbeFailed;
+import io.github.selvitopu.atmsup.supervisor.board.BoardInput.ProbeSucceeded;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.TrapReceived;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
 import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
@@ -33,6 +35,7 @@ import io.github.selvitopu.atmsup.supervisor.snmp.Notification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.AlarmRaisedNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification.StatusChangeNotification;
 import io.github.selvitopu.atmsup.supervisor.snmp.Observation;
+import io.github.selvitopu.atmsup.supervisor.snmp.ProbeObservation;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
@@ -135,7 +138,7 @@ class BoardWriterTest {
         writer.submit(new TrapReceived(statusChange("RAD-N"))).join();
 
         assertThat(writer.generation("RAD-N")).isEqualTo(g + 1);
-        assertThat(publisher.events(RepollRequested.class)).containsExactly(new RepollRequested("RAD-N"));
+        assertThat(publisher.events(RepollRequested.class)).containsExactly(new RepollRequested("RAD-N", Reason.TRAP));
         publisher.clear();
         BoardResult r = writer.submit(new PollSucceeded(obs("RAD-N", FAILED), g)).join();
         assertThat(r).isEqualTo(BoardResult.ok());
@@ -235,9 +238,30 @@ class BoardWriterTest {
             assertThat(r.committed()).isFalse();
         }
 
-        assertThat(publisher.all).containsExactly(new RepollRequested("RAD-N"));
+        assertThat(publisher.all).containsExactly(new RepollRequested("RAD-N", Reason.TRAP));
         assertThat(writer.generation("RAD-N")).isEqualTo(g);
         assertThat(writer.current().board().openAlarms()).isEmpty();
+    }
+
+    @Test
+    void failedCommitStillPublishesAContactRestoredRepoll() {
+        started();
+        for (int i = 0; i < 3; i++) {
+            writer.submit(probeFailed("RAD-N")).join();
+        }
+        assertThat(writer.current().board().equipment().get("RAD-N").unknownReason())
+                .isEqualTo(UnknownReason.LOST_CONTACT);
+        publisher.clear();
+        store.failNextCommit();
+
+        try (CapturedLogs logs = new CapturedLogs(BoardWriter.class)) {
+            BoardResult r = writer.submit(new ProbeSucceeded(new ProbeObservation("RAD-N", t0, 1000),
+                    writer.generation("RAD-N"))).join();
+            assertThat(r.committed()).isFalse();
+        }
+
+        assertThat(publisher.events(RepollRequested.class))
+                .containsExactly(new RepollRequested("RAD-N", Reason.CONTACT_RESTORED));
     }
 
     @Test
