@@ -789,18 +789,7 @@ Phases are split by **device type**, not by device count, because the work grows
   - 0005 SSE rather than WebSocket
   - 0006 a single shared inventory file
   - 0007 supervisor HA left as future work
-- **`docs/safety/hazard-log.md`:** each hazard has a cause, a mitigation, and verification. The tests below are the planned names; the plan creates them, and the log links to them.
-
-  | Hazard | Mitigation | Verified by |
-  |---|---|---|
-  | H1 Stale data shown as current | Freshness age; `UNKNOWN` after 3 failed probes; traps cannot mask probe failures; `STATUS_UNAVAILABLE` when probes succeed but full polls fail; never green when `UNKNOWN`; the "DATA NOT LIVE" overlay when the stream is down; "unconfirmed" marker on alarms | `StatusDeriverTest`, `ServiceEvaluatorTest` (UNKNOWN passes), `status-badge.spec.ts`, `live-connection.spec.ts`, e2e `lost-contact` |
-  | H2 Replay mistaken for live | Separate `ReplayStore` with no SSE; fixed amber band; commands disabled in replay; `NO_DATA` for gaps | `replay-isolation.spec.ts`, `replay-band.spec.ts`, `ReplayNoDataTest`, e2e replay step |
-  | H3 Unintended or unsafe control command | Role check; mandatory reason; interlocks; preview through the same `ServiceEvaluator`; confirmation dialog; idempotent `becomeActive`; SETs with 0 retries | `CommandInterlockTest`, `CommandSecurityTest`, `CommandPreviewConsistencyIT`, `SetErrorHandlingIT` |
-  | H4 An alarm flood hides a critical alarm | Ordered by severity, then time; maintenance suppression; escalation goes back to unacknowledged; critical tone | `AlarmLifecycleTest`, `alarm-list.spec.ts` |
-  | H5 A lost trap hides a failure | Polling is the source of truth; INFORMs for critical alarms; resync reconciliation | `AlarmEngineTest`, `SupervisorEndToEndIT.trapLossIsReconciledFromTheAlarmTable` |
-  | H6 A failed SNMP authentication goes unnoticed | Alarm 902 on USM reports; a Grafana panel | `SnmpV3AuthFailureIT` |
-  | H7 A restarted device shown with its pre-restart state | `UNKNOWN (RESTARTING)` until the first poll; restart proven through `sysUpTime` | `RestartVerificationIT` |
-  | H8 v3 traps silently rejected after an agent restart | Persisted, ever-growing `snmpEngineBoots` | `EngineBootsPersistenceIT` |
+- **`docs/safety/hazard-log.md`:** each hazard has a cause, a consequence, a mitigation, its verification and a status. The [hazard log](../safety/hazard-log.md) is the single place for them: it covers the hazards of the current release, and lists the hazards of planned features (replay, commands, authentication alarms, commanded restart) until those features exist.
 - **`docs/safety/CR-001-auto-switchover-visibility.md`:** a sample change request, written the way such a team would write one: description, impact analysis, safety assessment, effort estimate, and test evidence.
 - **`docs/demo-script.md`:** a 7-minute guided demo:
   1. context

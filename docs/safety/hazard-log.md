@@ -1,0 +1,232 @@
+# Hazard log
+
+This is an engineering hazard log for ATM Supervisor. It is **not** a safety case and does not follow
+a formal safety assessment method. It records the ways a supervision tool can mislead its operator,
+what the current release does about each one, and which tests show it. ATM Supervisor is a
+non-operational prototype; see the [README](../../README.md).
+
+Status values:
+
+- **Mitigated:** the release has a mitigation and a test that exercises it.
+- **Partly mitigated:** a mitigation exists, but a known gap remains.
+- **Open:** no mitigation yet.
+- **Not applicable yet:** the feature that creates the hazard is not built yet.
+
+| ID | Hazard | Status |
+|---|---|---|
+| [H1](#h1-stale-observations-shown-as-current) | Stale observations shown as current | Mitigated |
+| [H2](#h2-lost-traps-hide-device-alarms) | Lost traps hide device alarms | Mitigated |
+| [H3](#h3-circuit-breaker-state-masks-contact-loss) | Circuit-breaker state masks contact loss | Mitigated, one known delay |
+| [H4](#h4-unknown-presented-as-healthy) | `UNKNOWN` presented as healthy | Mitigated |
+| [H5](#h5-a-slow-browser-blocks-supervision) | A slow browser blocks supervision | Partly mitigated |
+| [H6](#h6-partial-or-concurrent-snmp-set) | Partial or concurrent SNMP SET | Mitigated in the simulator |
+| [H7](#h7-a-supervisor-restart-loses-operational-context) | A supervisor restart loses operational context | Mitigated |
+| [H8](#h8-database-or-writer-overload) | Database or writer overload | Partly mitigated |
+| [H9](#h9-an-alarm-flood-hides-a-critical-alarm) | An alarm flood hides a critical alarm | Mitigated |
+| [H10](#h10-v3-traps-rejected-after-an-agent-restart) | SNMPv3 traps rejected after an agent restart | Mitigated |
+| [H11](#h11-hazards-of-planned-features) | Replay mistaken for live, unsafe commands, unnoticed authentication failures | Not applicable yet |
+
+## H1 Stale observations shown as current
+
+- **Cause:** a poll result that was started before a newer fact arrived (a trap, a lost contact) is
+  applied after it; or the board keeps showing values after polling has stopped working.
+- **Consequence:** the operator sees an old state as the current one.
+- **Mitigation:**
+  - Every result carries the generation it was started under, and the [board][BoardDecider] discards
+    a result whose generation is no longer current. There are two generations per device: a full poll
+    is checked against the status generation (bumped by traps and contact changes), a probe against the
+    contact generation (bumped by contact changes only).
+  - Three failed probes make the device `UNKNOWN (LOST_CONTACT)`; probes that succeed while full polls
+    keep failing make it `UNKNOWN (STATUS_UNAVAILABLE)` after 3 poll intervals ([StatusDeriver]).
+  - The UI shows the age of a value in amber after 2 poll intervals, and a "DATA NOT LIVE" overlay when
+    the event stream is down.
+- **Verified by:** [BoardDeciderTest] (`staleSuccessIsDiscarded`, `staleFailureIsDiscarded`),
+  [BoardWriterTest] (`aTrapStillDiscardsAnOlderFullPoll`, `aContactChangeStillDiscardsAnOlderProbe`),
+  [StatusDeriverTest] (`probesOkButFullPollsFailingBecomeStatusUnavailable`), [freshness.spec.ts],
+  [equipment-tile.spec.ts], [data-not-live-overlay.spec.ts].
+- **Status:** mitigated. Under a trap flood that outpaces a full poll's round trip, full polls are
+  discarded as stale and the device becomes `UNKNOWN (STATUS_UNAVAILABLE)`. That is the safe direction.
+
+## H2 Lost traps hide device alarms
+
+- **Cause:** traps travel over UDP and can be lost; an agent can also stop sending them.
+- **Consequence:** an active device alarm never reaches the board, or a cleared one stays.
+- **Mitigation:**
+  - Traps are hints. Each one triggers an immediate re-poll, and polling is the source of truth.
+  - Every successful full poll walks the device's alarm table and reconciles the open alarms against it
+    in one transaction ([AlarmEngine] `reconcile`).
+  - A poll whose alarm-table walk is missing or incomplete fails as a whole, so a partial walk never
+    clears an alarm ([ObservationMapper]).
+  - Critical device alarms are sent as acknowledged INFORMs rather than traps.
+- **Verified by:** [AlarmEngineTest] (one test per reconciliation case), [BoardDeciderTest]
+  (`aPollReconcilesDeviceAlarmsInOneDecision`, `aStaleAlarmWalkChangesNoAlarms`), [ObservationMapperTest]
+  (`aMissingAlarmWalkFailsTheObservation`), [PollSchedulerTest] (`aWalkThatFailsMidwaySubmitsOnlyPollFailed`),
+  and end to end with real UDP agents in [SupervisorEndToEndIT] (`trapLossIsReconciledFromTheAlarmTable`).
+- **Status:** mitigated.
+
+## H3 Circuit-breaker state masks contact loss
+
+- **Cause:** a circuit breaker that guards every SNMP request turns its own fast failures into
+  "lost contact", or keeps a device looking unreachable after it has come back.
+- **Consequence:** contact state reflects the breaker, not the network.
+- **Mitigation:**
+  - Lightweight probes (`sysUpTime.0`) never go through the breaker and are the only authority for
+    contact ([PollScheduler]). The per-device breaker ([DeviceBreakers]) guards full polls only, and a
+    full-poll failure never touches contact.
+  - When a probe restores contact, an open breaker moves to half-open and one verification poll runs
+    at once.
+  - A trap cannot invalidate contact evidence, because probes are checked against their own generation.
+- **Verified by:** [PollSchedulerTest] (`probesContinueWhileBreakerIsOpen`,
+  `contactRestoredMovesAnOpenBreakerToHalfOpenAndVerifiesAtOnce`), [StatusDeriverTest]
+  (`fullPollFailureNeverTouchesContact`), [BoardWriterTest] (`trapFloodCannotMaskLostContact`).
+- **Status:** mitigated. Known delay: if contact is restored while a half-open trial poll is already
+  running, verification can wait up to about 30 s. The device stays `UNKNOWN` meanwhile.
+
+## H4 `UNKNOWN` presented as healthy
+
+- **Cause:** a device or service whose state cannot be confirmed is drawn with its last known value.
+- **Consequence:** the operator trusts a green tile that nobody has verified.
+- **Mitigation:**
+  - `UNKNOWN` overrides the last known health and always carries a reason.
+  - Services are evaluated twice, with unknown equipment treated as available and as unavailable
+    ([ServiceEvaluator]). If the results differ, the service is `UNKNOWN` with its best case.
+  - Supervisor alarms 903 and 904 follow confirmed facts only. An unconfirmed redundancy fact leaves
+    903 as it is.
+  - `UNKNOWN` is never green: it is hatched and violet. Open alarms of an unknown device carry an
+    "unconfirmed" marker.
+- **Verified by:** [ServiceEvaluatorTest], [BoardDeciderTest]
+  (`aConfirmedRedundancyLossSurvivesTheFailedUnitGoingUnknown`, `anUnknownSdpsBesideAConfirmedDegradationRaisesNo903`),
+  [status-badge.spec.ts] (`UNKNOWN is never green`), [alarm-list.spec.ts]
+  (`marks an alarm unconfirmed while its equipment is UNKNOWN`).
+- **Status:** mitigated.
+
+## H5 A slow browser blocks supervision
+
+- **Cause:** the component that applies state changes also writes to browser connections, and one
+  slow or half-open connection stalls it.
+- **Consequence:** supervision stops for everyone because of one client.
+- **Mitigation:**
+  - The board writer never does network I/O. After a commit it offers the events to each client
+    without blocking ([SseBroadcaster]).
+  - Each client has a bounded queue (256 events by default). A client that overflows it is
+    disconnected, never silently skipped, and resumes with `Last-Event-ID` from a 1,000-event ring
+    buffer or gets a full resync ([SseClient]).
+  - Telemetry is coalesced per device, so it cannot fill the queue.
+- **Verified by:** [SseBroadcasterTest] (`slowClientDoesNotDelayOthers`, `overflowDisconnectsInsteadOfDropping`),
+  [SseClientTest] (`offersNeverBlockAndAFullQueueRefusesTheNextDurableMessage`, `telemetryIsCoalescedLatestOnly`).
+- **Status:** partly mitigated. The number of connected clients is not bounded yet.
+
+## H6 Partial or concurrent SNMP SET
+
+- **Cause:** an agent checks and applies a multi-binding SET one binding at a time while other
+  requests read or change the same device.
+- **Consequence:** a reader sees a half-applied change, or a SET is applied on top of a state it was
+  not checked against.
+- **Mitigation:** the simulator checks and applies every binding of a SET under one lock and publishes
+  the result to its MIB views once, after the last binding ([Centre]).
+- **Verified by:** [CentreTest] (`aSetRequestHoldsTheCentreLockFromFirstCheckToLastApply`,
+  `aMultiBindingSetReachesTheViewsOnlyOnceItIsComplete`, `aSetThatFailsMidwayStillPublishesWhatItChanged`),
+  [DeviceAgentSetIT].
+- **Status:** mitigated in the simulator. The supervisor sends no SETs in this release. Supervisor
+  commands, with interlocks, idempotency and an explicit uncertain outcome, are planned (H11).
+
+## H7 A supervisor restart loses operational context
+
+- **Cause:** the supervisor restarts and comes back with an empty or outdated picture.
+- **Consequence:** open alarms disappear, or old states are shown as current.
+- **Mitigation:**
+  - Every state change is stored as an event, together with the alarm rows, in one MySQL transaction
+    ([JpaBoardStore]).
+  - On start the supervisor reloads open alarms, restores each device's last known maintenance flag
+    and role, and marks every device `UNKNOWN (SUPERVISOR_RESTARTED)` until its first poll
+    ([BoardWriter]). That poll reconciles the alarms.
+  - A heartbeat event every 60 s and a stop event on graceful shutdown record when supervision ran.
+- **Verified by:** [BoardWriterTest] (`restartLoadsOpenAlarmsAndMarksSupervisorRestarted`,
+  `restartKeepsLastKnownMaintenanceAndRole`, `heartbeatTicksAreCommitted`), [JpaBoardStoreIT]
+  (`lastEquipmentStatesAreTheNewestEquipmentEventPerDevice`).
+- **Status:** mitigated. There is one supervisor instance; while it is down, nothing is supervised.
+
+## H8 Database or writer overload
+
+- **Cause:** the database is down or slow, or inputs arrive faster than the single board writer can
+  commit them.
+- **Consequence:** the board falls behind or shows state that was never stored.
+- **Mitigation:**
+  - The board only applies what was committed. A failed commit leaves the board unchanged and is
+    retried, and it still invalidates the results it made stale ([BoardWriter]).
+  - Poll concurrency is bounded (8 by default), and stable values are stored as one sample per device
+    every 30 s, not on every poll.
+- **Verified by:** [BoardWriterTest] (`commitFailureLeavesBoardUnchangedAndRetries`,
+  `failedCommitStillBumpsGenerationsAndRequestsTheRepoll`, `commitFailureDoesNotLoseTheTelemetrySample`),
+  [PollDispatcherTest].
+- **Status:** partly mitigated. There is no explicit "storage down" signal yet (the tiles turn stale),
+  the writer's input queue is not bounded, and the event log has no retention purge yet.
+
+## H9 An alarm flood hides a critical alarm
+
+- **Cause:** many alarms arrive at once.
+- **Consequence:** the operator misses the one that matters.
+- **Mitigation:** the alarm list is ordered by severity, then time; escalation makes an acknowledged
+  alarm unacknowledged again; alarms of a device in maintenance are recorded but hidden by default.
+- **Verified by:** [alarm-list.spec.ts] (`alarm list orders by severity then time`), [AlarmEngineTest]
+  (`escalationReUnacknowledges`, `raisedDuringMaintenanceIsSuppressed`).
+- **Status:** mitigated. An audible alarm is planned.
+
+## H10 v3 traps rejected after an agent restart
+
+- **Cause:** SNMPv3 timeliness checks reject notifications from an agent whose engine boot counter
+  went backwards after a restart.
+- **Consequence:** traps from that agent are silently dropped.
+- **Mitigation:** each simulated agent persists an ever-growing `snmpEngineBoots` counter
+  ([EngineBootsStore]).
+- **Verified by:** [EngineBootsPersistenceIT] (`trapAfterRestartWithHigherBootsIsAccepted`,
+  `trapAfterRestartWithLowerBootsIsRejected`).
+- **Status:** mitigated.
+
+## H11 Hazards of planned features
+
+These come from the [target design](../design/2026-11-13-atm-supervisor-design.md) and apply once
+the features exist:
+
+- **Replay mistaken for live:** a separate replay store with no live stream, a fixed replay band,
+  commands disabled in replay, and `NO_DATA` for periods when the supervisor was not running.
+- **Unintended or unsafe control command:** roles, a mandatory reason, interlocks, an impact preview
+  through the same service evaluator, idempotent commands, SETs without retries, and an explicit
+  `UNCERTAIN` outcome when the result cannot be confirmed.
+- **Failed SNMP authentication goes unnoticed:** a supervisor alarm on USM authentication reports.
+- **A restarted device shown with its pre-restart state:** `UNKNOWN (RESTARTING)` until the first
+  poll after a commanded restart, with the restart proven through `sysUpTime`.
+
+[AlarmEngine]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java
+[BoardDecider]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardDecider.java
+[BoardWriter]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java
+[DeviceBreakers]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/DeviceBreakers.java
+[JpaBoardStore]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
+[ObservationMapper]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/snmp/ObservationMapper.java
+[PollScheduler]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/PollScheduler.java
+[ServiceEvaluator]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluator.java
+[SseBroadcaster]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/SseBroadcaster.java
+[SseClient]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/SseClient.java
+[StatusDeriver]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/StatusDeriver.java
+[Centre]: ../../simulator/src/main/java/io/github/selvitopu/atmsup/simulator/centre/Centre.java
+[EngineBootsStore]: ../../inventory/src/main/java/io/github/selvitopu/atmsup/inventory/EngineBootsStore.java
+[AlarmEngineTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngineTest.java
+[BoardDeciderTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardDeciderTest.java
+[BoardWriterTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriterTest.java
+[JpaBoardStoreIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStoreIT.java
+[ObservationMapperTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/snmp/ObservationMapperTest.java
+[PollDispatcherTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/polling/PollDispatcherTest.java
+[PollSchedulerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/polling/PollSchedulerTest.java
+[ServiceEvaluatorTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluatorTest.java
+[SseBroadcasterTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/api/SseBroadcasterTest.java
+[SseClientTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/api/SseClientTest.java
+[StatusDeriverTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/StatusDeriverTest.java
+[SupervisorEndToEndIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/SupervisorEndToEndIT.java
+[CentreTest]: ../../simulator/src/test/java/io/github/selvitopu/atmsup/simulator/centre/CentreTest.java
+[DeviceAgentSetIT]: ../../simulator/src/test/java/io/github/selvitopu/atmsup/simulator/agent/DeviceAgentSetIT.java
+[EngineBootsPersistenceIT]: ../../simulator/src/test/java/io/github/selvitopu/atmsup/simulator/agent/EngineBootsPersistenceIT.java
+[alarm-list.spec.ts]: ../../ui/src/app/features/alarms/alarm-list/alarm-list.spec.ts
+[data-not-live-overlay.spec.ts]: ../../ui/src/app/features/board/data-not-live-overlay/data-not-live-overlay.spec.ts
+[equipment-tile.spec.ts]: ../../ui/src/app/features/board/equipment-tile/equipment-tile.spec.ts
+[freshness.spec.ts]: ../../ui/src/app/core/state/freshness.spec.ts
+[status-badge.spec.ts]: ../../ui/src/app/features/board/status-badge/status-badge.spec.ts
