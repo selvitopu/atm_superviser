@@ -52,13 +52,7 @@ public class AccountService {
         if (displayName.isEmpty() || displayName.length() > 64 || displayName.chars().anyMatch(Character::isISOControl)) {
             throw new IllegalArgumentException("Display names are 1 to 64 characters without control characters");
         }
-        // bcrypt hashes at most 72 bytes; accented letters take two bytes in UTF-8
-        if (password.length() < 10 || password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
-            throw new IllegalArgumentException("Passwords are 10 to 72 characters, and accented letters count double");
-        }
-        if (password.equalsIgnoreCase(username)) {
-            throw new IllegalArgumentException("The password must not be the username");
-        }
+        checkPassword(username, password);
         if (users.findByUsername(username).isPresent()) {
             throw new UsernameTakenException();
         }
@@ -68,5 +62,17 @@ public class AccountService {
             throw new UsernameTakenException();
         }
         return new UserDto(username, displayName, List.of(NEW_ACCOUNT_ROLE));
+    }
+
+    /** The password rule, for registration and for a password an administrator sets. */
+    static void checkPassword(String username, String password) {
+        // bcrypt hashes at most 72 bytes; accented letters take two bytes in UTF-8
+        if (password == null || password.length() < 10
+                || password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
+            throw new IllegalArgumentException("Passwords are 10 to 72 characters, and accented letters count double");
+        }
+        if (password.equalsIgnoreCase(username)) {
+            throw new IllegalArgumentException("The password must not be the username");
+        }
     }
 }

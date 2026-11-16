@@ -7,8 +7,8 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-/** Registration failures as RFC 9457 problem details. */
-@RestControllerAdvice(assignableTypes = AuthController.class)
+/** Registration and account-administration failures as RFC 9457 problem details. */
+@RestControllerAdvice(assignableTypes = {AuthController.class, AdminUserController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class AuthExceptionHandler {
 
@@ -20,6 +20,16 @@ class AuthExceptionHandler {
     @ExceptionHandler(RegistrationClosedException.class)
     ProblemDetail closed(RegistrationClosedException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
+    }
+
+    @ExceptionHandler(OwnAccountException.class)
+    ProblemDetail ownAccount(OwnAccountException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    @ExceptionHandler(NoSuchUserException.class)
+    ProblemDetail noSuchUser(NoSuchUserException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

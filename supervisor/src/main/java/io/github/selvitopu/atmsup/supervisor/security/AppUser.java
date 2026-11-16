@@ -73,4 +73,18 @@ public class AppUser {
     public Set<String> getRoles() {
         return Set.copyOf(roles);
     }
+
+    /** Replaces every role with {@code role}: an account holds exactly one, granted through the hierarchy. */
+    public void changeRole(String role) {
+        roles.clear();
+        roles.add(role);
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public void changePasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
 }
