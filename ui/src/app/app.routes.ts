@@ -3,6 +3,7 @@ import { authGuard } from './core/auth/auth.guard';
 import { RegisterPage } from './features/auth/register-page/register-page';
 import { SignInPage } from './features/auth/sign-in-page/sign-in-page';
 import { BoardPage } from './features/board/board-page/board-page';
+import { HistoryPage } from './features/history/history-page/history-page';
 
 /** BoardPage is a single parent route so selecting equipment never recreates it (and never restarts the stream). */
 export const routes: Routes = [
@@ -13,5 +14,6 @@ export const routes: Routes = [
     path: 'board', component: BoardPage, canActivate: [authGuard], title: 'Board · ATM Supervisor',
     children: [{ path: '', children: [] }, { path: ':equipmentId', children: [] }],
   },
+  { path: 'history', component: HistoryPage, canActivate: [authGuard], title: 'Alarm history · ATM Supervisor' },
   { path: '**', redirectTo: 'board' },
 ];

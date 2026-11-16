@@ -4,10 +4,10 @@ import { authProvider, clockProvider, FakeAuth, FakeStore, render, storeProvider
 import { AppHeader } from './app-header';
 
 describe('AppHeader', () => {
-  function setup(connection: 'LIVE' | 'RECONNECTING' | 'OFFLINE', auth = new FakeAuth()) {
+  function setup(connection: 'LIVE' | 'RECONNECTING' | 'OFFLINE', auth = new FakeAuth(), live = true) {
     const store = new FakeStore();
     store.connection.set(connection);
-    return render(AppHeader, {}, [...storeProviders(store), clockProvider('2026-11-13T14:05:09Z'), authProvider(auth),
+    return render(AppHeader, { live }, [...storeProviders(store), clockProvider('2026-11-13T14:05:09Z'), authProvider(auth),
       provideRouter([])]);
   }
 
@@ -41,5 +41,17 @@ describe('AppHeader', () => {
     (f.el.querySelector('button.sign-out') as HTMLButtonElement).click();
     expect(auth.signedOut).toBe(1);
     expect(navigate).toHaveBeenCalledWith(['/signin']);
+  });
+  it('hidesTheLiveStateAwayFromTheBoard', () => {
+    const f = setup('LIVE', new FakeAuth(), false);
+    expect(f.el.querySelector('.connection')).toBeNull();
+    expect(f.el.querySelector('.clock')).toBeNull();
+    expect(f.text()).toContain('Supervisor One');
+  });
+
+  it('aViewerSeesTheBoardAndTheAlarmHistory', () => {
+    const f = setup('LIVE', new FakeAuth(['VIEWER'], 'Demo One', 'demo1'));
+    expect(f.all('nav a').map(a => [a.textContent?.trim(), a.getAttribute('href')]))
+      .toEqual([['Board', '/board'], ['Alarm history', '/history']]);
   });
 });

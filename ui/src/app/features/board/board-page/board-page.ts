@@ -15,7 +15,7 @@ import { ServiceStrip } from '../service-strip/service-strip';
   imports: [AppHeader, ServiceStrip, EquipmentBoard, DetailPanel, AlarmList, DataNotLiveOverlay],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-app-header class="header" />
+    <app-app-header class="header" [live]="true" />
     <app-service-strip class="services" />
     <main class="board"><app-equipment-board /></main>
     <aside class="detail"><app-detail-panel [equipmentId]="equipmentId()" /></aside>
