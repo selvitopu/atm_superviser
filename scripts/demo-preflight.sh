@@ -67,23 +67,32 @@ if ! docker compose up -d --wait; then
   exit 1
 fi
 
-code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -X POST localhost:8080/sim/api/reset || true)
-if [ "$code" != "204" ]; then
-  echo "Simulator reset failed (HTTP $code)."
-  exit 1
-fi
-
-# The board needs a signed-in user. The read-only demo account is enough, and it exists because Compose runs in
-# demo mode. The CSRF cookie comes with any response, so the sign-in fetches the sign-in settings first.
+# Resetting the simulator and reading the board need a signed-in supervisor. The demo supervisor exists because
+# Compose runs in demo mode. The CSRF cookie comes with any response, so the sign-in fetches its settings first.
 jar=$(mktemp)
 trap 'rm -f "$jar"' EXIT
 
+csrf_token() {
+  awk '$6 == "XSRF-TOKEN" { print $7 }' "$jar"
+}
+
 sign_in() {
   curl -fsS --max-time 5 -c "$jar" -b "$jar" -o /dev/null localhost:8080/api/v1/auth/config || return 1
-  token=$(awk '$6 == "XSRF-TOKEN" { print $7 }' "$jar")
-  curl -fsS --max-time 5 -c "$jar" -b "$jar" -o /dev/null -H "X-XSRF-TOKEN: $token" \
-    --data-urlencode username=demo1 --data-urlencode password=demo1-demo localhost:8080/api/v1/auth/login
+  curl -fsS --max-time 5 -c "$jar" -b "$jar" -o /dev/null -H "X-XSRF-TOKEN: $(csrf_token)" \
+    --data-urlencode username=supervisor1 --data-urlencode password=supervisor1-demo \
+    localhost:8080/api/v1/auth/login
 }
+
+reset_simulator() {
+  curl -s --max-time 10 -c "$jar" -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
+    -H "X-XSRF-TOKEN: $(csrf_token)" localhost:8080/api/v1/simulator/reset || true
+}
+
+code=$(sign_in && reset_simulator)
+if [ "$code" != "204" ]; then
+  echo "Simulator reset failed (HTTP ${code:-no answer})."
+  exit 1
+fi
 
 fetch_board() {
   curl -fsS --max-time 5 -b "$jar" localhost:8080/api/v1/board 2>/dev/null

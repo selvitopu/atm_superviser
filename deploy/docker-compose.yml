@@ -58,6 +58,7 @@ services:
       ATM_SUPERVISOR_HTTP_ADDRESS: 0.0.0.0
       ATM_SUPERVISOR_BINDHOST: 0.0.0.0
       ATM_SUPERVISOR_DATA_DIR: /data
+      ATM_SIMULATOR_CONSOLEURL: http://simulator:8090
       DB_HOST: postgres
       DB_PASSWORD: ${DB_PASSWORD:-atmsup-demo}
       SNMP_MONITOR_AUTH: ${SNMP_MONITOR_AUTH:-monitor-auth-demo}
