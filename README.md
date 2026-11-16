@@ -61,7 +61,7 @@ The [design](docs/design/2026-11-13-atm-supervisor-design.md) describes the full
 | VOICE, REC and NET services | Planned (v0.2) |
 | Scripted fault scenarios | Planned (v0.2) |
 | Control commands with interlocks, preview and outcome tracking | Planned (v0.3) |
-| Authentication and roles | Planned (v0.3) |
+| Sign-in, registration and roles (VIEWER, SUPERVISOR, ADMIN) | Implemented |
 | Replay, snapshots, export and retention | Planned (v0.3) |
 | Prometheus, `snmp_exporter` and Grafana | Planned (v1.0); Actuator metrics exist today |
 | Browser end-to-end tests | Planned (v1.0) |
@@ -109,7 +109,7 @@ flowchart LR
 | `mib/` | `DEMO-ATM-TECHSUP-MIB.txt`, OID constants and `lint.sh` (smilint); see the [MIB guide](docs/mib.md) |
 | `inventory/` | Device inventory model, loaded from `config/inventory.yml` |
 | `simulator/` | 7 hand-written SNMPv3 agents on SNMP4J core, and a fault REST API |
-| `supervisor/` | Polling, traps, alarms, board, REST and SSE, PostgreSQL persistence with a Liquibase changelog (Spring Modulith modules) |
+| `supervisor/` | Polling, traps, alarms, board, REST and SSE, sign-in and roles, PostgreSQL persistence with a Liquibase changelog (Spring Modulith modules) |
 | `ui/` | Angular 22 board |
 | `deploy/` | `docker-compose.yml` and the nginx config |
 
@@ -121,6 +121,7 @@ Start here to see how the invariants above are implemented:
 |---|---|
 | [`PollScheduler`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/PollScheduler.java) | Runs probes outside the breaker and full polls through it, keeps full polls single-flight, and verifies a device at once when contact returns. |
 | [`DeviceBreakers`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/DeviceBreakers.java) | The per-device Resilience4j breakers that guard full polls: a window of 5 calls that opens at 50 % failures. |
+| [`SecurityConfig`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/security/SecurityConfig.java) | Session sign-in with a CSRF cookie for the single-page UI, problem-detail refusals, and the role hierarchy ADMIN > SUPERVISOR > VIEWER. |
 | [`BoardWriter`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java) | The only writer of the board: decide, commit in one transaction, apply what was committed, then publish. |
 | [`BoardDecider`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardDecider.java) | Turns each input into events, discards stale results by generation, and samples telemetry. |
 | [`StatusDeriver`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/StatusDeriver.java) | Derives health, contact and the `UNKNOWN` reasons from probes and full polls. |
@@ -200,6 +201,20 @@ curl -X POST localhost:8080/sim/api/devices/SDPS-A/faults -H 'Content-Type: appl
 `POST localhost:8080/sim/api/reset` clears all faults of all devices.
 
 Stop the stack with `docker compose -f deploy/docker-compose.yml down` (add `-v` to drop the data volumes).
+
+### Signing in
+
+The board needs a signed-in user. In demo mode, which Compose turns on, three accounts exist from the first start:
+
+| Account | Password | Role | Can |
+|---|---|---|---|
+| `admin1` | `admin1-demo` | ADMIN | Everything a supervisor can; user administration and request history come later |
+| `supervisor1` | `supervisor1-demo` | SUPERVISOR | View the board and acknowledge alarms |
+| `demo1` | `demo1-demo` | VIEWER | View the board |
+
+The sign-in screen lists them in demo mode, and selecting one fills in the form. Anyone can also create a read-only
+account there (`atm.security.registration-enabled`, on by default). Outside demo mode the supervisor refuses to start
+while a demo account still has its default password.
 
 ### Demo mode and ports
 
@@ -293,9 +308,10 @@ cd mib && ./lint.sh                            # lint the MIB with smilint (fall
   prevent it
 - [Change request CR-001](docs/safety/CR-001-auto-switchover-visibility.md): automatic 3 s A/B
   switchover visibility and confirmed service redundancy alarms
-- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0008 covering the
+- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0010 covering the
   modular monolith, SNMPv3/engine boots, full-poll alarm resync, full-state event log, bounded SSE,
-  shared inventory, restart context preservation, and two-generation polling
+  shared inventory, restart context preservation, two-generation polling, PostgreSQL with Liquibase,
+  and session sign-in with roles
 - [Demo walkthrough](docs/demo-v0.1.md): a scripted tour of v0.1
 - [Design](docs/design/2026-11-13-atm-supervisor-design.md): the target architecture for every phase,
   amended by the [architecture review decisions](docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md)

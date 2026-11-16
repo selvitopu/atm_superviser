@@ -44,6 +44,20 @@ docker compose down -v       # stop containers and delete volumes
 
 Open **<http://localhost:8080>** in your browser.
 
+### 1.3 Signing In
+
+The board opens with the sign-in screen. In demo mode it lists three accounts; select one to fill in the form:
+
+| Account | Role | What it can do |
+|---|---|---|
+| `admin1` | ADMIN | Everything a supervisor can |
+| `supervisor1` | SUPERVISOR | View the board and acknowledge alarms |
+| `demo1` | VIEWER | View the board |
+
+Each password is the account name followed by `-demo`. **Create a read-only account** registers a new VIEWER. When a
+session ends (after 12 hours, or when the supervisor restarts), the board returns to the sign-in screen with the
+notice *Your session ended. Sign in again.* **Sign out** is at the right of the header.
+
 ---
 
 ## 2. Screen Tour: Reading the Operator Board

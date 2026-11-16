@@ -25,6 +25,7 @@ Status values:
 | [H9](#h9-an-alarm-flood-hides-a-critical-alarm) | An alarm flood hides a critical alarm | Mitigated |
 | [H10](#h10-v3-traps-rejected-after-an-agent-restart) | SNMPv3 traps rejected after an agent restart | Mitigated |
 | [H11](#h11-hazards-of-planned-features) | Replay mistaken for live, unsafe commands, unnoticed authentication failures | Not applicable yet |
+| [H12](#h12-an-alarm-acknowledged-by-someone-not-entitled-to) | An alarm acknowledged by someone not entitled to | Mitigated |
 
 ## H1 Stale observations shown as current
 
@@ -190,14 +191,36 @@ the features exist:
 
 - **Replay mistaken for live:** a separate replay store with no live stream, a fixed replay band,
   commands disabled in replay, and `NO_DATA` for periods when the supervisor was not running.
-- **Unintended or unsafe control command:** roles, a mandatory reason, interlocks, an impact preview
+- **Unintended or unsafe control command:** roles (now in place, see H12), a mandatory reason, interlocks, an impact preview
   through the same service evaluator, idempotent commands, SETs without retries, and an explicit
   `UNCERTAIN` outcome when the result cannot be confirmed.
 - **Failed SNMP authentication goes unnoticed:** a supervisor alarm on USM authentication reports.
 - **A restarted device shown with its pre-restart state:** `UNKNOWN (RESTARTING)` until the first
   poll after a commanded restart, with the restart proven through `sysUpTime`.
 
+## H12 An alarm acknowledged by someone not entitled to
+
+- **Cause:** anyone who can reach the board acknowledges alarms, or an acknowledgement does not record who made it.
+- **Consequence:** an alarm disappears from the unacknowledged list without a responsible person, and the record
+  cannot show who accepted it.
+- **Mitigation:**
+  - Every API call, the live stream included, needs a signed-in user ([SecurityConfig]). Refusals are problem
+    details, never redirects.
+  - Acknowledging needs SUPERVISOR or ADMIN (`@PreAuthorize` on [AlarmController]), and the acknowledgement event
+    records the signed-in username.
+  - New accounts are read-only VIEWERs. CSRF protection covers every state-changing request, sign-in included.
+  - Demo accounts with their default passwords cannot exist outside demo mode ([DemoAccountGuard]).
+- **Verified by:** [SecurityRulesTest] (`aViewerCannotAcknowledge`, `aSupervisorAcknowledgesAsThemself`,
+  `aPostWithoutCsrfIsRefused`), [SupervisorEndToEndIT] (`anonymousRequestsAreRefused`, `signInNeedsTheCsrfToken`,
+  `aViewerCannotAcknowledge`), [AccountServiceIT].
+- **Status:** mitigated. The UI also hides the controls for viewers, but the server is what enforces the rule.
+
 [AlarmEngine]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java
+[AlarmController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/AlarmController.java
+[SecurityConfig]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/security/SecurityConfig.java
+[DemoAccountGuard]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/security/DemoAccountGuard.java
+[SecurityRulesTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/security/SecurityRulesTest.java
+[AccountServiceIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/security/AccountServiceIT.java
 [BoardDecider]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardDecider.java
 [BoardWriter]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java
 [DeviceBreakers]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/DeviceBreakers.java

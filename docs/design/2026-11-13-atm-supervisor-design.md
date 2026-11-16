@@ -54,7 +54,7 @@ Around these it uses mainstream engineering: full-stack Java/Spring Boot plus An
   - It does not process real surveillance data such as ASTERIX. Radar and tracker data appear only as counters and rates.
   - It has no real hardware, no multi-site support, and no high availability for the supervisor itself (an ADR lists this as future work).
 - **Not a product:**
-  - It has no user management UI. The two demo users come from the environment.
+  - It has no user management UI yet. In demo mode the Liquibase changelog creates three demo users, one per role.
   - It has no mobile layout. Ops consoles are large screens, so the target is 1920×1080 with a minimum of 1280×720.
   - It is English only, with no i18n.
 - **Out of scope for v1:** Kubernetes manifests.
@@ -345,7 +345,7 @@ Skipping SNMP4J-Agent avoids its sparsely documented API and keeps every line of
 | `control` | Commands, interlocks, SET execution, and verifying the result (§8.3). |
 | `history` | Append-only event log, snapshots, replay queries, export, and retention purge. |
 | `api` | REST controllers, the SSE endpoint, DTOs, OpenAPI (springdoc), and RFC 9457 `ProblemDetail` errors. |
-| `security` | Spring Security with session login, CSRF cookie, and roles. |
+| `security` | Spring Security with session login, CSRF cookie, and roles. Implemented: session sign-in, self-registration as VIEWER, and the role hierarchy ADMIN > SUPERVISOR > VIEWER (ADR-0010). |
 
 ### 8.1 Event flow, threading and transactions
 

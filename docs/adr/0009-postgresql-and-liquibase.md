@@ -88,4 +88,4 @@ Chosen option: **Option 3.**
 [`NoDemoSeedIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/NoDemoSeedIT.java
 [`LiquibaseDemoContextTest`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/LiquibaseDemoContextTest.java
 [`LiquibaseDefaultsIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/LiquibaseDefaultsIT.java
-[`DemoAccountGuard`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/DemoAccountGuard.java
+[`DemoAccountGuard`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/security/DemoAccountGuard.java
