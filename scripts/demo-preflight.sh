@@ -73,6 +73,22 @@ if [ "$code" != "204" ]; then
   exit 1
 fi
 
+# The board needs a signed-in user. The read-only demo account is enough, and it exists because Compose runs in
+# demo mode. The CSRF cookie comes with any response, so the sign-in fetches the sign-in settings first.
+jar=$(mktemp)
+trap 'rm -f "$jar"' EXIT
+
+sign_in() {
+  curl -fsS --max-time 5 -c "$jar" -b "$jar" -o /dev/null localhost:8080/api/v1/auth/config || return 1
+  token=$(awk '$6 == "XSRF-TOKEN" { print $7 }' "$jar")
+  curl -fsS --max-time 5 -c "$jar" -b "$jar" -o /dev/null -H "X-XSRF-TOKEN: $token" \
+    --data-urlencode username=demo1 --data-urlencode password=demo1-demo localhost:8080/api/v1/auth/login
+}
+
+fetch_board() {
+  curl -fsS --max-time 5 -b "$jar" localhost:8080/api/v1/board 2>/dev/null
+}
+
 evaluate() {
   python3 -c '
 import json, sys
@@ -91,7 +107,7 @@ sys.exit(0 if ok else 1)
 deadline=$((SECONDS + 120))
 last=""
 while [ "$SECONDS" -lt "$deadline" ]; do
-  if board=$(curl -fsS --max-time 5 localhost:8080/api/v1/board 2>/dev/null) \
+  if board=$(fetch_board || { sign_in && fetch_board; }) \
       && last=$(printf '%s' "$board" | evaluate 2>/dev/null); then
     echo "READY  7/7 OPERATIONAL  SURV OK  FD OK  http://localhost:8080"
     exit 0
