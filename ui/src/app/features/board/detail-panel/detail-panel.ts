@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { catchError, map, of, switchMap } from 'rxjs';
 import { BoardApi } from '../../../core/api/board-api';
@@ -38,7 +38,7 @@ const FIELDS: Record<string, [string, string][]> = {
         <dt>Role</dt><dd>{{ display(e.role) }}</dd>
         <dt>Maintenance</dt><dd>{{ e.maintenance ? 'MAINT' : 'no' }}</dd>
       </dl>
-      <app-equipment-control [equipment]="e" />
+      <app-equipment-control [equipment]="e" (commanded)="commands.update(n => n + 1)" />
       <section class="values">
         @if (unknown()) {
           <h3>Last known values</h3>
@@ -115,6 +115,9 @@ export class DetailPanel {
 
   private readonly live = computed(() => this.source.board()?.equipment.find(e => e.id === this.equipmentId()));
 
+  /** Answered commands: each is a new event of this unit, even when it changes no state. */
+  protected readonly commands = signal(0);
+
   /** Primitive key: telemetry changes leave it equal, so only a real change refetches the detail. */
   private readonly refetchKey = computed(() => {
     const id = this.equipmentId();
@@ -123,7 +126,7 @@ export class DetailPanel {
     }
     const e = this.live();
     const alarms = this.source.board()?.alarms.filter(a => a.equipmentId === id).length ?? 0;
-    return `${id}|${e?.health}|${e?.maintenance}|${e?.role}|${alarms}`;
+    return `${id}|${e?.health}|${e?.maintenance}|${e?.role}|${alarms}|${this.commands()}`;
   });
 
   /** Latest fetch result tagged with the id it was for, so a stale result is never shown for another unit. */

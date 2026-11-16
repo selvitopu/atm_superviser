@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
 import { BoardApi, EquipmentCommand } from '../../../core/api/board-api';
 import { EquipmentDto } from '../../../core/api/models';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -73,6 +73,8 @@ function question(command: EquipmentCommand, id: string): string {
 })
 export class EquipmentControl {
   readonly equipment = input.required<EquipmentDto>();
+  /** A command was answered, accepted or not: the server has recorded it in the unit's events. */
+  readonly commanded = output<void>();
 
   private readonly api = inject(BoardApi);
   private readonly auth = inject(AuthService);
@@ -113,5 +115,6 @@ export class EquipmentControl {
     this.pending.set(false);
     this.armed.set(null);
     this.message.set(message);
+    this.commanded.emit();
   }
 }
