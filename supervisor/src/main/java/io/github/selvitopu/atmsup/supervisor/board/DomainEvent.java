@@ -40,6 +40,15 @@ public sealed interface DomainEvent {
         }
     }
 
+    /** A user's command to a unit and its outcome (DONE, REFUSED, NO_ANSWER or FAILED); the audit trail. */
+    record CommandEvent(Instant occurredAt, String equipmentId, String command, String actor, String outcome)
+            implements DomainEvent {
+        @Override
+        public EventType type() {
+            return EventType.EQUIPMENT_COMMANDED;
+        }
+    }
+
     record TelemetrySampleEvent(Instant occurredAt, String equipmentId, Instant observedAt,
                                 Map<String, Object> values, Map<String, List<Map<String, Object>>> tables)
             implements DomainEvent {

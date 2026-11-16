@@ -57,4 +57,17 @@ class EventCodecTest {
             assertThat(codec.decode(row)).isEqualTo(event);
         });
     }
+
+    @Test
+    void aCommandEventRoundTripsWithItsActorAndEquipment() {
+        var event = new io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent(
+                T0, "FDPS-B", "RESTART", "supervisor1", "REFUSED");
+
+        withCodec(codec -> {
+            EventLogEntity row = codec.encode(event, T0);
+            assertThat(row.getEquipmentId()).isEqualTo("FDPS-B");
+            assertThat(row.getActor()).isEqualTo("supervisor1");
+            assertThat(codec.decode(row)).isEqualTo(event);
+        });
+    }
 }

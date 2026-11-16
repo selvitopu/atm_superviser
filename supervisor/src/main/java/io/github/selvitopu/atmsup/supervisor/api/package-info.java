@@ -1,5 +1,5 @@
 /** The REST API. */
-@ApplicationModule(allowedDependencies = {"board", "alarms", "history"})
+@ApplicationModule(allowedDependencies = {"board", "alarms", "history", "control"})
 package io.github.selvitopu.atmsup.supervisor.api;
 
 import org.springframework.modulith.ApplicationModule;

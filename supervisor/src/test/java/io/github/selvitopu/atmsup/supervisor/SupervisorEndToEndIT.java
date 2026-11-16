@@ -317,6 +317,35 @@ class SupervisorEndToEndIT {
     // --- sign-in and roles over the real server; each test leaves signed out, so the next one signs in again ------
 
     @Test
+    @Order(6)
+    void aSupervisorPutsAUnitIntoMaintenanceAndTheCommandIsLogged() {
+        HttpResponse<String> response = postCommand("FDPS-B", "MAINTENANCE_ON");
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(response.body()).contains("\"outcome\":\"DONE\"");
+        await().atMost(ofSeconds(10)).until(() -> maintenance("FDPS-B"));
+
+        EquipmentDetailDto detail = getJson("/api/v1/equipment/FDPS-B", EquipmentDetailDto.class);
+        assertThat(detail.recentEvents()).anySatisfy(e -> {
+            assertThat(e.type()).isEqualTo("EQUIPMENT_COMMANDED");
+            assertThat(e.summary()).isEqualTo("Maintenance on by supervisor1: done");
+        });
+
+        assertThat(postCommand("FDPS-B", "MAINTENANCE_OFF").statusCode()).isEqualTo(200);
+        await().atMost(ofSeconds(10)).until(() -> !maintenance("FDPS-B"));
+    }
+
+    private boolean maintenance(String id) {
+        return board().equipment().stream().anyMatch(e -> e.id().equals(id) && e.maintenance());
+    }
+
+    private HttpResponse<String> postCommand(String id, String command) {
+        return send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/equipment/" + id + "/commands"))
+                .timeout(ofSeconds(10)).header("Content-Type", "application/json")
+                .header("X-XSRF-TOKEN", csrfToken())
+                .POST(BodyPublishers.ofString("{\"command\":\"" + command + "\"}")).build());
+    }
+
+    @Test
     @Order(10)
     void anonymousRequestsAreRefused() {
         COOKIES.getCookieStore().removeAll();

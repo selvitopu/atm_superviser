@@ -6,6 +6,7 @@ import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.BoardCommitted;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.TelemetryUpdated;
 import io.github.selvitopu.atmsup.supervisor.board.BoardWriter;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
@@ -248,7 +249,7 @@ public class SseBroadcaster {
         ring.addLast(m);
     }
 
-    /** Null for TELEMETRY_SAMPLED, which is stored only. Equipment values and tables are the current telemetry. */
+    /** Null for TELEMETRY_SAMPLED and EQUIPMENT_COMMANDED, which are stored only. Equipment values and tables are the current telemetry. */
     private SseMessage message(StoredEvent stored, LiveBoard live) {
         long id = stored.id();
         return switch (stored.event()) {
@@ -259,6 +260,7 @@ public class SseBroadcaster {
             case SupervisorEvent e -> new SseMessage("supervisor", id,
                     new SupervisorEventDto(e.type().name(), e.occurredAt()));
             case TelemetrySampleEvent e -> null;
+            case CommandEvent e -> null; // the audit trail: stored and shown in the equipment's recent events
         };
     }
 

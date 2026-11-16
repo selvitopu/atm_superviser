@@ -3,6 +3,7 @@ package io.github.selvitopu.atmsup.supervisor.api;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
@@ -24,7 +25,20 @@ public final class EventSummaries {
             case AlarmEvent e -> alarm(e);
             case SupervisorEvent e -> supervisor(e);
             case TelemetrySampleEvent e -> "Telemetry sampled";
+            case CommandEvent e -> command(e);
         };
+    }
+
+    /** "Maintenance on by supervisor1: done". */
+    private static String command(CommandEvent e) {
+        String command = switch (e.command()) {
+            case "MAINTENANCE_ON" -> "Maintenance on";
+            case "MAINTENANCE_OFF" -> "Maintenance off";
+            case "RESTART" -> "Restart";
+            case "MAKE_ACTIVE" -> "Make active";
+            default -> e.command();
+        };
+        return command + " by " + e.actor() + ": " + e.outcome().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
     }
 
     private static String equipment(EquipmentEvent e) {

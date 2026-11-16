@@ -6,6 +6,7 @@ import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.TelemetrySampleEvent;
 import io.github.selvitopu.atmsup.supervisor.board.EquipmentState;
@@ -49,6 +50,8 @@ public class EventCodec {
                     new SupervisorPayload(SCHEMA_VERSION, ev.reason()));
             case TelemetrySampleEvent ev -> row(ev, recordedAt, ev.equipmentId(), ev.equipmentId(), null,
                     new TelemetryPayload(SCHEMA_VERSION, ev.equipmentId(), ev.observedAt(), ev.values(), ev.tables()));
+            case CommandEvent ev -> row(ev, recordedAt, ev.equipmentId(), ev.equipmentId(), ev.actor(),
+                    new CommandPayload(SCHEMA_VERSION, ev.command(), ev.outcome()));
         };
     }
 
@@ -67,6 +70,10 @@ public class EventCodec {
             case TELEMETRY -> {
                 TelemetryPayload p = read(row, TelemetryPayload.class);
                 yield new TelemetrySampleEvent(at, p.equipmentId(), p.observedAt(), p.values(), p.tables());
+            }
+            case COMMAND -> {
+                CommandPayload p = read(row, CommandPayload.class);
+                yield new CommandEvent(at, row.getEquipmentId(), p.command(), row.getActor(), p.outcome());
             }
         };
     }
@@ -119,6 +126,9 @@ public class EventCodec {
     }
 
     private record SupervisorPayload(int schemaVersion, UnknownReason reason) implements Payload {
+    }
+
+    private record CommandPayload(int schemaVersion, String command, String outcome) implements Payload {
     }
 
     private record TelemetryPayload(int schemaVersion, String equipmentId, Instant observedAt,

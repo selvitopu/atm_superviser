@@ -32,6 +32,8 @@ import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.AcknowledgeAlarms;
+import io.github.selvitopu.atmsup.supervisor.board.BoardInput.RecordCommand;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.HeartbeatTick;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollFailed;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollSucceeded;
@@ -614,5 +616,16 @@ class BoardDeciderTest {
                 .containsExactly(new SupervisorEvent(SUPERVISOR_HEARTBEAT, t0, null));
         assertThat(decider.decide(allOperational(), new Shutdown(), t0).events())
                 .containsExactly(new SupervisorEvent(SUPERVISOR_STOPPING, t0, null));
+    }
+
+    @Test
+    void aCommandIsRecordedAsAnEventAndChangesNothingElse() {
+        LiveBoard lb = allOperational();
+
+        Decision d = decider.decide(lb, new RecordCommand("FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE"), t0);
+
+        assertThat(d.events()).containsExactly(new CommandEvent(t0, "FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE"));
+        assertThat(d.telemetry()).isEmpty();
+        assertThat(BoardReducer.apply(lb.board(), d.events().get(0))).isEqualTo(lb.board());
     }
 }

@@ -32,6 +32,10 @@ public sealed interface BoardInput {
     }
 
     /** {@code firstStart} is true when the event log is empty. */
+    /** A command a user sent to a unit, with its outcome: recorded in the event log, it changes no state. */
+    record RecordCommand(String equipmentId, String command, String actor, String outcome) implements BoardInput {
+    }
+
     record Startup(boolean firstStart) implements BoardInput {
     }
 

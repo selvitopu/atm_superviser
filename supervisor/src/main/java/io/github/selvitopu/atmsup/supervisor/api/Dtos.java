@@ -1,6 +1,8 @@
 package io.github.selvitopu.atmsup.supervisor.api;
 
+import io.github.selvitopu.atmsup.supervisor.control.EquipmentCommand;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
@@ -68,5 +70,12 @@ public final class Dtos {
 
     /** SSE {@code supervisor}: a supervisor event (started, heartbeat, stopping). */
     public record SupervisorEventDto(String type, Instant occurredAt) {
+    }
+
+    /** A command for one unit; see {@link EquipmentCommand}. */
+    public record CommandRequest(@NotNull EquipmentCommand command) {
+    }
+
+    public record CommandResultDto(String equipmentId, String command, String outcome) {
     }
 }

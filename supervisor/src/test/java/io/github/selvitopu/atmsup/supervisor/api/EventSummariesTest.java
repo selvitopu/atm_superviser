@@ -121,4 +121,15 @@ class EventSummariesTest {
         var e = new TelemetrySampleEvent(T, "RAD-N", T, Map.of(), Map.of());
         assertThat(EventSummaries.describe(stored(e))).isEqualTo("Telemetry sampled");
     }
+
+    @Test
+    void commandsNameTheActorAndTheOutcome() {
+        var done = new io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent(
+                T, "FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE");
+        var refused = new io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent(
+                T, "FDPS-B", "RESTART", "supervisor1", "REFUSED");
+
+        assertThat(EventSummaries.describe(stored(done))).isEqualTo("Maintenance on by supervisor1: done");
+        assertThat(EventSummaries.describe(stored(refused))).isEqualTo("Restart by supervisor1: refused");
+    }
 }

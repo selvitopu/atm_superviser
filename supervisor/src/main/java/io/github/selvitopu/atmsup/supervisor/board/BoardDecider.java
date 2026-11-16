@@ -18,6 +18,8 @@ import io.github.selvitopu.atmsup.supervisor.alarms.ServiceAlarmInput;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested.Reason;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.AcknowledgeAlarms;
+import io.github.selvitopu.atmsup.supervisor.board.BoardInput.RecordCommand;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.HeartbeatTick;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollFailed;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollSucceeded;
@@ -76,6 +78,8 @@ public final class BoardDecider {
                     (cur, tel) -> deriver.pollFailed(cur, tel, now));
             case TrapReceived t -> trap(live, t, now);
             case AcknowledgeAlarms a -> acknowledge(live, a, now);
+            case RecordCommand c -> new Decision(List.of(new CommandEvent(now, c.equipmentId(), c.command(), c.actor(),
+                    c.outcome())), Map.of(), List.of(), Set.of(), Set.of(), false, BoardResult.ok());
             case Startup s -> startup(live, s, now);
             case HeartbeatTick h -> supervisorOnly(new SupervisorEvent(SUPERVISOR_HEARTBEAT, now, null));
             case Shutdown s -> supervisorOnly(new SupervisorEvent(SUPERVISOR_STOPPING, now, null));
