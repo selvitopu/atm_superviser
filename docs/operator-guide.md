@@ -50,14 +50,14 @@ The board opens with the sign-in screen. In demo mode it lists three accounts; s
 
 | Account | Role | What it can do |
 |---|---|---|
-| `admin1` | ADMIN | Everything a supervisor can |
-| `supervisor1` | SUPERVISOR | View the board and acknowledge alarms |
+| `admin1` | ADMIN | Everything a supervisor can, plus the **Users** screen |
+| `supervisor1` | SUPERVISOR | Acknowledge alarms, send equipment commands, and use the **Simulator** screen |
 | `demo1` | VIEWER | View the board |
 
 Each password is the account name followed by `-demo`. **Create a read-only account** registers a new VIEWER. When a
 session ends (after 12 hours without the board open, or when the supervisor restarts), the board returns to the
-sign-in screen with the notice *Your session ended. Sign in again.* After **Sign out**, another window that still
-shows the board follows within 30 minutes, when its live stream reconnects. **Sign out** is at the right of the header.
+sign-in screen with the notice *Your session ended. Sign in again.* **Sign out** is at the right of the header; it
+ends the session in every window at once, and so does an administrator's change to your account.
 
 ---
 
@@ -130,6 +130,9 @@ Click any equipment tile to select it (deep-linked at `/board/:equipmentId`, for
 * **Poll Freshness (`Last poll N s ago`):** Ticks every second against server time.
 * **Recent Events:** Lists up to the last **50 durable events** recorded in PostgreSQL for this device (`EQUIPMENT_STATE_CHANGED`, `CONTACT_LOST`, `CONTACT_RESTORED`, `ALARM_RAISED`, `ALARM_CLEARED`, etc.) with their UTC timestamps and human-readable summaries.
 
+* **Control (supervisors and administrators):** **Maintenance on** or **Maintenance off**, **Restart** (only in
+  maintenance), and **Make active** (only for the standby unit of a pair). See Playbook 4.
+
 ### 2.6 Alarms Pane (Bottom Bar & Table)
 
 The bottom pane tracks every open alarm (`ACTIVE_UNACK`, `ACTIVE_ACK`, `CLEARED_UNACK`):
@@ -149,31 +152,49 @@ The bottom pane tracks every open alarm (`ACTIVE_UNACK`, `ACTIVE_ACK`, `CLEARED_
 
 ---
 
+### 2.7 Alarm History
+
+**Alarm history** in the header searches every alarm, open or closed, newest first. Filter by state (`All` or
+`Open`), severity, equipment, and a **From/To** range in UTC, then click **Search**. Each row shows when the alarm
+was raised, who acknowledged it and when, and when it cleared. **Previous** and **Next** page through 50 alarms at a
+time.
+
+### 2.8 Simulator (Demo Centre Only)
+
+Supervisors and administrators see **Simulator** in the header when the stack runs in demo mode. It lists each
+simulated device with its status, role, whether it answers SNMP, and its active faults, and offers the faults its type
+supports: **Fail**, **Degrade**, **Channel A fail** and **Channel B fail** (radars), **Sensor lost** with the radar it
+concerns (SDPS), **Unreachable**, **Drop traps**, and **Recover**. **Reset all** asks for a confirmation first. The
+screen refreshes every two seconds. Outside demo mode the screen and its API do not exist.
+
+### 2.9 Users (Administrators)
+
+**Users** lists every account with its role and whether it is enabled. An administrator can change a role and
+**Save**, **Disable** an account after a confirmation or **Enable** it again, and **Set password** under the same rule
+as registration. Every change signs that user out at once, in every window. Your own row is read-only, so an
+administrator cannot lock themselves out.
+
+---
+
 ## 3. Hands-On Operational Playbooks
 
-You can run these five workflows against the live stack to see how the board responds to faults, acknowledgements, switchovers, lost contact, and maintenance.
+You can run these five workflows against the live stack to see how the board responds to faults, acknowledgements,
+switchovers, lost contact, and maintenance. Sign in as `supervisor1`, keep the board open in one browser window, and
+open the **Simulator** screen from the header in a second window, so you can inject a fault and watch the board react.
+**Reset all** on the Simulator screen clears every fault and restores the default roles.
 
 ### Playbook 1: Degrade a Radar Channel, Fail the Radar, and Acknowledge Alarms
 
 1. **Inject a single-channel fault on `RAD-N`:**
-   ```sh
-   curl -s -X POST localhost:8080/sim/api/devices/RAD-N/faults \
-     -H 'Content-Type: application/json' -d '{"fault":"CHANNEL_A_FAIL"}'
-   ```
+   On the **Simulator** screen, click **Channel A fail** in the `RAD-N` row.
    * **What you see:** `RAD-N` turns **`▲ DEGRADED`**. Click the `RAD-N` tile: the detail panel shows `Active channel: CHANNEL_B`, `Channel A: FAILED`, `Channel B: OPERATIONAL`. Two `MIN` alarms appear: `102 Equipment degraded` and `201 Channel A failed`. Because `RAD-N` is still producing plots on Channel B, `SDPS-A/B` still show `RAD-N: RECEIVING` and `SURV` stays **`✓ OK`**.
 2. **Fail `RAD-N` completely:**
-   ```sh
-   curl -s -X POST localhost:8080/sim/api/devices/RAD-N/faults \
-     -H 'Content-Type: application/json' -d '{"fault":"FAIL"}'
-   ```
+   On the **Simulator** screen, click **Fail** in the `RAD-N` row.
    * **What you see:** `RAD-N` turns **`✕ FAILED`** with `CRIT` alarm `101 Equipment failed`, and `201`/`202` escalate to `MAJ`. Both `SDPS-A` and `SDPS-B` raise `MIN` alarm `401 Sensor input lost · RAD-N`. `SURV` *still* stays **`✓ OK`** because 2 radars (`RAD-E` and `RAD-S`) remain available.
 3. **Acknowledge the alarms:**
    * Click **Ack all visible** in the alarm bar. Every row changes from `UNACK` to `ACK` and `0 unacknowledged` is shown, while the rows remain visible because the faults are still active.
 4. **Recover `RAD-N`:**
-   ```sh
-   curl -s -X POST localhost:8080/sim/api/devices/RAD-N/faults \
-     -H 'Content-Type: application/json' -d '{"fault":"RECOVER"}'
-   ```
+   On the **Simulator** screen, click **Recover** in the `RAD-N` row.
    * **What you see:** Because you already acknowledged the alarms, they transition directly from `ACK` to `CLOSED` and disappear from the open alarm list as soon as `RAD-N` recovers. (Any alarm you did *not* acknowledge transitions to `CLEARED-UNACK` and waits for your acknowledgement before closing.)
 
 ---
@@ -181,10 +202,7 @@ You can run these five workflows against the live stack to see how the board res
 ### Playbook 2: Observe an Automatic 3-Second A/B Pair Switchover
 
 1. **Fail the active Flight Data Processor (`FDPS-A`):**
-   ```sh
-   curl -s -X POST localhost:8080/sim/api/devices/FDPS-A/faults \
-     -H 'Content-Type: application/json' -d '{"fault":"FAIL"}'
-   ```
+   On the **Simulator** screen, click **Fail** in the `FDPS-A` row.
 2. **Watch the two-step transition on the board:**
    * **Immediately ($t = 0\text{ s}$):** `FDPS-A` turns **`✕ FAILED`** (`101 Equipment failed`), `FD` turns **`▲ DEGRADED`** (`Only one FDPS unit available`), and supervisor alarm **`903 Service redundancy lost: Flight data`** (`MAJ`) is raised.
    * **After 3 seconds ($t \approx 3\text{–}4\text{ s}$):** The pair switches over automatically: `FDPS-B` becomes **`ACTIVE`**, `FDPS-A` becomes **`STANDBY`** (still `✕ FAILED`), and `FDPS-B` raises `WARN` alarm **`104 Switchover occurred`**. `FD` remains **`▲ DEGRADED`** because the pair has no healthy standby left.
@@ -194,59 +212,35 @@ You can run these five workflows against the live stack to see how the board res
 ### Playbook 3: Lost Contact (`UNREACHABLE`) and Fast Probe Recovery
 
 1. **Cut SNMP communication to `SDPS-B`:**
-   ```sh
-   curl -s -X POST localhost:8080/sim/api/devices/SDPS-B/faults \
-     -H 'Content-Type: application/json' -d '{"fault":"UNREACHABLE"}'
-   ```
+   On the **Simulator** screen, click **Unreachable** in the `SDPS-B` row.
 2. **Observe the progression:**
    * **At ~10 s:** An amber poll age (`11 s ago`) appears on the `SDPS-B` tile.
    * **At ~15 s (3 failed probes):** `SDPS-B` turns **`? UNKNOWN`** (`last contact <UTC>`) with dimmed values, and raises `MAJ` alarm **`901 Lost contact`** with the unconfirmed **`?`** marker.
    * Look at the `SURV` chip in the services strip: it turns **`? UNKNOWN · at best OK`** because whether surveillance still has full SDPS redundancy depends on the unreachable `SDPS-B`.
 3. **Restore communication:**
-   ```sh
-   curl -s -X POST localhost:8080/sim/api/devices/SDPS-B/faults \
-     -H 'Content-Type: application/json' -d '{"fault":"RECOVER"}'
-   ```
+   On the **Simulator** screen, click **Recover** in the `SDPS-B` row.
    * Within one probe interval (≤ 5 s), `SDPS-B`'s lightweight `sysUpTime.0` probe succeeds, moves the device's circuit breaker to `HALF_OPEN`, triggers an immediate verification full poll, and restores `SDPS-B` to **`✓ OPERATIONAL`** and `SURV` to **`✓ OK`**.
 
 ---
 
-### Playbook 4: Maintenance Mode, Alarm Suppression, and SNMP `SET` Commands
+### Playbook 4: Maintenance Mode, Alarm Suppression, and Equipment Commands
 
-In `v0.1.1`, you can exercise the agent's writable MIB objects (`atmTsEqMaintenanceMode` and `atmTsEqCommand`) using `snmpset` with the `operator` SNMPv3 user. (Run via a throwaway Alpine container if your host `net-snmp` is older than 5.8.)
+Equipment commands are on the board itself: select a tile, and the detail panel shows a **Control** section to
+supervisors and administrators. Every command first shows a confirm bar that names the unit and what will happen;
+only **Confirm** sends it. The supervisor sends each command to the unit as an SNMP `SET` with the read-write
+`operator` user, and records it in the event log with your username and the outcome.
 
-1. **Put `FDPS-B` (`STANDBY`) into Maintenance Mode (`true(1)`):**
-   ```sh
-   docker run --rm --network atm-supervisor_default -v "$PWD/mib":/mib:ro alpine:3.22 sh -c '
-     apk add -q net-snmp-tools &&
-     snmpset -v3 -l authPriv -u operator -a SHA-256 -A operator-auth-demo -x AES -X operator-priv-demo \
-       -M +/mib:/usr/share/snmp/mibs -m +DEMO-ATM-TECHSUP-MIB \
-       simulator:16107 DEMO-ATM-TECHSUP-MIB::atmTsEqMaintenanceMode.0 i 1'
-   ```
+1. **Put `FDPS-B` (`STANDBY`) into maintenance:** select the `FDPS-B` tile, click **Maintenance on**, then **Confirm**.
    * **What you see on the board:**
      * `FDPS-B` keeps its **`✓ OPERATIONAL`** badge and gains the blue **`MAINT`** badge beside it.
      * Because a unit in maintenance counts as unavailable (a planned outage), `FD` turns **`▲ DEGRADED`** (`Only one FDPS unit available`) and raises alarm `903`.
      * Alarm `103 Maintenance mode on` is raised on `FDPS-B`, but because `FDPS-B` is in maintenance, it is **suppressed**! Check **`Show suppressed (1)`** in the alarm bar to see it.
-2. **Restart `FDPS-B` while in Maintenance (`restart(3)`):**
-   ```sh
-   docker run --rm --network atm-supervisor_default -v "$PWD/mib":/mib:ro alpine:3.22 sh -c '
-     apk add -q net-snmp-tools &&
-     snmpset -v3 -l authPriv -u operator -a SHA-256 -A operator-auth-demo -x AES -X operator-priv-demo \
-       -M +/mib:/usr/share/snmp/mibs -m +DEMO-ATM-TECHSUP-MIB \
-       simulator:16107 DEMO-ATM-TECHSUP-MIB::atmTsEqCommand.0 i 3'
-   ```
-   * *(Note: If you send `restart(3)` while `atmTsEqMaintenanceMode` is `false(2)`, the agent rejects it with `inconsistentValue`.)*
-3. **Take `FDPS-B` out of Maintenance (`false(2)`), then Command a Manual Switchover (`becomeActive(2)`):**
-   ```sh
-   docker run --rm --network atm-supervisor_default -v "$PWD/mib":/mib:ro alpine:3.22 sh -c '
-     apk add -q net-snmp-tools &&
-     snmpset -v3 -l authPriv -u operator -a SHA-256 -A operator-auth-demo -x AES -X operator-priv-demo \
-       -M +/mib:/usr/share/snmp/mibs -m +DEMO-ATM-TECHSUP-MIB \
-       simulator:16107 DEMO-ATM-TECHSUP-MIB::atmTsEqMaintenanceMode.0 i 2 &&
-     snmpset -v3 -l authPriv -u operator -a SHA-256 -A operator-auth-demo -x AES -X operator-priv-demo \
-       -M +/mib:/usr/share/snmp/mibs -m +DEMO-ATM-TECHSUP-MIB \
-       simulator:16107 DEMO-ATM-TECHSUP-MIB::atmTsEqCommand.0 i 2'
-   ```
+     * **Recent events** in the detail panel lists `Maintenance on by supervisor1: done`.
+2. **Restart `FDPS-B` while it is in maintenance:** click **Restart**, then **Confirm**.
+   * **Restart** is available only in maintenance. The unit itself enforces this too: a restart it receives outside
+     maintenance is refused, and the panel shows the reason.
+3. **Take `FDPS-B` out of maintenance, then make it active:** click **Maintenance off** and **Confirm**, then
+   **Make active** and **Confirm**. **Make active** appears only for the standby unit of a redundant pair.
    * **What you see:** `MAINT` disappears, `FD` returns to **`✓ OK`**, and `FDPS-B` swaps roles with `FDPS-A` to become **`ACTIVE`**.
 
 ---
@@ -254,39 +248,32 @@ In `v0.1.1`, you can exercise the agent's writable MIB objects (`atmTsEqMaintena
 ### Playbook 5: Verify Full-Poll Alarm Reconciliation (`via RESYNC`) When Traps Are Lost
 
 1. **Tell `RAD-S` to drop all outgoing traps and informs, then fail it:**
-   ```sh
-   curl -s -X POST localhost:8080/sim/api/devices/RAD-S/faults \
-     -H 'Content-Type: application/json' -d '{"fault":"DROP_TRAPS"}'
-   curl -s -X POST localhost:8080/sim/api/devices/RAD-S/faults \
-     -H 'Content-Type: application/json' -d '{"fault":"FAIL"}'
-   ```
+   On the **Simulator** screen, click **Drop traps** in the `RAD-S` row, then **Fail**.
 2. **What you see:** Within at most one 5-second poll interval, `RAD-S` turns **`✕ FAILED`** and alarms `101`, `201`, and `202` appear in the alarm list even though zero traps were sent. Click the `RAD-S` tile: **Recent events** in the detail panel lists the `ALARM_RAISED` events. The event log records each of them with `via: RESYNC` in its payload, because they came from the full poll's alarm-table walk; the board itself does not display the source.
 
 ---
 
 ## 4. REST API Reference
 
-When the Compose stack is running, nginx on `localhost:8080` serves both the supervisor API (`/api/v1/*`) and the simulator fault API (`/sim/api/*`).
+Every user action has a screen; this reference is for integrators. The interactive OpenAPI page is at
+<http://localhost:8080/api/v1/docs>. Every call needs a signed-in session cookie, and every `POST` and `PATCH` also
+needs the `X-XSRF-TOKEN` header with the value of the `XSRF-TOKEN` cookie. Refusals are RFC 9457 problem details.
 
-### 4.1 Supervisor API (`/api/v1`)
-
-| Method & Path | Description & Query Parameters | Example |
+| Method & Path | Role | Description |
 |---|---|---|
-| `GET /api/v1/board` | Returns the full live board snapshot (`centre`, `serverTime`, `lastEventId`, `services`, `equipment`, open `alarms`). | `curl -s localhost:8080/api/v1/board \| python3 -m json.tool` |
-| `GET /api/v1/equipment/{id}` | Returns the equipment state plus its last 50 events (`recentEvents`). Returns `404` for an unknown ID. | `curl -s localhost:8080/api/v1/equipment/RAD-N \| python3 -m json.tool` |
-| `GET /api/v1/alarms` | Searches alarms. Params: `state` (`open` \| `all`, default `open`), `severity` (`CRITICAL`, `MAJOR`, `MINOR`, `WARNING`), `equipment`, `from` (ISO-8601 UTC), `to`, `page` (`0`), `size` (`1..500`, default `50`). | `curl -s 'localhost:8080/api/v1/alarms?state=all&equipment=RAD-N'` |
-| `POST /api/v1/alarms/{id}/ack` | Acknowledges one alarm. Optional body: `{"comment":"noted"}`. | `curl -s -X POST localhost:8080/api/v1/alarms/<id>/ack -H 'Content-Type: application/json' -d '{"comment":"checked"}'` |
-| `POST /api/v1/alarms/ack` | Bulk-acknowledges multiple alarms. Body: `{"ids":["..."],"comment":"..."}`. | `curl -s -X POST localhost:8080/api/v1/alarms/ack -H 'Content-Type: application/json' -d '{"ids":["id1","id2"]}'` |
-| `GET /api/v1/stream` | Server-Sent Events stream (`equipment`, `service`, `alarm`, `supervisor` with `id`, plus volatile `telemetry` and `heartbeat`). Accepts `Last-Event-ID` header. | `curl -N localhost:8080/api/v1/stream` |
-
-### 4.2 Simulator Fault Injection API (`/sim/api`)
-
-| Method & Path | Description | Example |
-|---|---|---|
-| `GET /sim/api/devices` | Lists all simulated devices, their UDP ports, roles, maintenance flags, and currently active faults. | `curl -s localhost:8080/sim/api/devices \| python3 -m json.tool` |
-| `GET /sim/api/devices/{id}` | Inspects a single simulated device's internal state. | `curl -s localhost:8080/sim/api/devices/SDPS-A` |
-| `POST /sim/api/devices/{id}/faults` | Applies a fault (`FAIL`, `DEGRADE`, `RECOVER`, `CHANNEL_A_FAIL`, `CHANNEL_B_FAIL`, `SENSOR_LOST` with `target`, `UNREACHABLE`, `DROP_TRAPS`). | `curl -s -X POST localhost:8080/sim/api/devices/SDPS-A/faults -H 'Content-Type: application/json' -d '{"fault":"SENSOR_LOST","target":"RAD-N"}'` |
-| `POST /sim/api/reset` | Clears all faults on all devices and restores default active/standby roles (`204 No Content`). | `curl -X POST localhost:8080/sim/api/reset` |
+| `GET /api/v1/board` | VIEWER | The live board snapshot (`centre`, `serverTime`, `lastEventId`, `services`, `equipment`, open `alarms`). |
+| `GET /api/v1/equipment/{id}` | VIEWER | The equipment state and its last 50 events (`recentEvents`); `404` for an unknown ID. |
+| `GET /api/v1/alarms` | VIEWER | Alarm search. Params: `state` (`open` \| `all`, default `open`), `severity`, `equipment`, `from` and `to` (ISO-8601 UTC), `page` (`0`), `size` (`1..500`, default `50`). |
+| `GET /api/v1/stream` | VIEWER | Server-Sent Events (`equipment`, `service`, `alarm`, `supervisor` with `id`, plus volatile `telemetry` and `heartbeat`); accepts `Last-Event-ID`. |
+| `POST /api/v1/alarms/{id}/ack` | SUPERVISOR | Acknowledges one alarm; optional body `{"comment":"..."}`. |
+| `POST /api/v1/alarms/ack` | SUPERVISOR | Acknowledges several alarms; body `{"ids":["..."],"comment":"..."}`. |
+| `POST /api/v1/equipment/{id}/commands` | SUPERVISOR | Body `{"command":"MAINTENANCE_ON"}` (or `MAINTENANCE_OFF`, `RESTART`, `MAKE_ACTIVE`). `200` with the outcome, `409` when the unit refuses, `504` when it does not answer (the outcome is then uncertain; a command is never retried), `502` when the command cannot be sent. |
+| `GET /api/v1/simulator/devices` | SUPERVISOR | Demo mode only: the simulated devices with their state and faults. |
+| `POST /api/v1/simulator/devices/{id}/faults` | SUPERVISOR | Demo mode only: body `{"fault":"FAIL","target":null}`; `SENSOR_LOST` needs a radar as `target`. |
+| `POST /api/v1/simulator/reset` | SUPERVISOR | Demo mode only: clears every fault and restores the default roles (`204`). |
+| `GET /api/v1/admin/users` | ADMIN | The accounts with role and enabled state. |
+| `PATCH /api/v1/admin/users/{username}` | ADMIN | Body `{"role":"SUPERVISOR"}` and/or `{"enabled":false}`; ends that user's sessions. `409` for your own account. |
+| `POST /api/v1/admin/users/{username}/password` | ADMIN | Body `{"password":"..."}` under the registration rule; ends that user's sessions (`204`). |
 
 ---
 
@@ -319,5 +306,5 @@ Useful metric names under `/actuator/metrics/<name>`:
 |---|---|---|
 | `Port 8080 is in use by another process.` during preflight | Another local server or container is bound to TCP `8080`. | Run `lsof -nP -iTCP:8080 -sTCP:LISTEN` to identify and stop the conflicting process. |
 | `Invalid authentication protocol specified after -a flag: SHA-256` when running `snmpget` on macOS | The system `/usr/bin/snmpget` shipped with macOS is net-snmp 5.6, which lacks `SHA-256`. | Install Homebrew net-snmp (`brew install net-snmp` and use `$(brew --prefix net-snmp)/bin/snmpget`) or run the Alpine container command from [Playbook 4](#playbook-4-maintenance-mode-alarm-suppression-and-snmp-set-commands). |
-| Old `CLEARED-UNACK` alarms remain in the alarm list after `POST /sim/api/reset` | By design: an unacknowledged alarm stays in `CLEARED-UNACK` after the fault clears so fleeting faults are never lost. | Click **Ack all visible** in the UI to close them, or run `scripts/demo-preflight.sh --fresh` to wipe the database volume. |
+| Old `CLEARED-UNACK` alarms remain in the alarm list after **Reset all** on the Simulator screen | By design: an unacknowledged alarm stays in `CLEARED-UNACK` after the fault clears so fleeting faults are never lost. | Click **Ack all visible** in the UI to close them, or run `scripts/demo-preflight.sh --fresh` to wipe the database volume. |
 | A device stays `UNKNOWN` after recovering from `UNREACHABLE` | If contact returned while a `HALF_OPEN` trial poll was already in flight, verification can wait for the breaker's 30 s timeout. The device stays safely `UNKNOWN` meanwhile. | No action needed: it recovers within about 30 s. |

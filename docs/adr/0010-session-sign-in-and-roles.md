@@ -13,8 +13,8 @@ The UI is a same-origin Angular single-page application that follows the board o
 ## Decision Drivers
 
 * **The live stream must stay authenticated:** the browser's `EventSource` cannot send an `Authorization` header.
-* **Sign-out and session end must take effect:** at once for every request, and at the next reconnect (at most
-  30 minutes) for a live stream that is already open.
+* **Sign-out and session end must take effect at once,** for every request and for a live stream that is already
+  open.
 * **No credentials in URLs, logs or browser storage.**
 * **Small and explainable:** three fixed roles, accounts in the database, no external identity provider.
 
@@ -50,14 +50,15 @@ Chosen option: **Option 1.**
 ### Consequences
 
 * **Good:** the stream, the REST calls and sign-out all work through one cookie, with no token handling in the UI.
-* **Good:** a session that ends (expiry, restart, sign-out) sends the UI back to the sign-in screen at its next
-  request. The window that signed out goes at once; another window with the board open keeps its live stream until
-  the stream reconnects, which happens at least every 30 minutes, and then returns to the sign-in screen.
+* **Good:** a session that ends (expiry, restart, sign-out, an administrator's change) sends the UI back to the
+  sign-in screen. The supervisor tracks its live sessions ([`LiveSessions`]) and closes a session's open live streams
+  when the session is destroyed, so every window of that session follows at once.
 * **Trade-off:** a disabled account is refused before the password check, so its refusal is measurably faster. That
   tells an attacker an account exists but is disabled, which is accepted for this tool.
 * **Trade-off:** sessions live in the supervisor's memory, so a supervisor restart signs everyone out. This is
   acceptable while there is one supervisor ([ADR-0007](0007-supervisor-ha-as-future-work.md)).
-* **Not yet:** user administration, sign-in rate limiting, and auditing of refused requests are planned.
+* **Not yet:** sign-in rate limiting and auditing of refused requests are planned. User administration came with
+  [ADR-0011](0011-control-and-simulator-through-the-supervisor.md).
 
 ## Verification
 
@@ -76,3 +77,4 @@ Chosen option: **Option 1.**
 [`AccountDetailsServiceIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/security/AccountDetailsServiceIT.java
 [`AccountServiceIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/security/AccountServiceIT.java
 [`SupervisorEndToEndIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/SupervisorEndToEndIT.java
+[`LiveSessions`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/security/LiveSessions.java

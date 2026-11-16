@@ -26,6 +26,8 @@ Status values:
 | [H10](#h10-v3-traps-rejected-after-an-agent-restart) | SNMPv3 traps rejected after an agent restart | Mitigated |
 | [H11](#h11-hazards-of-planned-features) | Replay mistaken for live, unsafe commands, unnoticed authentication failures | Not applicable yet |
 | [H12](#h12-an-alarm-acknowledged-by-someone-not-entitled-to) | An alarm acknowledged by someone not entitled to | Mitigated |
+| [H13](#h13-a-command-sent-to-the-wrong-unit-or-at-the-wrong-time) | A command sent to the wrong unit or at the wrong time | Mitigated |
+| [H14](#h14-a-training-fault-reaches-a-live-centre) | A training fault reaches a live centre | Mitigated |
 
 ## H1 Stale observations shown as current
 
@@ -128,8 +130,8 @@ Status values:
 - **Verified by:** [CentreTest] (`aSetRequestHoldsTheCentreLockFromFirstCheckToLastApply`,
   `aMultiBindingSetReachesTheViewsOnlyOnceItIsComplete`, `aSetThatFailsMidwayStillPublishesWhatItChanged`),
   [DeviceAgentSetIT].
-- **Status:** mitigated in the simulator. The supervisor sends no SETs in this release. Supervisor
-  commands, with interlocks, idempotency and an explicit uncertain outcome, are planned (H11).
+- **Status:** mitigated in the simulator. The supervisor sends each command as a single-binding SET and never
+  retries it (H13); interlocks and an impact preview are planned (H11).
 
 ## H7 A supervisor restart loses operational context
 
@@ -191,9 +193,9 @@ the features exist:
 
 - **Replay mistaken for live:** a separate replay store with no live stream, a fixed replay band,
   commands disabled in replay, and `NO_DATA` for periods when the supervisor was not running.
-- **Unintended or unsafe control command:** roles (now in place, see H12), a mandatory reason, interlocks, an impact preview
-  through the same service evaluator, idempotent commands, SETs without retries, and an explicit
-  `UNCERTAIN` outcome when the result cannot be confirmed.
+- **Unintended or unsafe control command:** roles, a confirm step, SETs without retries and an uncertain outcome
+  are in place (H13). Still planned: a mandatory reason, interlocks, and an impact preview through the same service
+  evaluator.
 - **Failed SNMP authentication goes unnoticed:** a supervisor alarm on USM authentication reports.
 - **A restarted device shown with its pre-restart state:** `UNKNOWN (RESTARTING)` until the first
   poll after a commanded restart, with the restart proven through `sysUpTime`.
@@ -215,6 +217,42 @@ the features exist:
   `aViewerCannotAcknowledge`), [AccountServiceIT].
 - **Status:** mitigated. The UI also hides the controls for viewers, but the server is what enforces the rule.
 
+## H13 A command sent to the wrong unit or at the wrong time
+
+- **Cause:** a click on the wrong tile or button, a double click, or a command that does not fit the unit's state
+  (a restart outside maintenance, making an active unit active).
+- **Consequence:** a working unit goes out of service, or a pair switches over during traffic.
+- **Mitigation:**
+  - Commands need SUPERVISOR or ADMIN, on the server ([CommandController]).
+  - Every command first shows a confirm bar that names the unit and what will happen; only Confirm sends it, and the
+    controls are disabled until the answer arrives, so a double click sends one SET.
+  - The agent refuses a command that does not fit the unit's state (`inconsistentValue`), and the panel shows why.
+  - A SET is never retried, and no answer is reported as an uncertain outcome to check before sending again.
+  - Every command, accepted or not, is recorded with the username and outcome ([EquipmentControl]).
+- **Verified by:** [EquipmentControlTest], [CommandControllerTest], [SnmpClientIT]
+  (`aSetTheAgentRefusesCarriesItsErrorStatus`), [SupervisorEndToEndIT]
+  (`aSupervisorPutsAUnitIntoMaintenanceAndTheCommandIsLogged`), and the UI spec `equipment-control.spec.ts`.
+- **Status:** mitigated.
+
+## H14 A training fault reaches a live centre
+
+- **Cause:** the simulator console is reachable in a deployment that supervises real equipment.
+- **Consequence:** an operator injects what they believe is a training fault, or someone unauthenticated does.
+- **Mitigation:**
+  - The console exists only with `atm.demo-mode=true` ([SimulatorConsoleController]); outside demo mode its API
+    answers 404 and the screen is not linked.
+  - It needs a signed-in supervisor, and nginx no longer exposes the simulator.
+  - Demo credentials and demo accounts are refused outside demo mode.
+- **Verified by:** [SimulatorConsoleAbsentTest], [SimulatorConsoleControllerTest] (`aViewerCannotInjectFaults`).
+- **Status:** mitigated.
+
+[CommandController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/CommandController.java
+[EquipmentControl]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/control/EquipmentControl.java
+[SimulatorConsoleController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/simconsole/SimulatorConsoleController.java
+[EquipmentControlTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/control/EquipmentControlTest.java
+[CommandControllerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/api/CommandControllerTest.java
+[SimulatorConsoleControllerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/simconsole/SimulatorConsoleControllerTest.java
+[SimulatorConsoleAbsentTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/simconsole/SimulatorConsoleAbsentTest.java
 [AlarmEngine]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java
 [AlarmController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/AlarmController.java
 [SecurityConfig]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/security/SecurityConfig.java
@@ -253,3 +291,4 @@ the features exist:
 [equipment-tile.spec.ts]: ../../ui/src/app/features/board/equipment-tile/equipment-tile.spec.ts
 [freshness.spec.ts]: ../../ui/src/app/core/state/freshness.spec.ts
 [status-badge.spec.ts]: ../../ui/src/app/features/board/status-badge/status-badge.spec.ts
+[SnmpClientIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/snmp/SnmpClientIT.java

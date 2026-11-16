@@ -1,16 +1,13 @@
 # Demo walkthrough, v0.1 (6 to 8 minutes)
 
 A scripted tour of Demo ACC. Every step has the command, what the board shows and a talking point.
-Commands that inject a fault go through nginx on `localhost:8080`. The timings below were measured on a
+Faults are injected from the Simulator screen, which the supervisor forwards to the simulator. The timings below were measured on a
 running stack; they are typical, not guaranteed. Section links point to the
 [design](design/2026-11-13-atm-supervisor-design.md) (§) and to the
 [architecture review amendment](refactor/ATM-Supervisor-Architecture-Review-Decisions.md) (amendment §).
 
-Shorthand used in the steps:
-
-```sh
-F() { curl -s -X POST "localhost:8080/sim/api/devices/$1/faults" -H 'Content-Type: application/json' -d "{\"fault\":\"$2\"}"; }
-```
+Sign in as `supervisor1` and open two windows: the board, and the **Simulator** screen from the header. Each
+fault step below names the button to click in a device's row on the Simulator screen.
 
 ## 0. Preflight
 
@@ -36,9 +33,7 @@ cannot hide a recovered device (amendment §1, design §6.1).
 
 ## 2. RAD-N fails
 
-```sh
-F RAD-N FAIL
-```
+On the Simulator screen: **Fail** on `RAD-N`.
 
 Shows, at once (the traps arrive within a second): RAD-N FAILED with alarms 101 "Equipment failed"
 (CRITICAL), 201 "Channel A failed" and 202 "Channel B failed" (both MAJOR). Both SDPS units raise alarm
@@ -49,9 +44,7 @@ Talking point: the service rule is about what is still available, not about any 
 
 ## 3. RAD-E fails, then acknowledge
 
-```sh
-F RAD-E FAIL
-```
+On the Simulator screen: **Fail** on `RAD-E`.
 
 Shows: RAD-E FAILED with 101, 201 and 202, and two more 401 alarms on the SDPS units. SURV turns DEGRADED
 with the reason "Fewer than 2 radars available". Redundancy is not flagged lost.
@@ -64,9 +57,7 @@ hide a live failure.
 
 ## 4. SDPS-A fails
 
-```sh
-F SDPS-A FAIL
-```
+On the Simulator screen: **Fail** on `SDPS-A`.
 
 Shows, at once: SDPS-A FAILED with alarm 101, SURV reasons "Only one SDPS unit available" and "Fewer than 2
 radars available", and the supervisor alarm 903 "Service redundancy lost: Surveillance" (MAJOR). About 4 s
@@ -78,9 +69,7 @@ and the lost redundancy, because failover does not mean the service is still red
 
 ## 5. FDPS-B becomes unreachable
 
-```sh
-F FDPS-B UNREACHABLE
-```
+On the Simulator screen: **Unreachable** on `FDPS-B`.
 
 Shows: nothing changes for about 15 s while polls and probes fail. At about 16 s FDPS-B turns UNKNOWN
 (reason LOST_CONTACT), alarm 901 "Lost contact" is raised with a "?" next to it, and FD turns UNKNOWN,
@@ -92,9 +81,7 @@ fact fine (§5.1).
 
 ## 6. FDPS-B recovers
 
-```sh
-F FDPS-B RECOVER
-```
+On the Simulator screen: **Recover** on `FDPS-B`.
 
 Shows: within a few seconds (at most one probe interval) FDPS-B passes through AWAITING_STATUS (still
 UNKNOWN) for a fraction of a second and then returns to OPERATIONAL. FD returns to OK and alarm 901
@@ -105,10 +92,7 @@ breaker timer, so recovery takes seconds, not about 30 s (amendment §1).
 
 ## 7. RAD-S loses its traps, then fails
 
-```sh
-F RAD-S DROP_TRAPS
-F RAD-S FAIL
-```
+On the Simulator screen: **Drop traps** on `RAD-S`, then **Fail** on `RAD-S`.
 
 Shows: RAD-S FAILED with 101, 201 and 202 appears within one poll (0.5 to 4 s in the runs; the poll
 interval is 5 s), SURV FAILED with 904 "Service failed: Surveillance". No trap was sent. The alarms
@@ -134,11 +118,9 @@ Talking point: the agents are real SNMPv3 agents, not a mock; the supervisor use
 
 ## 9. Reset
 
-```sh
-curl -X POST localhost:8080/sim/api/reset
-```
+On the Simulator screen, click **Reset all**, then **Confirm**.
 
-Shows: HTTP 204. Within a poll or two every device is OPERATIONAL again, roles go back to SDPS-A and FDPS-A
+Shows: within a poll or two every device is OPERATIONAL again, roles go back to SDPS-A and FDPS-A
 ACTIVE, SURV and FD are OK, and the remaining alarms show CLEARED-UNACK until acknowledged. For a clean
 board next time, run `scripts/demo-preflight.sh --fresh`.
 

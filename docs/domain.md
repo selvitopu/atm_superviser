@@ -151,8 +151,9 @@ stateDiagram-v2
   network supervision are planned.
 - **Availability only.** The service rules count available units. A `DEGRADED` active unit does not
   yet degrade its service.
-- **Three roles.** A VIEWER watches the board, a SUPERVISOR also acknowledges alarms, and an ADMIN
-  can do both; user administration, control commands and replay are planned.
+- **Three roles.** A VIEWER watches the board and the alarm history. A SUPERVISOR also acknowledges
+  alarms, sends equipment commands (maintenance, restart, make active) and, in the demo centre,
+  injects training faults. An ADMIN can do all of that and manages the accounts; replay is planned.
 - **One supervisor.** The supervisor itself is not redundant.
 - **Illustrative values.** Alarm codes, severities, thresholds and timings are plausible defaults,
   not taken from any real system.

@@ -14,3 +14,4 @@ This directory records the significant architectural decisions of **ATM Supervis
 | [ADR-0008](0008-independent-probes-two-generations-and-crash-safe-commands.md) | Independent health probes, two-generation single-flight polling, and crash-safe `UNCERTAIN` commands | Accepted | Probes, breakers & two generations implemented (`v0.1.1`); supervisor commands planned (`v0.3`) |
 | [ADR-0009](0009-postgresql-and-liquibase.md) | PostgreSQL 18 with a Liquibase changelog and demo-only seed accounts | Accepted | Implemented (after `v0.1.1`) |
 | [ADR-0010](0010-session-sign-in-and-roles.md) | Session sign-in with CSRF protection and a three-role hierarchy | Accepted | Implemented (after `v0.1.1`) |
+| [ADR-0011](0011-control-and-simulator-through-the-supervisor.md) | Equipment control, the simulator console and account administration go through the supervisor | Accepted | Implemented (after `v0.1.1`) |

@@ -101,7 +101,7 @@ flowchart LR
   BW --> SSE
   SSE -- "/api/v1/stream" --> UI
   UI -- "/api/v1" --> SUP
-  UI -- "/sim/api" --> FA
+  SUP -- "simulator console (demo mode)" --> FA
 ```
 
 | Module | Purpose |
@@ -171,15 +171,10 @@ is equivalent. `scripts/demo-preflight.sh --fresh` first removes the demo volume
 
 ![The operator board with every device operational and both services OK](docs/images/board-nominal.png)
 
-Inject a fault into the north radar, then undo it:
-
-```sh
-curl -X POST localhost:8080/sim/api/devices/RAD-N/faults -H 'Content-Type: application/json' -d '{"fault":"FAIL"}'
-curl -X POST localhost:8080/sim/api/devices/RAD-N/faults -H 'Content-Type: application/json' -d '{"fault":"RECOVER"}'
-```
-
-Faults add up until `RECOVER` clears every fault of the device. Not every fault applies to every
-device type; the simulator refuses the others with `400 Bad Request`:
+Sign in as `supervisor1` and open **Simulator** from the header: it lists the simulated devices with
+their state and faults. Click **Fail** in the `RAD-N` row and watch the board, then **Recover** to undo it.
+Faults add up until **Recover** clears every fault of the device, and each row offers only the faults
+its type supports:
 
 | Fault | RADAR | SDPS | FDPS | Effect |
 |---|:-:|:-:|:-:|---|
@@ -191,14 +186,15 @@ device type; the simulator refuses the others with `400 Bad Request`:
 | `UNREACHABLE` | yes | yes | yes | The agent stops answering SNMP requests. |
 | `DROP_TRAPS` | yes | yes | yes | The agent stops sending traps and informs. |
 
-`SENSOR_LOST` needs a `target` naming the sensor, which is one of the radars `RAD-N`, `RAD-E` or
-`RAD-S` (a second `SENSOR_LOST` replaces the first):
+**Sensor lost** names the sensor, one of the radars `RAD-N`, `RAD-E` or `RAD-S`, picked beside the
+button (a second one replaces the first). **Reset all** clears every fault of every device after a
+confirmation. The Simulator screen exists only in demo mode.
 
-```sh
-curl -X POST localhost:8080/sim/api/devices/SDPS-A/faults -H 'Content-Type: application/json' -d '{"fault":"SENSOR_LOST","target":"RAD-E"}'
-```
-
-`POST localhost:8080/sim/api/reset` clears all faults of all devices.
+Equipment commands are on the board: select a tile, and supervisors see **Maintenance on/off**,
+**Restart** (in maintenance only) and **Make active** (for a standby unit) in its panel. Each asks for
+a confirmation that names the unit, the supervisor sends it as an SNMP `SET`, and the event log records
+who sent it and what came of it. **Alarm history** searches every alarm, and administrators manage
+accounts on **Users**.
 
 Stop the stack with `docker compose -f deploy/docker-compose.yml down` (add `-v` to drop the data volumes).
 
@@ -208,8 +204,8 @@ The board needs a signed-in user. In demo mode, which Compose turns on, three ac
 
 | Account | Password | Role | Can |
 |---|---|---|---|
-| `admin1` | `admin1-demo` | ADMIN | Everything a supervisor can; user administration and request history come later |
-| `supervisor1` | `supervisor1-demo` | SUPERVISOR | View the board and acknowledge alarms |
+| `admin1` | `admin1-demo` | ADMIN | Everything a supervisor can, plus the Users screen |
+| `supervisor1` | `supervisor1-demo` | SUPERVISOR | Acknowledge alarms, send equipment commands and use the Simulator screen |
 | `demo1` | `demo1-demo` | VIEWER | View the board |
 
 The sign-in screen lists them in demo mode, and selecting one fills in the form. Anyone can also create a read-only
@@ -280,8 +276,8 @@ cd supervisor && java -jar target/*-exec.jar --atm.demo-mode=true   # REST and S
 cd ui && npm ci && npx ng serve                                     # http://localhost:4200
 ```
 
-`ng serve` proxies `/api` to the supervisor on 8080 and `/sim/api` to the simulator on 8090, so the
-fault commands above work with `localhost:4200` in place of `localhost:8080`. Remove the database with
+`ng serve` proxies `/api` to the supervisor on 8080, which forwards the Simulator screen to the
+simulator's console API on 8090 (`atm.simulator.console-url`). Remove the database with
 `docker rm -f atmsup-postgres`.
 
 ## Development
@@ -308,7 +304,7 @@ cd mib && ./lint.sh                            # lint the MIB with smilint (fall
   prevent it
 - [Change request CR-001](docs/safety/CR-001-auto-switchover-visibility.md): automatic 3 s A/B
   switchover visibility and confirmed service redundancy alarms
-- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0010 covering the
+- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0011 covering the
   modular monolith, SNMPv3/engine boots, full-poll alarm resync, full-state event log, bounded SSE,
   shared inventory, restart context preservation, two-generation polling, PostgreSQL with Liquibase,
   and session sign-in with roles
