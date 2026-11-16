@@ -1,6 +1,8 @@
 package io.github.selvitopu.atmsup.supervisor.snmp;
 
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.ALARM_ENTRY;
+import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_COMMAND;
+import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_MAINTENANCE_MODE;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.EQ_STATUS;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.SDPS_SENSOR_ENTRY;
 import static io.github.selvitopu.atmsup.mib.AtmTsOids.scalar;
@@ -25,6 +27,7 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.snmp4j.smi.Integer32;
 import org.junit.jupiter.api.io.TempDir;
 import org.snmp4j.mp.SnmpConstants;
 import org.snmp4j.smi.OID;
@@ -119,6 +122,24 @@ class SnmpClientIT {
                         assertThat(e.getMessage()).isEqualTo("AUTH_FAILURE: usmStatsWrongDigests");
                     });
         }
+    }
+
+    @Test
+    void aSetAsOperatorChangesMaintenanceMode() {
+        client.set(inv.device("RAD-N"), List.of(new VariableBinding(scalar(EQ_MAINTENANCE_MODE), new Integer32(1))));
+
+        assertThat(fixture.centre().device("RAD-N").maintenance()).isTrue();
+    }
+
+    @Test
+    void aSetTheAgentRefusesCarriesItsErrorStatus() {
+        // restart(3) needs maintenance mode
+        assertThatThrownBy(() -> client.set(inv.device("RAD-N"),
+                List.of(new VariableBinding(scalar(EQ_COMMAND), new Integer32(3)))))
+                .isInstanceOfSatisfying(SnmpRequestException.class, e -> {
+                    assertThat(e.kind()).isEqualTo(SnmpRequestException.Kind.ERROR_STATUS);
+                    assertThat(e.errorStatus()).isEqualTo(org.snmp4j.PDU.inconsistentValue);
+                });
     }
 
     @Test

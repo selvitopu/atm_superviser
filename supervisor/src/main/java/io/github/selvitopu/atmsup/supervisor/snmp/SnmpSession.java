@@ -42,6 +42,7 @@ public final class SnmpSession implements AutoCloseable {
     static final long TIMEOUT_MS = 1500;
     static final int RETRIES = 1;
     private static final OctetString MONITOR = new OctetString("monitor");
+    private static final OctetString OPERATOR = new OctetString("operator");
 
     private final Snmp snmp;
     private final DefaultUdpTransportMapping transport;
@@ -58,9 +59,10 @@ public final class SnmpSession implements AutoCloseable {
         CounterSupport counters = new CounterSupport();
         counters.addCounterListener(new DefaultCounterListener());
         USM usm = new USM(protocols, engineId, engineBoots, counters);
-        usm.addUser(user(monitor));
+        usm.addUser(user(MONITOR, monitor));
+        usm.addUser(user(OPERATOR, creds.operator())); // requests only: the devices never send traps as operator
         for (Device d : inv.devices()) {
-            usm.addUser(MONITOR, new OctetString(EngineIds.of(d.id())), user(monitor));
+            usm.addUser(MONITOR, new OctetString(EngineIds.of(d.id())), user(MONITOR, monitor));
         }
         MessageDispatcherImpl dispatcher = new MessageDispatcherImpl();
         dispatcher.addMessageProcessingModel(new MPv3(engineId.getValue(), null, protocols,
@@ -96,11 +98,20 @@ public final class SnmpSession implements AutoCloseable {
 
     /** A request target for {@code d}: user monitor, authPriv, SNMPv3, 1500 ms timeout and 1 retry. */
     public UserTarget<UdpAddress> target(Device d) {
+        return target(d, MONITOR);
+    }
+
+    /** The same target as the read-write {@code operator} user, for the commands a supervisor sends. */
+    public UserTarget<UdpAddress> operatorTarget(Device d) {
+        return target(d, OPERATOR);
+    }
+
+    private static UserTarget<UdpAddress> target(Device d, OctetString user) {
         UserTarget<UdpAddress> target = new UserTarget<>();
         target.setAddress(new UdpAddress(d.host() + "/" + d.port()));
         target.setVersion(SnmpConstants.version3);
         target.setSecurityLevel(SecurityLevel.AUTH_PRIV);
-        target.setSecurityName(MONITOR);
+        target.setSecurityName(user);
         target.setTimeout(TIMEOUT_MS);
         target.setRetries(RETRIES);
         return target;
@@ -122,9 +133,9 @@ public final class SnmpSession implements AutoCloseable {
         }
     }
 
-    private static UsmUser user(UserCredentials credentials) {
+    private static UsmUser user(OctetString name, UserCredentials credentials) {
         // no engine ID: the keys are localised to the engine the USM talks to (or is given with addUser)
-        return new UsmUser(MONITOR, AuthHMAC192SHA256.ID, new OctetString(credentials.authPassword()),
+        return new UsmUser(name, AuthHMAC192SHA256.ID, new OctetString(credentials.authPassword()),
                 PrivAES128.ID, new OctetString(credentials.privPassword()));
     }
 }

@@ -8,11 +8,22 @@ public class SnmpRequestException extends RuntimeException {
 
     private final Kind kind;
     private final String detail;
+    private final int errorStatus;
 
     public SnmpRequestException(Kind kind, String detail) {
+        this(kind, detail, 0);
+    }
+
+    /** {@code errorStatus} is the agent's SNMP error status for {@link Kind#ERROR_STATUS}, otherwise 0 (noError). */
+    public SnmpRequestException(Kind kind, String detail, int errorStatus) {
         super(kind + ": " + detail);
         this.kind = kind;
         this.detail = detail;
+        this.errorStatus = errorStatus;
+    }
+
+    public int errorStatus() {
+        return errorStatus;
     }
 
     public Kind kind() {

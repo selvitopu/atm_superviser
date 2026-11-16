@@ -653,6 +653,11 @@ class PollSchedulerTest {
             this.clock = clock;
         }
 
+        @Override
+        public void set(Device d, List<VariableBinding> bindings) {
+            throw new UnsupportedOperationException("polling never sends a SET");
+        }
+
         private static final class Script {
             volatile RuntimeException failure;
             volatile RuntimeException walkFailure;

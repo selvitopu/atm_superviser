@@ -76,8 +76,19 @@ public class Snmp4jClient implements SnmpClient {
         throw new SnmpRequestException(Kind.MALFORMED, "walk of " + subtree + " did not end");
     }
 
+    @Override
+    public void set(Device d, List<VariableBinding> bindings) throws SnmpRequestException {
+        ScopedPDU pdu = new ScopedPDU();
+        pdu.setType(PDU.SET);
+        bindings.forEach(pdu::add);
+        send(d, pdu, session.operatorTarget(d));
+    }
+
     private PDU send(Device d, PDU pdu) {
-        UserTarget<UdpAddress> target = session.target(d);
+        return send(d, pdu, session.target(d));
+    }
+
+    private PDU send(Device d, PDU pdu, UserTarget<UdpAddress> target) {
         String where = d.host() + ":" + d.port();
         if (!target.getAddress().isValid()) {
             throw new SnmpRequestException(Kind.TIMEOUT, "cannot resolve host " + d.host());
@@ -98,7 +109,7 @@ public class Snmp4jClient implements SnmpClient {
         }
         if (response.getErrorStatus() != PDU.noError) {
             throw new SnmpRequestException(Kind.ERROR_STATUS,
-                    response.getErrorStatusText() + " at index " + response.getErrorIndex());
+                    response.getErrorStatusText() + " at index " + response.getErrorIndex(), response.getErrorStatus());
         }
         return response;
     }

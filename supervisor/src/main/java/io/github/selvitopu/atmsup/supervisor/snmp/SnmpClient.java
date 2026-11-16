@@ -13,4 +13,7 @@ public interface SnmpClient {
 
     /** All bindings of {@code subtree}, read with GETBULK (non-repeaters 0, max-repetitions 20). */
     List<VariableBinding> walk(Device d, OID subtree) throws SnmpRequestException;
+
+    /** SET of the given bindings as the read-write {@code operator} user; the agent applies all of them or none. */
+    void set(Device d, List<VariableBinding> bindings) throws SnmpRequestException;
 }
