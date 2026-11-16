@@ -37,6 +37,7 @@ import io.github.selvitopu.atmsup.supervisor.board.EquipmentState;
 import io.github.selvitopu.atmsup.supervisor.board.Health;
 import io.github.selvitopu.atmsup.supervisor.board.LiveBoard;
 import io.github.selvitopu.atmsup.supervisor.history.EventQueries;
+import jakarta.servlet.DispatcherType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -141,6 +142,16 @@ class SecurityRulesTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("supervisor1"))
                 .andExpect(jsonPath("$.roles[0]").value("SUPERVISOR"));
+    }
+
+    @Test
+    void anAsyncDispatchIsNotAuthorizedAgain() throws Exception {
+        // the live stream's async dispatch continues a request that was already authorized; after a sign-out the
+        // session is gone, and authorizing it again only threw into an already committed response
+        mvc.perform(get("/api/v1/board").with(request -> {
+            request.setDispatcherType(DispatcherType.ASYNC);
+            return request;
+        })).andExpect(status().isOk());
     }
 
     @Test

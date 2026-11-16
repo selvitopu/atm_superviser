@@ -1,5 +1,6 @@
 package io.github.selvitopu.atmsup.supervisor.security;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.LinkedHashMap;
@@ -51,6 +52,9 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.spa())
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .authorizeHttpRequests(requests -> requests
+                        // an async dispatch (the live stream) continues a request that was already authorized; after
+                        // a sign-out its session is gone, so authorizing it again would fail into a committed response
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/config", "/api/v1/auth/register",
                                 "/api/v1/openapi.json", "/api/v1/openapi.json/**", "/api/v1/docs", "/api/v1/docs/**",
                                 "/api/v1/swagger-ui/**").permitAll()
