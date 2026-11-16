@@ -4,6 +4,8 @@ import { RegisterPage } from './features/auth/register-page/register-page';
 import { SignInPage } from './features/auth/sign-in-page/sign-in-page';
 import { BoardPage } from './features/board/board-page/board-page';
 import { HistoryPage } from './features/history/history-page/history-page';
+import { SimulatorPage } from './features/simulator/simulator-page/simulator-page';
+import { roleGuard } from './core/auth/role.guard';
 
 /** BoardPage is a single parent route so selecting equipment never recreates it (and never restarts the stream). */
 export const routes: Routes = [
@@ -15,5 +17,9 @@ export const routes: Routes = [
     children: [{ path: '', children: [] }, { path: ':equipmentId', children: [] }],
   },
   { path: 'history', component: HistoryPage, canActivate: [authGuard], title: 'Alarm history · ATM Supervisor' },
+  {
+    path: 'simulator', component: SimulatorPage, canActivate: [authGuard, roleGuard('SUPERVISOR')],
+    title: 'Simulator · ATM Supervisor',
+  },
   { path: '**', redirectTo: 'board' },
 ];

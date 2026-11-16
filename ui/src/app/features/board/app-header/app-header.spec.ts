@@ -54,4 +54,18 @@ describe('AppHeader', () => {
     expect(f.all('nav a').map(a => [a.textContent?.trim(), a.getAttribute('href')]))
       .toEqual([['Board', '/board'], ['Alarm history', '/history']]);
   });
+  it('aSupervisorSeesTheSimulatorOnlyInDemoMode', () => {
+    const demo = { demoMode: true, registrationEnabled: true, demoAccounts: [] };
+    const supervisor = new FakeAuth(['SUPERVISOR']);
+    supervisor.config.set(demo);
+    expect(setup('LIVE', supervisor).all('nav a').map(a => a.getAttribute('href'))).toContain('/simulator');
+
+    const viewer = new FakeAuth(['VIEWER'], 'Demo One', 'demo1');
+    viewer.config.set(demo);
+    expect(setup('LIVE', viewer).all('nav a').map(a => a.getAttribute('href'))).not.toContain('/simulator');
+
+    const live = new FakeAuth(['SUPERVISOR']);
+    live.config.set({ ...demo, demoMode: false });
+    expect(setup('LIVE', live).all('nav a').map(a => a.getAttribute('href'))).not.toContain('/simulator');
+  });
 });

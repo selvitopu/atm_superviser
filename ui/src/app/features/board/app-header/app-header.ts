@@ -65,9 +65,22 @@ export class AppHeader {
   protected readonly user = this.auth.user;
   /** The screens this user may open; the server refuses the same actions to anyone else. */
   protected readonly links = computed(() => {
+    if (!this.user()) {
+      return [];
+    }
     const links = [{ path: '/board', label: 'Board' }, { path: '/history', label: 'Alarm history' }];
-    return this.user() ? links : [];
+    if (this.config()?.demoMode && this.auth.hasRole('SUPERVISOR')) {
+      links.push({ path: '/simulator', label: 'Simulator' });
+    }
+    return links;
   });
+  private readonly config = this.auth.config;
+
+  constructor() {
+    if (!this.auth.config()) {
+      this.auth.loadConfig().subscribe({ error: () => {} }); // after a reload: is this the demo centre?
+    }
+  }
   protected readonly role = computed(() => topRole(this.user()?.roles ?? []));
 
   protected readonly connection = computed(() => CONNECTION[this.store.connection()]);

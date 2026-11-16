@@ -68,6 +68,11 @@ export class FakeAuth {
     this.user.set(roles.length ? { username, displayName, roles } : null);
   }
   hasRole(role: RoleName): boolean { return roleAllows(this.user()?.roles ?? [], role); }
+  loadConfig(): Observable<AuthConfigDto> {
+    const config = this.config() ?? { demoMode: false, registrationEnabled: true, demoAccounts: [] };
+    this.config.set(config);
+    return of(config);
+  }
   me(): Observable<UserDto> {
     const u = this.user();
     return u ? of(u) : throwError(() => new HttpErrorResponse({ status: 401, statusText: 'Unauthorized' }));
