@@ -358,6 +358,21 @@ class SupervisorEndToEndIT {
     }
 
     @Test
+    @Order(13)
+    void signingOutEndsTheOpenStream() {
+        COOKIES.getCookieStore().removeAll();
+        assertThat(signIn("supervisor1", "supervisor1-demo").statusCode()).isEqualTo(200);
+        try (SseRecorder stream = SseRecorder.open(baseUrl() + "/api/v1/stream")) {
+            HttpResponse<String> signOut = send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/auth/logout"))
+                    .timeout(ofSeconds(10)).header("X-XSRF-TOKEN", csrfToken()).POST(BodyPublishers.noBody()).build());
+
+            assertThat(signOut.statusCode()).isEqualTo(204);
+            await().atMost(ofSeconds(5)).until(stream::ended);
+        }
+        COOKIES.getCookieStore().removeAll();
+    }
+
+    @Test
     @Order(4)
     void telemetrySamplesAreStored() {
         // one sample per device every 30 s while full polls succeed: two prove the cadence
@@ -477,6 +492,11 @@ class SupervisorEndToEndIT {
             } catch (RuntimeException e) {
                 // the stream was closed
             }
+        }
+
+        /** True once the server has closed the stream. */
+        boolean ended() {
+            return !reader.isAlive();
         }
 
         boolean has(String name, Predicate<Message> condition) {

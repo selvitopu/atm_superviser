@@ -32,7 +32,7 @@ class SseClientTest {
 
     private SseClient client(TestEmitter emitter) {
         emitters.add(emitter);
-        SseClient client = new SseClient(emitter, QUEUE_SIZE, closed::add);
+        SseClient client = new SseClient(emitter, QUEUE_SIZE, null, closed::add);
         clients.add(client);
         return client;
     }

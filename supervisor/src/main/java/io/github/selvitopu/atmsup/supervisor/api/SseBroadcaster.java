@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.security.web.session.HttpSessionDestroyedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -101,17 +102,17 @@ public class SseBroadcaster {
         resyncs = Counter.builder("atmsup.sse.resyncs")
                 .description("Subscribers told to resync because the ring did not cover their last event id")
                 .register(meters);
-        List.of(SseClient.OVERFLOW, SseClient.IO, SseClient.TIMEOUT, SseClient.ERROR).forEach(this::disconnects);
+        List.of(SseClient.OVERFLOW, SseClient.IO, SseClient.TIMEOUT, SseClient.ERROR, SseClient.SESSION_ENDED).forEach(this::disconnects);
     }
 
     /**
      * A new client. Its last event id is the {@code Last-Event-ID} header (a reconnecting EventSource) or else the
      * parameter (a first connection resuming from {@code /board}); anything that is not a number counts as absent.
      */
-    public SseEmitter subscribe(String lastEventIdHeader, String lastEventIdParam) {
+    public SseEmitter subscribe(String lastEventIdHeader, String lastEventIdParam, String sessionId) {
         Long lastEventId = parse(StringUtils.hasText(lastEventIdHeader) ? lastEventIdHeader : lastEventIdParam);
         SseEmitter emitter = emitters.get();
-        SseClient client = new SseClient(emitter, clientQueueSize, this::onClientClosed);
+        SseClient client = new SseClient(emitter, clientQueueSize, sessionId, this::onClientClosed);
         synchronized (lock) {
             if (closed) {
                 client.disconnect(SseClient.SHUTDOWN);
@@ -208,6 +209,16 @@ public class SseBroadcaster {
      * Ends every stream when the context closes, before the web server's graceful shutdown would wait for them;
      * later subscribers are completed at once.
      */
+    /**
+     * A session that ends (sign-out, expiry, an administrator's change) takes its open streams with it at once; the
+     * browser's reconnect then meets 401 and goes to the sign-in screen.
+     */
+    @EventListener
+    public void onSessionDestroyed(HttpSessionDestroyedEvent event) {
+        String id = event.getId();
+        clients.stream().filter(c -> id.equals(c.sessionId())).forEach(c -> c.disconnect(SseClient.SESSION_ENDED));
+    }
+
     @EventListener(ContextClosedEvent.class)
     public void closeAll() {
         synchronized (lock) {

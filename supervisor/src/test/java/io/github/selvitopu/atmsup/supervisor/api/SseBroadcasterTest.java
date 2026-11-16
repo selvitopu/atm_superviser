@@ -62,6 +62,8 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.web.session.HttpSessionDestroyedEvent;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** Review focus 5 (amendment §4): ring filled with ids 101..1100; test emitters record what each client sends. */
@@ -115,7 +117,7 @@ class SseBroadcasterTest {
 
     private TestEmitter subscribe(Mode mode, String header, String param) {
         nextMode = mode;
-        return (TestEmitter) broadcaster.subscribe(header, param);
+        return (TestEmitter) broadcaster.subscribe(header, param, null);
     }
 
     private TestEmitter normalClient() {
@@ -386,6 +388,21 @@ class SseBroadcasterTest {
     }
 
     @Test
+    void aDestroyedSessionClosesItsStreams() {
+        nextMode = Mode.NORMAL;
+        TestEmitter first = (TestEmitter) broadcaster.subscribe(null, null, "s1");
+        TestEmitter second = (TestEmitter) broadcaster.subscribe(null, null, "s1");
+        TestEmitter other = (TestEmitter) broadcaster.subscribe(null, null, "s2");
+
+        broadcaster.onSessionDestroyed(new HttpSessionDestroyedEvent(new MockHttpSession(null, "s1")));
+
+        await().atMost(ofSeconds(1)).until(() -> first.completed() && second.completed());
+        assertThat(other.completed()).isFalse();
+        assertThat(gauge("atmsup.sse.clients")).isEqualTo(2.0); // the set-up client and s2
+        assertThat(counter("atmsup.sse.disconnects", "reason", "session-ended")).isEqualTo(2.0);
+    }
+
+    @Test
     void aFailedSendRemovesTheClient() {
         subscribe(Mode.FAILING, null, null);
         assertThat(gauge("atmsup.sse.clients")).isEqualTo(2.0);
@@ -469,7 +486,7 @@ class SseBroadcasterTest {
         SseBroadcaster production = new SseBroadcaster(mapper, writer, InstantSource.fixed(T0),
                 new SimpleMeterRegistry(), 1000, 256);
         try {
-            assertThat(production.subscribe(null, null).getTimeout()).isEqualTo(Duration.ofMinutes(30).toMillis());
+            assertThat(production.subscribe(null, null, null).getTimeout()).isEqualTo(Duration.ofMinutes(30).toMillis());
         } finally {
             production.closeAll();
         }

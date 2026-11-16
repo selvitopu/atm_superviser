@@ -35,6 +35,8 @@ final class SseClient {
     static final String IO = "io";
     static final String TIMEOUT = "timeout";
     static final String SHUTDOWN = "shutdown";
+    /** The client's session ended: signed out, expired, or ended by an administrator. */
+    static final String SESSION_ENDED = "session-ended";
     /** The broadcaster could not build a commit's messages: the client must reconnect and resync. */
     static final String ERROR = "error";
 
@@ -46,6 +48,7 @@ final class SseClient {
     private final BlockingQueue<SseMessage> durable;
     private final Map<String, SseMessage> latest = new ConcurrentHashMap<>();
     private final Consumer<SseClient> onClose;
+    private final String sessionId;
     /** Wakes the idle thread; at most a few permits are ever pending, and they are drained on every wake-up. */
     private final Semaphore wake = new Semaphore(0);
     private final AtomicReference<String> closeReason = new AtomicReference<>();
@@ -55,10 +58,12 @@ final class SseClient {
     /**
      * Starts the client's thread at once; messages sent before Spring has initialised the emitter are buffered by it.
      *
+     * @param sessionId the HTTP session the stream belongs to, or null
      * @param onClose called exactly once, on the thread that disconnects the client; it must not block
      */
-    SseClient(SseEmitter emitter, int queueSize, Consumer<SseClient> onClose) {
+    SseClient(SseEmitter emitter, int queueSize, String sessionId, Consumer<SseClient> onClose) {
         this.emitter = emitter;
+        this.sessionId = sessionId;
         this.queueSize = queueSize;
         this.durable = new ArrayBlockingQueue<>(queueSize);
         this.onClose = onClose;
@@ -109,6 +114,10 @@ final class SseClient {
      * Stops delivery at once and, on the client's thread, completes the emitter and ends the thread. Only the first
      * call counts; it calls {@code onClose}.
      */
+    String sessionId() {
+        return sessionId;
+    }
+
     void disconnect(String reason) {
         if (!closeReason.compareAndSet(null, reason)) {
             return;

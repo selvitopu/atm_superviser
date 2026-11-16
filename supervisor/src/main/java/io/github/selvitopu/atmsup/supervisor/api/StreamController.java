@@ -1,5 +1,7 @@
 package io.github.selvitopu.atmsup.supervisor.api;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -24,7 +26,8 @@ public class StreamController {
      */
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestHeader(name = "Last-Event-ID", required = false) String lastEventIdHeader,
-                             @RequestParam(required = false) String lastEventId) {
-        return broadcaster.subscribe(lastEventIdHeader, lastEventId);
+                             @RequestParam(required = false) String lastEventId, HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        return broadcaster.subscribe(lastEventIdHeader, lastEventId, session == null ? null : session.getId());
     }
 }

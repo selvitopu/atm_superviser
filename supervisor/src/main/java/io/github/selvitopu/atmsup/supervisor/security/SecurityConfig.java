@@ -20,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.web.csrf.CsrfException;
+import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import tools.jackson.databind.json.JsonMapper;
@@ -88,6 +89,12 @@ public class SecurityConfig {
                                         : "Your role does not allow this")))
                 .httpBasic(AbstractHttpConfigurer::disable);
         return http.build();
+    }
+
+    /** Publishes session created, id-changed and destroyed events, which {@link LiveSessions} and the stream follow. */
+    @Bean
+    static HttpSessionEventPublisher httpSessionEventPublisher() {
+        return new HttpSessionEventPublisher();
     }
 
     private static void problem(HttpServletResponse response, JsonMapper json, HttpStatus status, String detail)
