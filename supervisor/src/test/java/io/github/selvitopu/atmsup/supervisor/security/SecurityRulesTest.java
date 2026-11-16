@@ -132,7 +132,9 @@ class SecurityRulesTest {
     @Test
     @WithMockUser(username = "supervisor1", roles = "SUPERVISOR")
     void aPostWithoutCsrfIsRefused() throws Exception {
-        mvc.perform(post("/api/v1/alarms/a1/ack")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/alarms/a1/ack"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value("The request has no valid security token; reload the page"));
     }
 
     @Test

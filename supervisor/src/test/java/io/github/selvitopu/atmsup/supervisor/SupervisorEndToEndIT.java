@@ -346,12 +346,14 @@ class SupervisorEndToEndIT {
     void aViewerCannotAcknowledge() {
         COOKIES.getCookieStore().removeAll();
         assertThat(signIn("demo1", "demo1-demo").statusCode()).isEqualTo(200);
+        assertThat(csrfToken()).as("sign-in hands back a fresh CSRF token").isNotEmpty();
 
         HttpResponse<String> response = send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/alarms/any/ack"))
                 .timeout(ofSeconds(10)).header("Content-Type", "application/json").header("X-XSRF-TOKEN", csrfToken())
                 .POST(BodyPublishers.ofString("{}")).build());
 
         assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("Your role does not allow this");
         COOKIES.getCookieStore().removeAll();
     }
 

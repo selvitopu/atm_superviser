@@ -55,8 +55,9 @@ The board opens with the sign-in screen. In demo mode it lists three accounts; s
 | `demo1` | VIEWER | View the board |
 
 Each password is the account name followed by `-demo`. **Create a read-only account** registers a new VIEWER. When a
-session ends (after 12 hours, or when the supervisor restarts), the board returns to the sign-in screen with the
-notice *Your session ended. Sign in again.* **Sign out** is at the right of the header.
+session ends (after 12 hours without the board open, or when the supervisor restarts), the board returns to the
+sign-in screen with the notice *Your session ended. Sign in again.* After **Sign out**, another window that still
+shows the board follows within 30 minutes, when its live stream reconnects. **Sign out** is at the right of the header.
 
 ---
 

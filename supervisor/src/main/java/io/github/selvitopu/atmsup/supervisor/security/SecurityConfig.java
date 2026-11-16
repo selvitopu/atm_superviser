@@ -18,6 +18,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.authentication.AuthenticationServiceException;
+import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import tools.jackson.databind.json.JsonMapper;
@@ -65,8 +67,15 @@ public class SecurityConfig {
                         .successHandler((request, response, authentication) ->
                                 write(response, json, HttpStatus.OK, MediaType.APPLICATION_JSON_VALUE,
                                         UserDto.of(authentication)))
-                        .failureHandler((request, response, exception) ->
-                                problem(response, json, HttpStatus.UNAUTHORIZED, "Wrong username or password")))
+                        // a fault behind sign-in (the database down) is not a wrong password
+                        .failureHandler((request, response, exception) -> {
+                            if (exception instanceof AuthenticationServiceException) {
+                                problem(response, json, HttpStatus.SERVICE_UNAVAILABLE,
+                                        "Sign-in is unavailable right now; try again shortly");
+                            } else {
+                                problem(response, json, HttpStatus.UNAUTHORIZED, "Wrong username or password");
+                            }
+                        }))
                 .logout(logout -> logout
                         .logoutUrl("/api/v1/auth/logout")
                         .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT)))
@@ -74,7 +83,9 @@ public class SecurityConfig {
                         .authenticationEntryPoint((request, response, exception) ->
                                 problem(response, json, HttpStatus.UNAUTHORIZED, "Sign in to continue"))
                         .accessDeniedHandler((request, response, exception) ->
-                                problem(response, json, HttpStatus.FORBIDDEN, "Your role does not allow this")))
+                                problem(response, json, HttpStatus.FORBIDDEN, exception instanceof CsrfException
+                                        ? "The request has no valid security token; reload the page"
+                                        : "Your role does not allow this")))
                 .httpBasic(AbstractHttpConfigurer::disable);
         return http.build();
     }
