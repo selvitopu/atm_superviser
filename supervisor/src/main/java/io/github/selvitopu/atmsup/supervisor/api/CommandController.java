@@ -38,7 +38,8 @@ public class CommandController {
         return switch (outcome) {
             case DONE -> ResponseEntity.ok(new CommandResultDto(id, body.command().name(), outcome.name()));
             case REFUSED -> problem(HttpStatus.CONFLICT, REFUSED);
-            case NO_ANSWER -> problem(HttpStatus.GATEWAY_TIMEOUT, "No answer from the equipment");
+            case NO_ANSWER -> problem(HttpStatus.GATEWAY_TIMEOUT, "No answer from the equipment: the command may or"
+                    + " may not have been applied. Check the unit before you send it again");
             case FAILED -> problem(HttpStatus.BAD_GATEWAY,
                     "The command could not be sent to the equipment; check the operator SNMP credentials");
         };

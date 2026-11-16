@@ -161,4 +161,14 @@ class SnmpClientIT {
         assertThat(target.getRetries()).isEqualTo(1);
         assertThat(target.getVersion()).isEqualTo(SnmpConstants.version3);
     }
+
+    @Test
+    void theOperatorTargetNeverRetriesASet() {
+        // a retried SET can reach a unit that already obeyed: a second "make active" would then be refused
+        var target = session.operatorTarget(inv.device("RAD-N"));
+
+        assertThat(target.getSecurityName().toString()).isEqualTo("operator");
+        assertThat(target.getSecurityLevel()).isEqualTo(org.snmp4j.security.SecurityLevel.AUTH_PRIV);
+        assertThat(target.getRetries()).isZero();
+    }
 }

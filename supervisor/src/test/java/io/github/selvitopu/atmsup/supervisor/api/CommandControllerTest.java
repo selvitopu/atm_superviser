@@ -79,7 +79,8 @@ class CommandControllerTest {
 
         command("FDPS-B", "{\"command\":\"MAINTENANCE_ON\"}")
                 .andExpect(status().isGatewayTimeout())
-                .andExpect(jsonPath("$.detail").value("No answer from the equipment"));
+                .andExpect(jsonPath("$.detail").value("No answer from the equipment: the command may or may not have"
+                        + " been applied. Check the unit before you send it again"));
     }
 
     @Test

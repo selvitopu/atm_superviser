@@ -98,22 +98,25 @@ public final class SnmpSession implements AutoCloseable {
 
     /** A request target for {@code d}: user monitor, authPriv, SNMPv3, 1500 ms timeout and 1 retry. */
     public UserTarget<UdpAddress> target(Device d) {
-        return target(d, MONITOR);
+        return target(d, MONITOR, RETRIES);
     }
 
-    /** The same target as the read-write {@code operator} user, for the commands a supervisor sends. */
+    /**
+     * The target for a command, as the read-write {@code operator} user and without retries: a retried SET can reach
+     * a unit that already obeyed the first one, which would then refuse it. No answer means the outcome is uncertain.
+     */
     public UserTarget<UdpAddress> operatorTarget(Device d) {
-        return target(d, OPERATOR);
+        return target(d, OPERATOR, 0);
     }
 
-    private static UserTarget<UdpAddress> target(Device d, OctetString user) {
+    private static UserTarget<UdpAddress> target(Device d, OctetString user, int retries) {
         UserTarget<UdpAddress> target = new UserTarget<>();
         target.setAddress(new UdpAddress(d.host() + "/" + d.port()));
         target.setVersion(SnmpConstants.version3);
         target.setSecurityLevel(SecurityLevel.AUTH_PRIV);
         target.setSecurityName(user);
         target.setTimeout(TIMEOUT_MS);
-        target.setRetries(RETRIES);
+        target.setRetries(retries);
         return target;
     }
 
