@@ -8,6 +8,7 @@ import { Clock } from '../../../core/state/clock';
 import { freshness } from '../../../core/state/freshness';
 import { display, formatUtc } from '../../../shared/format';
 import { unknownReasonLabel } from '../../../shared/unknown-reason';
+import { EquipmentControl } from '../equipment-control/equipment-control';
 import { StatusBadge } from '../status-badge/status-badge';
 
 const FIELDS: Record<string, [string, string][]> = {
@@ -21,7 +22,7 @@ const FIELDS: Record<string, [string, string][]> = {
 
 @Component({
   selector: 'app-detail-panel',
-  imports: [StatusBadge],
+  imports: [StatusBadge, EquipmentControl],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (equipment(); as e) {
@@ -37,6 +38,7 @@ const FIELDS: Record<string, [string, string][]> = {
         <dt>Role</dt><dd>{{ display(e.role) }}</dd>
         <dt>Maintenance</dt><dd>{{ e.maintenance ? 'MAINT' : 'no' }}</dd>
       </dl>
+      <app-equipment-control [equipment]="e" />
       <section class="values">
         @if (unknown()) {
           <h3>Last known values</h3>
