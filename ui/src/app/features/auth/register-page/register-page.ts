@@ -17,8 +17,9 @@ function validate(username: string, displayName: string, password: string, repea
   if (!displayName || displayName.length > 64 || CONTROL.test(displayName)) {
     return 'Display names are 1 to 64 characters without control characters';
   }
-  if (password.length < 10 || password.length > 128) {
-    return 'Passwords are 10 to 128 characters';
+  // bcrypt hashes at most 72 bytes; accented letters take two bytes in UTF-8
+  if (password.length < 10 || new TextEncoder().encode(password).length > 72) {
+    return 'Passwords are 10 to 72 characters, and accented letters count double';
   }
   if (password.toLowerCase() === username.toLowerCase()) {
     return 'The password must not be the username';

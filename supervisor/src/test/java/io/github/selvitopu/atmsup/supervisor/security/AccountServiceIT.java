@@ -70,6 +70,23 @@ class AccountServiceIT {
     }
 
     @Test
+    void passwordsUpToSeventyTwoBytesAreAccepted() {
+        accounts.register(new RegisterRequest("longpass", "Long Pass", "a".repeat(72)));
+
+        assertThat(users.findByUsername("longpass")).isPresent();
+    }
+
+    @Test
+    void passwordsOverSeventyTwoBytesAreRefusedWithTheRule() {
+        // bcrypt hashes at most 72 bytes; accented letters take two bytes in UTF-8
+        for (String password : new String[] {"a".repeat(73), "ş".repeat(37)}) {
+            assertThatThrownBy(() -> accounts.register(new RegisterRequest("tooLong", "Too Long", password)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Passwords are 10 to 72 characters, and accented letters count double");
+        }
+    }
+
+    @Test
     void registrationCanBeSwitchedOff() {
         AccountService closed = new AccountService(users, PasswordEncoderFactories.createDelegatingPasswordEncoder(),
                 false);

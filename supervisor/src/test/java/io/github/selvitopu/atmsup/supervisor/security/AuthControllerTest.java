@@ -53,11 +53,11 @@ class AuthControllerTest {
 
     @Test
     void anInvalidRequestIs400WithTheRule() throws Exception {
-        given(accounts.register(any())).willThrow(new IllegalArgumentException("Passwords are 10 to 128 characters"));
+        given(accounts.register(any())).willThrow(new IllegalArgumentException("Passwords are 10 to 72 characters, and accented letters count double"));
 
         mvc.perform(post("/api/v1/auth/register").with(csrf()).contentType(APPLICATION_JSON).content(BODY))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("Passwords are 10 to 128 characters"));
+                .andExpect(jsonPath("$.detail").value("Passwords are 10 to 72 characters, and accented letters count double"));
     }
 
     @Test

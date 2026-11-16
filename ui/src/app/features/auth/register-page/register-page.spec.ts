@@ -49,6 +49,9 @@ describe('RegisterPage', () => {
     fill('opsviewer01', 'Ops Viewer', 'OpsViewer01');
     submit();
     expect(text()).toContain('The password must not be the username');
+    fill('opsviewer01', 'Ops Viewer', 'ş'.repeat(37));
+    submit();
+    expect(text()).toContain('Passwords are 10 to 72 characters, and accented letters count double');
     http.expectNone('/api/v1/auth/register');
   });
 

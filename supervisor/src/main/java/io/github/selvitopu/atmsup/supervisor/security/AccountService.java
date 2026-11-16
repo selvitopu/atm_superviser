@@ -1,5 +1,6 @@
 package io.github.selvitopu.atmsup.supervisor.security;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountService {
 
     static final String NEW_ACCOUNT_ROLE = "VIEWER";
+    static final int MAX_PASSWORD_BYTES = 72;
     private static final Pattern USERNAME = Pattern.compile("^[a-z0-9][a-z0-9._-]{2,31}$");
 
     private final AppUserRepository users;
@@ -50,8 +52,9 @@ public class AccountService {
         if (displayName.isEmpty() || displayName.length() > 64 || displayName.chars().anyMatch(Character::isISOControl)) {
             throw new IllegalArgumentException("Display names are 1 to 64 characters without control characters");
         }
-        if (password.length() < 10 || password.length() > 128) {
-            throw new IllegalArgumentException("Passwords are 10 to 128 characters");
+        // bcrypt hashes at most 72 bytes; accented letters take two bytes in UTF-8
+        if (password.length() < 10 || password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
+            throw new IllegalArgumentException("Passwords are 10 to 72 characters, and accented letters count double");
         }
         if (password.equalsIgnoreCase(username)) {
             throw new IllegalArgumentException("The password must not be the username");
