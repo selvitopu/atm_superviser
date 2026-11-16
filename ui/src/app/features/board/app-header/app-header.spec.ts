@@ -68,4 +68,10 @@ describe('AppHeader', () => {
     live.config.set({ ...demo, demoMode: false });
     expect(setup('LIVE', live).all('nav a').map(a => a.getAttribute('href'))).not.toContain('/simulator');
   });
+  it('anAdminSeesTheUsersScreen', () => {
+    const admin = setup('LIVE', new FakeAuth(['ADMIN'], 'Admin One', 'admin1'));
+    expect(admin.all('nav a').map(a => a.getAttribute('href'))).toContain('/admin/users');
+    expect(setup('LIVE', new FakeAuth(['SUPERVISOR'])).all('nav a').map(a => a.getAttribute('href')))
+      .not.toContain('/admin/users');
+  });
 });

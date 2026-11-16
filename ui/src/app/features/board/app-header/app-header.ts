@@ -72,6 +72,9 @@ export class AppHeader {
     if (this.config()?.demoMode && this.auth.hasRole('SUPERVISOR')) {
       links.push({ path: '/simulator', label: 'Simulator' });
     }
+    if (this.auth.hasRole('ADMIN')) {
+      links.push({ path: '/admin/users', label: 'Users' });
+    }
     return links;
   });
   private readonly config = this.auth.config;

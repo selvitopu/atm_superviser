@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { Router, RouterLink } from '@angular/router';
 import { switchMap } from 'rxjs';
 import { AuthService } from '../../../core/auth/auth.service';
+import { passwordProblem } from '../../../shared/password-rule';
 
 const USERNAME = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 // eslint-disable-next-line no-control-regex
@@ -17,12 +18,9 @@ function validate(username: string, displayName: string, password: string, repea
   if (!displayName || displayName.length > 64 || CONTROL.test(displayName)) {
     return 'Display names are 1 to 64 characters without control characters';
   }
-  // bcrypt hashes at most 72 bytes; accented letters take two bytes in UTF-8
-  if (password.length < 10 || new TextEncoder().encode(password).length > 72) {
-    return 'Passwords are 10 to 72 characters, and accented letters count double';
-  }
-  if (password.toLowerCase() === username.toLowerCase()) {
-    return 'The password must not be the username';
+  const problem = passwordProblem(username, password);
+  if (problem) {
+    return problem;
   }
   if (password !== repeat) {
     return 'Passwords do not match';
