@@ -502,7 +502,8 @@ class SseBroadcasterTest {
         SseBroadcaster production = new SseBroadcaster(mapper, writer, InstantSource.fixed(T0),
                 new SimpleMeterRegistry(), 1000, 256);
         try {
-            assertThat(production.subscribe(null, null, null).getTimeout()).isEqualTo(Duration.ofMinutes(30).toMillis());
+            assertThat(production.subscribe(null, null, null).getTimeout())
+                    .isEqualTo(Duration.ofMinutes(30).toMillis());
         } finally {
             production.closeAll();
         }

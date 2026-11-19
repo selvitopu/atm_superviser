@@ -67,10 +67,7 @@ public class EquipmentControl {
             board.submit(new RecordCommand(equipmentId, command.name(), actor, CommandOutcome.NOT_SENT.name()));
             return new CommandResult(CommandOutcome.NOT_SENT, "The command was not sent: it could not be recorded");
         }
-        CommandResult result = send(device, command);
-        if (result.outcome() != CommandOutcome.DONE) {
-            log.warn("{} by {} to {}: {} ({})", command, actor, equipmentId, result.outcome(), result.reason());
-        }
+        CommandResult result = send(device, command, actor);
         BoardResult recorded = record(equipmentId, command, actor, result.outcome());
         if (!recorded.committed()) {
             log.error("{} by {} to {} ({}) could not be recorded: {}", command, actor, equipmentId, result.outcome(),
@@ -87,27 +84,33 @@ public class EquipmentControl {
                 .join();
     }
 
-    private CommandResult send(Device device, EquipmentCommand command) {
+    private CommandResult send(Device device, EquipmentCommand command, String actor) {
         try {
             snmp.set(device, List.of(command.binding()));
             return new CommandResult(CommandOutcome.DONE, null);
         } catch (SnmpRequestException e) {
-            return switch (e.kind()) {
-                case ERROR_STATUS -> e.errorStatus() == PDU.inconsistentValue
-                        ? new CommandResult(CommandOutcome.REFUSED, refusal(command))
-                        // a read-only agent or an operator user without write access: not the unit's state
-                        : failed("The equipment rejected the operator user's request ("
-                                + PDU.toErrorStatusText(e.errorStatus())
-                                + "): check that user's write access on the unit");
-                case TIMEOUT -> new CommandResult(CommandOutcome.NO_ANSWER, "No answer from the equipment: the command"
-                        + " may or may not have been applied. Check the unit before you send it again");
-                case SEND_FAILED -> failed("The command was not sent: " + e.detail());
-                case AUTH_FAILURE -> failed("The command could not be sent to the equipment; check the operator SNMP"
-                        + " credentials");
-                case MALFORMED -> failed("The equipment's answer could not be read (" + e.detail() + "); check the"
-                        + " unit before you send it again");
-            };
+            CommandResult result = answer(e, command);
+            log.warn("{} by {} to {}: {} ({})", command, actor, device.id(), result.outcome(), e.getMessage());
+            return result;
         }
+    }
+
+    private static CommandResult answer(SnmpRequestException e, EquipmentCommand command) {
+        return switch (e.kind()) {
+            case ERROR_STATUS -> e.errorStatus() == PDU.inconsistentValue
+                    ? new CommandResult(CommandOutcome.REFUSED, refusal(command))
+                    // a read-only agent or an operator user without write access: not the unit's state
+                    : failed("The equipment rejected the operator user's request ("
+                            + PDU.toErrorStatusText(e.errorStatus())
+                            + "): check that user's write access on the unit");
+            case TIMEOUT -> new CommandResult(CommandOutcome.NO_ANSWER, "No answer from the equipment: the command"
+                    + " may or may not have been applied. Check the unit before you send it again");
+            case SEND_FAILED -> failed("The command was not sent: " + e.detail());
+            case AUTH_FAILURE -> failed("The command could not be sent to the equipment; check the operator SNMP"
+                    + " credentials");
+            case MALFORMED -> failed("The equipment's answer could not be read (" + e.detail() + "); check the"
+                    + " unit before you send it again");
+        };
     }
 
     /** The agent's rules for the command: inconsistentValue means the unit's state does not allow it now. */

@@ -14,9 +14,9 @@ flowchart LR
     SUP["ATM Supervisor<br/>(Supervision & Alarm Engine)"]
     SIM["Demo ACC Simulated Estate<br/>(SNMPv3 Equipment Agents)"]
 
-    SC -->|"Views live board & service state,<br/>acknowledges alarms (HTTP / SSE :8080)"| SUP
-    SC -.->|"Injects demo faults (/sim/api)"| SIM
-    SUP -->|"SNMPv3 authPriv GET / GETBULK<br/>(probes & full polls, UDP 16101–16107)"| SIM
+    SC -->|"Views live board & service state, acknowledges alarms,<br/>sends equipment commands, injects demo faults<br/>(HTTP / SSE :8080)"| SUP
+    SUP -->|"SNMPv3 authPriv GET / GETBULK / SET<br/>(probes, full polls & commands, UDP 16101–16107)"| SIM
+    SUP -.->|"Forwards the simulator console<br/>(HTTP :8090, demo mode only)"| SIM
     SIM -->|"SNMPv3 TRAPs & INFORMs<br/>(UDP 10162)"| SUP
 ```
 
@@ -29,7 +29,7 @@ flowchart LR
     end
 
     subgraph Compose["Docker Compose Stack (atm-supervisor)"]
-        UI["ui (nginx :8080)<br/>Serves SPA, proxies /api -> supervisor:8080<br/>and /sim/api -> simulator:8090"]
+        UI["ui (nginx :8080)<br/>Serves SPA, proxies /api -> supervisor:8080"]
         SUP["supervisor (Spring Boot 4.1, Java 25)<br/>REST & SSE :8080 · Actuator :8081<br/>Trap Receiver UDP :10162"]
         SIM["simulator (Spring Boot 4.1, Java 25)<br/>7 SNMP4J Core Agents UDP :16101–16107<br/>Fault Injection API :8090"]
         DB[("postgres (PostgreSQL 18)<br/>event_log, alarm & user tables")]
@@ -38,8 +38,8 @@ flowchart LR
 
     SPA -->|"HTTP + SSE (/api/v1/stream)"| UI
     UI -->|"/api/v1/*"| SUP
-    UI -->|"/sim/api/*"| SIM
     SUP -->|"SNMPv3 authPriv<br/>(SHA-256 / AES-128)"| SIM
+    SUP -.->|"/api/* console<br/>(demo mode only)"| SIM
     SIM -->|"TRAP / INFORM<br/>(UDP 10162)"| SUP
     SUP -->|"JDBC / Liquibase"| DB
     SIM --> VOL

@@ -11,6 +11,7 @@ import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.TelemetrySampleEv
 import io.github.selvitopu.atmsup.supervisor.board.EquipmentState;
 import io.github.selvitopu.atmsup.supervisor.board.ServiceState;
 import io.github.selvitopu.atmsup.supervisor.board.StoredEvent;
+import java.util.Locale;
 
 /** One-line English summaries of stored events, for the equipment detail view. */
 public final class EventSummaries {
@@ -29,7 +30,7 @@ public final class EventSummaries {
         };
     }
 
-    /** "Maintenance on by supervisor1: done". */
+    /** "Maintenance on by supervisor1: issued", then "...: done", or another outcome such as "no answer". */
     private static String command(CommandEvent e) {
         String command = switch (e.command()) {
             case "MAINTENANCE_ON" -> "Maintenance on";
@@ -38,7 +39,7 @@ public final class EventSummaries {
             case "MAKE_ACTIVE" -> "Make active";
             default -> e.command();
         };
-        return command + " by " + e.actor() + ": " + e.outcome().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
+        return command + " by " + e.actor() + ": " + e.outcome().toLowerCase(Locale.ROOT).replace('_', ' ');
     }
 
     private static String equipment(EquipmentEvent e) {

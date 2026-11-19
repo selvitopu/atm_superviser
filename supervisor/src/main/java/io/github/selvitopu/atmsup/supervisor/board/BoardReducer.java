@@ -2,9 +2,9 @@ package io.github.selvitopu.atmsup.supervisor.board;
 
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.TelemetrySampleEvent;
 import java.util.LinkedHashMap;

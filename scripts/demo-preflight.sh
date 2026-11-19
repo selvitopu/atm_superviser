@@ -88,7 +88,11 @@ reset_simulator() {
     -H "X-XSRF-TOKEN: $(csrf_token)" localhost:8080/api/v1/simulator/reset || true
 }
 
-code=$(sign_in && reset_simulator)
+if ! sign_in; then
+  echo "Sign-in as supervisor1 failed."
+  exit 1
+fi
+code=$(reset_simulator)
 if [ "$code" != "204" ]; then
   echo "Simulator reset failed (HTTP ${code:-no answer})."
   exit 1

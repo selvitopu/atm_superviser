@@ -168,5 +168,7 @@ snmpset -v3 -l authPriv -u operator -a SHA-256 -A operator-auth-demo -x AES -X o
 ```
 
 A `SET` from the command line goes straight to the agent and bypasses the supervisor. The supervisor
-sees the change at its next poll. Control commands through the supervisor, with interlocks and
-outcome tracking, are planned.
+sees the change at its next poll, but its event log does not show who made it. Operators use the
+**Control** section of the board's equipment panel instead
+([Playbook 4](operator-guide.md#playbook-4-maintenance-mode-alarm-suppression-and-equipment-commands)): the
+supervisor sends the same `SET` as `operator`, and records who sent it and its outcome.

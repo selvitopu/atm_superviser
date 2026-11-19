@@ -39,6 +39,8 @@ public class SimulatorConsoleController {
     /** A builder bean, if one exists (tests bind a mock server to it); otherwise a client with short timeouts. */
     public SimulatorConsoleController(ObjectProvider<RestClient.Builder> builders,
                                       @Value("${atm.simulator.console-url:http://localhost:8090}") String consoleUrl) {
+        // Outside tests no builder bean exists. Adding spring-boot-restclient would auto-configure one, which would
+        // silently replace these 2 s and 5 s timeouts: a hung simulator could then hold a request thread.
         RestClient.Builder builder = builders.getIfAvailable(() -> {
             SimpleClientHttpRequestFactory timeouts = new SimpleClientHttpRequestFactory();
             timeouts.setConnectTimeout(CONNECT_TIMEOUT);

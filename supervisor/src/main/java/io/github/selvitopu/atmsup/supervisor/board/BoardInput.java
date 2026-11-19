@@ -31,11 +31,14 @@ public sealed interface BoardInput {
     record AcknowledgeAlarms(List<String> alarmIds, String comment, String actor) implements BoardInput {
     }
 
-    /** {@code firstStart} is true when the event log is empty. */
-    /** A command a user sent to a unit, with its outcome: recorded in the event log, it changes no state. */
+    /**
+     * A command a user sent to a unit: its intent before the SET, or what came of it. Recorded in the event log, it
+     * changes no state.
+     */
     record RecordCommand(String equipmentId, String command, String actor, String outcome) implements BoardInput {
     }
 
+    /** {@code firstStart} is true when the event log is empty. */
     record Startup(boolean firstStart) implements BoardInput {
     }
 

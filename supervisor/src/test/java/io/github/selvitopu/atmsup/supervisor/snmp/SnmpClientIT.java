@@ -27,9 +27,11 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.snmp4j.smi.Integer32;
 import org.junit.jupiter.api.io.TempDir;
+import org.snmp4j.PDU;
 import org.snmp4j.mp.SnmpConstants;
+import org.snmp4j.security.SecurityLevel;
+import org.snmp4j.smi.Integer32;
 import org.snmp4j.smi.OID;
 import org.snmp4j.smi.TimeTicks;
 import org.snmp4j.smi.VariableBinding;
@@ -138,7 +140,7 @@ class SnmpClientIT {
                 List.of(new VariableBinding(scalar(EQ_COMMAND), new Integer32(3)))))
                 .isInstanceOfSatisfying(SnmpRequestException.class, e -> {
                     assertThat(e.kind()).isEqualTo(SnmpRequestException.Kind.ERROR_STATUS);
-                    assertThat(e.errorStatus()).isEqualTo(org.snmp4j.PDU.inconsistentValue);
+                    assertThat(e.errorStatus()).isEqualTo(PDU.inconsistentValue);
                 });
     }
 
@@ -156,7 +158,7 @@ class SnmpClientIT {
         var target = session.target(inv.device("RAD-N"));
 
         assertThat(target.getSecurityName().toString()).isEqualTo("monitor");
-        assertThat(target.getSecurityLevel()).isEqualTo(org.snmp4j.security.SecurityLevel.AUTH_PRIV);
+        assertThat(target.getSecurityLevel()).isEqualTo(SecurityLevel.AUTH_PRIV);
         assertThat(target.getTimeout()).isEqualTo(1500);
         assertThat(target.getRetries()).isEqualTo(1);
         assertThat(target.getVersion()).isEqualTo(SnmpConstants.version3);
@@ -168,7 +170,7 @@ class SnmpClientIT {
         var target = session.operatorTarget(inv.device("RAD-N"));
 
         assertThat(target.getSecurityName().toString()).isEqualTo("operator");
-        assertThat(target.getSecurityLevel()).isEqualTo(org.snmp4j.security.SecurityLevel.AUTH_PRIV);
+        assertThat(target.getSecurityLevel()).isEqualTo(SecurityLevel.AUTH_PRIV);
         assertThat(target.getRetries()).isZero();
     }
 }

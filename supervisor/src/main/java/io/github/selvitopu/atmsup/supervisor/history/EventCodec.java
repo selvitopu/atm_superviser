@@ -2,13 +2,13 @@ package io.github.selvitopu.atmsup.supervisor.history;
 
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.Via;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.TelemetrySampleEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
 import io.github.selvitopu.atmsup.supervisor.board.EquipmentState;
 import io.github.selvitopu.atmsup.supervisor.board.EventType;
 import io.github.selvitopu.atmsup.supervisor.board.ServiceId;
