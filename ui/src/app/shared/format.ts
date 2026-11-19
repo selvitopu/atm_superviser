@@ -7,6 +7,11 @@ export function formatUtc(instant: string | number | null | undefined): string {
   return Number.isNaN(ms) ? '—' : `${new Date(ms).toISOString().slice(11, 19)}Z`;
 }
 
+/** Formats an instant as HH:mm:ss UTC, for a line of text that states its time. */
+export function formatUtcTime(instant: string | number): string {
+  return formatUtc(instant).replace(/Z$/, ' UTC');
+}
+
 /** Renders a telemetry value, or — when the server did not send it. */
 export function display(value: unknown): string {
   return value === null || value === undefined || value === '' ? '—' : String(value);

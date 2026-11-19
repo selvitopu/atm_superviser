@@ -162,8 +162,11 @@ describe('EquipmentControl', () => {
   });
 
   describe('impact preview', () => {
-    const plan = (over: object = {}) => ({
-      asOf: 'now', basis: 'b', singlePoints: [], outOfService: [], unknownUnits: [],
+    beforeEach(() => vi.useFakeTimers({ now: Date.parse('2026-11-19T10:15:00Z'), toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] }));
+    afterEach(() => vi.useRealTimers());
+
+    const plan = (over: object = {}, asOf = '2026-11-19T10:15:02Z') => ({
+      asOf, basis: 'b', singlePoints: [], outOfService: [], unknownUnits: [],
       plan: {
         units: ['FDPS-B'], verdict: 'REDUCED_MARGIN', unconfirmed: false, notes: [],
         services: [
@@ -181,8 +184,65 @@ describe('EquipmentControl', () => {
       expect(f.text()).toContain('Impact: assessing…');
       http.expectOne(impactUrl).flush(plan());
       f.fixture.detectChanges();
-      expect(f.text()).toContain('Impact: REDUCED MARGIN — FD: Only one FDPS unit available');
-      expect(f.el.querySelector('.confirm')!.textContent).toContain('Impact: REDUCED MARGIN');
+      expect(f.text()).toContain('Impact at 10:15:02 UTC: REDUCED MARGIN — FD: Only one FDPS unit available');
+      expect(f.el.querySelector('.confirm')!.textContent).toContain('Impact at 10:15:02 UTC: REDUCED MARGIN');
+    });
+
+    it('whileArmedThePreviewRefreshesAndShowsTheNewVerdict', async () => {
+      const { f, http, click, button } = setup(FDPS_B);
+      click('Maintenance on');
+      http.expectOne(impactUrl).flush(plan());
+      f.fixture.detectChanges();
+      expect(f.text()).toContain('Impact at 10:15:02 UTC: REDUCED MARGIN');
+
+      // FDPS-A fails while the bar is armed: the next tick answers with the new verdict
+      await vi.advanceTimersByTimeAsync(5000);
+      http.expectOne(impactUrl).flush(plan({
+        verdict: 'SERVICE_LOSS',
+        services: [{ id: 'SURV', verdict: 'NO_SERVICE_IMPACT', reasonsAfter: [] },
+          { id: 'FD', verdict: 'SERVICE_LOSS', reasonsAfter: ['No FDPS unit available'] }],
+      }, '2026-11-19T10:15:07Z'));
+      f.fixture.detectChanges();
+      expect(f.text()).toContain('Impact at 10:15:07 UTC: SERVICE LOSS — FD: No FDPS unit available');
+      expect(f.text()).not.toContain('REDUCED MARGIN');
+      expect(button('Confirm')!.disabled).toBe(false);
+    });
+
+    it('aFailedRefreshKeepsTheLastAnswerAndSaysSo', async () => {
+      const { f, http, click, button } = setup(FDPS_B);
+      click('Maintenance on');
+      http.expectOne(impactUrl).flush(plan());
+      await vi.advanceTimersByTimeAsync(5000);
+      http.expectOne(impactUrl).flush({}, { status: 500, statusText: 'Server Error' });
+      f.fixture.detectChanges();
+      expect(f.text()).toContain(
+        'Impact at 10:15:02 UTC: REDUCED MARGIN — FD: Only one FDPS unit available (last refresh failed)');
+      expect(button('Confirm')!.disabled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      http.expectOne(impactUrl).flush(plan({}, '2026-11-19T10:15:12Z'));
+      f.fixture.detectChanges();
+      expect(f.text()).toContain('Impact at 10:15:12 UTC: REDUCED MARGIN — FD: Only one FDPS unit available');
+      expect(f.text()).not.toContain('last refresh failed');
+    });
+
+    it('aPreviewThatHangsFailsAfterFourSeconds', async () => {
+      const { f, http, click } = setup(FDPS_B);
+      click('Maintenance on');
+      const hung = http.expectOne(impactUrl);
+      await vi.advanceTimersByTimeAsync(4000);
+      f.fixture.detectChanges();
+      expect(hung.cancelled).toBe(true);
+      expect(f.text()).toContain('Impact could not be assessed');
+    });
+
+    it('theRefreshStopsOnceTheBarIsCancelled', async () => {
+      const { http, click } = setup(FDPS_B);
+      click('Maintenance on');
+      http.expectOne(impactUrl).flush(plan());
+      click('Cancel');
+      await vi.advanceTimersByTimeAsync(15000);
+      http.expectNone(r => r.url === '/api/v1/impact');
     });
 
     it('confirmStaysEnabledWhileTheImpactLoads', () => {
@@ -208,7 +268,8 @@ describe('EquipmentControl', () => {
       click('Maintenance on');
       http.expectOne(impactUrl).flush(plan({ notes: ['A note'], unconfirmed: true }));
       f.fixture.detectChanges();
-      expect(f.text()).toContain('Impact: REDUCED MARGIN — FD: Only one FDPS unit available · A note (unconfirmed)');
+      expect(f.text()).toContain(
+        'Impact at 10:15:02 UTC: REDUCED MARGIN — FD: Only one FDPS unit available · A note (unconfirmed)');
     });
 
     it('aPreviewForAnotherUnitIsDropped', () => {

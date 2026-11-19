@@ -278,7 +278,9 @@ the features exist:
     colour alone.
   - Every result states its basis, "Derived from the supervised equipment and the service rules; not a safety
     assessment", and the board time it was computed from. The Impact screen refreshes every 5 s, keeps the last result
-    with `Last refresh failed at …` when a refresh fails, and drops an answer to a superseded request.
+    with `Last refresh failed at …` when a refresh fails, and drops an answer to a superseded request. The
+    **Maintenance on** preview also asks again every 5 s while it is armed, states the time of its answer, and adds
+    `(last refresh failed)` to the last answer when a refresh fails; a request that hangs for 4 s counts as failed.
   - With units in `UNKNOWN` state, a verdict is the worst over every possible state of those units, marked
     unconfirmed when the states disagree, with the units named. The unit asked about, or planned, counts as working
     now. It is exact up to 10 `UNKNOWN` units, and beyond that a conservative bound, which can only overstate.
@@ -300,7 +302,9 @@ the features exist:
   (`thePredictedImpactOfMaintenanceIsWhatTheBoardShows`), and the UI specs [impact-page.spec.ts]
   (`neverSaysSafe`, `noServiceImpactIsNotGreen`, `anUnconfirmedVerdictNamesTheUnknownUnits`,
   `refreshesEveryFiveSecondsAndKeepsTheLastResultOnFailure`, `onlyTheLatestRequestLands`) and
-  [equipment-control.spec.ts] (`maintenanceOnShowsTheImpactPreview`, `confirmStaysEnabledWhileTheImpactLoads`).
+  [equipment-control.spec.ts] (`maintenanceOnShowsTheImpactPreview`, `confirmStaysEnabledWhileTheImpactLoads`,
+  `whileArmedThePreviewRefreshesAndShowsTheNewVerdict`, `aFailedRefreshKeepsTheLastAnswerAndSaysSo`,
+  `aPreviewThatHangsFailsAfterFourSeconds`).
 - **Status:** mitigated for Maintenance on and the Impact screen. A verdict is only as rich as the service rules.
 
 [CommandController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/CommandController.java

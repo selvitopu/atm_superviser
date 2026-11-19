@@ -137,7 +137,14 @@ Click any equipment tile to select it (deep-linked at `/board/:equipmentId`, for
   answering as soon as it restarts), and **Make active** (for the standby unit of a pair, enabled only while it is
   operational and not in maintenance). A greyed-out button says why when you point at it. See
   Playbook 4.
-* **Impact preview:** when you arm **Maintenance on**, the confirm bar also reads, for example, `Impact: REDUCED MARGIN — FD: Only one FDPS unit available`, with a note when the unit is the active one of its pair. It shows `Impact: assessing…` while it loads and `Impact could not be assessed` if it fails. **Confirm** stays enabled in every case: the preview informs, and you decide. The same answer, for any set of units, is on the **Impact** screen (2.10).
+* **Impact preview:** when you arm **Maintenance on**, the confirm bar also reads, for example,
+  `Impact at 10:15:02 UTC: REDUCED MARGIN — FD: Only one FDPS unit available`. It adds a note when the unit is the
+  active one of its pair, and ends with ` (unconfirmed)` when the verdict depends on units in `UNKNOWN` state. While
+  the bar is armed, the preview asks again every 5 s, so it follows the board, and its time shows how old the answer
+  is. It shows `Impact: assessing…` until the first answer and `Impact could not be assessed` if that fails. A later
+  refresh that fails keeps the last answer and adds ` (last refresh failed)`. **Confirm** stays enabled in every
+  case: the preview informs, and you decide. The same answer, for any set of units, is on the **Impact** screen
+  (2.10).
 
 ### 2.6 Alarms Pane (Bottom Bar & Table)
 
@@ -312,7 +319,7 @@ not sent: it could not be recorded*.
 3. **Find what that exposes:** in the table, `FDPS-A` now reads `✕ SERVICE LOSS`, because with `FDPS-B` out, one more
    failure leaves no FDPS unit.
 4. **Do it from the board:** select `FDPS-B`, click **Maintenance on**. The confirm bar shows the same preview,
-   `Impact: REDUCED MARGIN — FD: Only one FDPS unit available`. Click **Confirm**, and the board shows `FD`
+   `Impact at … UTC: REDUCED MARGIN — FD: Only one FDPS unit available`. Click **Confirm**, and the board shows `FD`
    `▲ DEGRADED`, as the plan said.
 5. **Take it out again:** click **Maintenance off** and **Confirm**. `FD` returns to `✓ OK`, and on **Impact** `FDPS-A` is
    back to `▲ REDUCED MARGIN`.

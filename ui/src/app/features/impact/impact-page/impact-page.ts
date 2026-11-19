@@ -6,6 +6,7 @@ import { catchError, distinctUntilChanged, interval, map, of, startWith, switchM
 import { BoardApi } from '../../../core/api/board-api';
 import { ImpactApi, VERDICT_LABEL } from '../../../core/api/impact-api';
 import { ImpactDto, ServiceChangeDto } from '../../../core/api/models';
+import { formatUtcTime } from '../../../shared/format';
 import { AppHeader } from '../../board/app-header/app-header';
 
 const REFRESH_MS = 5000;
@@ -17,11 +18,6 @@ const VERDICT_CLASS: Record<string, string> = {
 const ALREADY_OUT = ['FAILED', 'MAINTENANCE'];
 
 interface Unit { id: string; group: string }
-
-/** HH:MM:SS UTC of an instant. */
-function utcTime(iso: string | number): string {
-  return new Date(iso).toISOString().slice(11, 19) + ' UTC';
-}
 
 /**
  * What taking units into maintenance would do to the services, and which single unit failures would hurt now. The
@@ -164,7 +160,7 @@ export class ImpactPage {
 
   protected readonly verdict = (v: string) => (SYMBOL[v] ?? '') + (VERDICT_LABEL[v] ?? v);
   protected readonly verdictClass = (v: string) => VERDICT_CLASS[v] ?? 'none';
-  protected readonly time = utcTime;
+  protected readonly time = formatUtcTime;
   protected readonly change = (c: ServiceChangeDto) => `${c.id} ${c.before} → ${c.after}`;
 
   /** The units of the plan, from the URL. */
@@ -207,7 +203,7 @@ export class ImpactPage {
         this.error.set(result.e.error.detail);
         this.failedAt.set(null);
       } else {
-        this.failedAt.set(utcTime(Date.now()));
+        this.failedAt.set(formatUtcTime(Date.now()));
       }
     });
   }

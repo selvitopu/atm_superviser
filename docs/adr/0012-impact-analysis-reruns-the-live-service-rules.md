@@ -61,7 +61,8 @@ Chosen option: **Option 1.**
 * **Screens.** The Impact screen (`/impact`, linked for every role) has a planner whose selection lives in the URL,
   the plan's verdict, a table of single points of failure, a refresh every 5 s, the time the answer is based on and
   the basis line "Derived from the supervised equipment and the service rules; not a safety assessment". The confirm
-  bar of **Maintenance on** shows the same verdict as a preview. Confirm is never blocked.
+  bar of **Maintenance on** shows the same verdict as a preview, with the time of its answer, and asks again every
+  5 s while it is armed, so the line beside Confirm follows the board. Confirm is never blocked.
 * **Pair notes.** The rules do not read roles. For a planned unit that is the active unit of its pair, the plan adds
   a note that maintenance switches the pair over to its partner, or that the partner cannot take over. The note
   states a domain fact; it never changes the verdict.

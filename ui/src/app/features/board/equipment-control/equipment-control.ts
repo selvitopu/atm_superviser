@@ -1,12 +1,19 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import {
-  ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, computed, inject, input, linkedSignal, output,
-  signal, viewChild,
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterRenderEffect, computed, inject, input, linkedSignal,
+  output, signal, viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, interval, map, of, startWith, switchMap, takeWhile, timeout } from 'rxjs';
 import { BoardApi, EquipmentCommand } from '../../../core/api/board-api';
 import { ImpactApi, VERDICT_LABEL } from '../../../core/api/impact-api';
 import { EquipmentDto, ImpactDto } from '../../../core/api/models';
 import { AuthService } from '../../../core/auth/auth.service';
+import { formatUtcTime } from '../../../shared/format';
+
+/** The armed preview asks again this often, and a request that takes longer than the timeout counts as failed. */
+const REFRESH_MS = 5000;
+const TIMEOUT_MS = 4000;
 
 const LABEL: Record<EquipmentCommand, string> = {
   MAINTENANCE_ON: 'Maintenance on', MAINTENANCE_OFF: 'Maintenance off', RESTART: 'Restart', MAKE_ACTIVE: 'Make active',
@@ -22,13 +29,13 @@ function question(command: EquipmentCommand, id: string): string {
   }
 }
 
-/** One line: the verdict, then what changes for each affected service, the plan's notes and any doubt. */
+/** One line: the time of the answer, the verdict, what changes for each affected service, the notes and any doubt. */
 function impactText(dto: ImpactDto): string {
   const parts = dto.plan.services.filter(s => s.verdict !== 'NO_SERVICE_IMPACT')
     .map(s => `${s.id}: ${s.reasonsAfter.join('; ')}`);
   const detail = [...parts, ...dto.plan.notes].join(' · ');
-  return `Impact: ${VERDICT_LABEL[dto.plan.verdict] ?? dto.plan.verdict}${detail ? ` — ${detail}` : ''}`
-    + (dto.plan.unconfirmed ? ' (unconfirmed)' : '');
+  return `Impact at ${formatUtcTime(dto.asOf)}: ${VERDICT_LABEL[dto.plan.verdict] ?? dto.plan.verdict}`
+    + (detail ? ` — ${detail}` : '') + (dto.plan.unconfirmed ? ' (unconfirmed)' : '');
 }
 
 /** Why each command cannot be sent now, as the unit would refuse it; empty when it can. */
@@ -104,6 +111,7 @@ export class EquipmentControl {
   private readonly api = inject(BoardApi);
   private readonly impactApi = inject(ImpactApi);
   private readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly question = question;
   protected readonly label = (c: EquipmentCommand) => LABEL[c];
 
@@ -137,12 +145,21 @@ export class EquipmentControl {
     source: this.unitId, computation: () => null,
   });
   protected readonly pending = signal<{ id: string; command: EquipmentCommand } | null>(null);
-  /** The impact answer for one arming; an answer is kept only while that arming is still the current one. */
-  private readonly impact = signal<{ arming: number; text: string } | null>(null);
+  /**
+   * The impact preview of one arming: its last answer (null until one arrives) and whether the latest request failed.
+   * It is shown only while that arming is still the current one.
+   */
+  private readonly impact = signal<{ arming: number; text: string | null; failed: boolean } | null>(null);
   private arming = 0;
   protected readonly previewText = computed(() => {
     const impact = this.impact();
-    return this.armed() === 'MAINTENANCE_ON' && impact?.arming === this.arming ? impact.text : null;
+    if (this.armed() !== 'MAINTENANCE_ON' || impact?.arming !== this.arming) {
+      return null;
+    }
+    if (impact.text === null) {
+      return impact.failed ? 'Impact could not be assessed' : 'Impact: assessing…';
+    }
+    return impact.failed ? `${impact.text} (last refresh failed)` : impact.text;
   });
   protected readonly busy = computed(() => !!this.pending());
 
@@ -164,17 +181,26 @@ export class EquipmentControl {
     }
   }
 
+  /** Asks now and every 5 s while this arming lasts, so the line beside Confirm follows the board. */
   private preview(arming: number, id: string): void {
-    const answer = (text: string) => {
-      // dropped when that arming is gone, or the bar now belongs to another unit
-      if (arming === this.arming && this.armed() === 'MAINTENANCE_ON' && this.equipment().id === id) {
-        this.impact.set({ arming, text });
+    // false once that arming is gone, the command is being sent, or the bar now belongs to another unit
+    const current = () => arming === this.arming && this.armed() === 'MAINTENANCE_ON' && !this.pending()
+      && this.equipment().id === id;
+    this.impact.set({ arming, text: null, failed: false });
+    interval(REFRESH_MS).pipe(
+      startWith(0),
+      takeWhile(current),
+      // a new tick cancels the request in flight, so only the latest answer lands
+      switchMap(() => this.impactApi.assess([id]).pipe(
+        timeout(TIMEOUT_MS),
+        map(dto => impactText(dto)),
+        catchError(() => of(null)))),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(text => {
+      if (current()) {
+        // a failed request keeps the last answer and says so
+        this.impact.update(last => ({ arming, text: text ?? last?.text ?? null, failed: text === null }));
       }
-    };
-    answer('Impact: assessing…');
-    this.impactApi.assess([id]).subscribe({
-      next: dto => answer(impactText(dto)),
-      error: () => answer('Impact could not be assessed'),
     });
   }
 
