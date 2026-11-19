@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ImpactDto } from './models';
 
-/** The words for the three verdicts; none of them says a plan is safe. */
+/** The words for the three verdicts; none of them reads as a clearance. */
 export const VERDICT_LABEL: Record<string, string> = {
   NO_SERVICE_IMPACT: 'NO SERVICE IMPACT',
   REDUCED_MARGIN: 'REDUCED MARGIN',

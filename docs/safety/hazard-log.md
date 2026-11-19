@@ -301,7 +301,9 @@ the features exist:
   [ImpactControllerTest] (`aViewerGetsTheReport`, `signedOutIs401`, `anUnknownUnitIs400`), [SupervisorEndToEndIT]
   (`thePredictedImpactOfMaintenanceIsWhatTheBoardShows`), and the UI specs [impact-page.spec.ts]
   (`neverSaysSafe`, `noServiceImpactIsNotGreen`, `anUnconfirmedVerdictNamesTheUnknownUnits`,
-  `refreshesEveryFiveSecondsAndKeepsTheLastResultOnFailure`, `onlyTheLatestRequestLands`) and
+  `aConfirmedPlanWithAnUnconfirmedSinglePointStillNamesTheUnknownUnits`, `anUnknownSideShowsItsBestCase`,
+  `refreshesEveryFiveSecondsAndKeepsTheLastResultOnFailure`, `aRefreshThatHangsCountsAsFailedAndIsAnnouncedPolitely`,
+  `onlyTheLatestRequestLands`, `aFourHundredClearsTheShownReport`) and
   [equipment-control.spec.ts] (`maintenanceOnShowsTheImpactPreview`, `confirmStaysEnabledWhileTheImpactLoads`,
   `whileArmedThePreviewRefreshesAndShowsTheNewVerdict`, `aFailedRefreshKeepsTheLastAnswerAndSaysSo`,
   `aPreviewThatHangsFailsAfterFourSeconds`).

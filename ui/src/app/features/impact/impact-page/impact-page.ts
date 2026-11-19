@@ -2,7 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { catchError, distinctUntilChanged, interval, map, of, startWith, switchMap } from 'rxjs';
+import { catchError, distinctUntilChanged, interval, map, of, startWith, switchMap, timeout } from 'rxjs';
 import { BoardApi } from '../../../core/api/board-api';
 import { ImpactApi, VERDICT_LABEL } from '../../../core/api/impact-api';
 import { ImpactDto, ServiceChangeDto } from '../../../core/api/models';
@@ -10,6 +10,8 @@ import { formatUtcTime } from '../../../shared/format';
 import { AppHeader } from '../../board/app-header/app-header';
 
 const REFRESH_MS = 5000;
+/** A request still unanswered after this long counts as a failed refresh, before the next tick would cancel it. */
+const TIMEOUT_MS = 4000;
 const SYMBOL: Record<string, string> = { SERVICE_LOSS: '✕ ', REDUCED_MARGIN: '▲ ' };
 const VERDICT_CLASS: Record<string, string> = {
   SERVICE_LOSS: 'loss', REDUCED_MARGIN: 'margin', NO_SERVICE_IMPACT: 'none',
@@ -18,6 +20,11 @@ const VERDICT_CLASS: Record<string, string> = {
 const ALREADY_OUT = ['FAILED', 'MAINTENANCE'];
 
 interface Unit { id: string; group: string }
+
+/** A service status, with its best case when the side is UNKNOWN, as the board shows it. */
+function side(status: string, bestCase: string | null): string {
+  return bestCase ? `${status} (at best ${bestCase})` : status;
+}
 
 /**
  * What taking units into maintenance would do to the services, and which single unit failures would hurt now. The
@@ -41,6 +48,9 @@ interface Unit { id: string; group: string }
 
       <section class="planner" aria-label="Plan maintenance">
         <h3>Plan maintenance</h3>
+        @if (unitsMissing()) {
+          <p class="error" role="status">Units could not be loaded</p>
+        }
         @for (g of groups(); track g.name) {
           <fieldset>
             <legend>{{ g.name }}</legend>
@@ -60,7 +70,7 @@ interface Unit { id: string; group: string }
         <p class="error" role="alert">{{ message }}</p>
       }
       @if (failedAt(); as at) {
-        <p class="error" role="alert">Last refresh failed at {{ at }}</p>
+        <p class="error" role="status">Last refresh failed at {{ at }}</p>
       }
 
       @if (report(); as r) {
@@ -79,10 +89,10 @@ interface Unit { id: string; group: string }
           } @else {
             <p>No maintenance planned</p>
           }
-          @if (r.plan.unconfirmed) {
-            <p class="unconfirmed">Unconfirmed: depends on units in UNKNOWN state: {{ r.unknownUnits.join(', ') }}</p>
-          }
         </section>
+        @if (unconfirmed()) {
+          <p class="unconfirmed">Unconfirmed verdicts depend on units in UNKNOWN state: {{ r.unknownUnits.join(', ') }}</p>
+        }
 
         <div class="scroll">
           <table>
@@ -161,48 +171,67 @@ export class ImpactPage {
   protected readonly verdict = (v: string) => (SYMBOL[v] ?? '') + (VERDICT_LABEL[v] ?? v);
   protected readonly verdictClass = (v: string) => VERDICT_CLASS[v] ?? 'none';
   protected readonly time = formatUtcTime;
-  protected readonly change = (c: ServiceChangeDto) => `${c.id} ${c.before} → ${c.after}`;
+  protected readonly change = (c: ServiceChangeDto) =>
+    `${c.id} ${side(c.before, c.beforeBestCase)} → ${side(c.after, c.afterBestCase)}`;
 
   /** The units of the plan, from the URL. */
   protected readonly plan = toSignal(this.route.queryParamMap.pipe(
     map(q => q.getAll('maintenance')), distinctUntilChanged((a, b) => a.join() === b.join())), { initialValue: [] as string[] });
   private readonly units = signal<Unit[]>([]);
+  private readonly unitsFailed = signal(false);
   protected readonly report = signal<ImpactDto | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly failedAt = signal<string | null>(null);
 
+  /** The plan or any single point depends on units in UNKNOWN state. */
+  protected readonly unconfirmed = computed(() => {
+    const r = this.report();
+    return !!r && (r.plan.unconfirmed || r.singlePoints.some(p => p.unconfirmed));
+  });
+
+  /** The board's units by functional group or, when the board could not be loaded, the units the report names. */
   protected readonly groups = computed(() => {
+    if (this.unitsFailed()) {
+      const r = this.report();
+      const ids = r ? [...r.singlePoints.map(p => p.unit), ...r.outOfService.map(o => o.unit)].sort() : [];
+      return ids.length ? [{ name: 'Units', units: ids.map(id => ({ id, group: 'Units' })) }] : [];
+    }
     const byGroup = new Map<string, Unit[]>();
     for (const u of this.units()) {
       byGroup.set(u.group, [...(byGroup.get(u.group) ?? []), u]);
     }
     return [...byGroup].map(([group, units]) => ({ name: group.replaceAll('_', ' '), units }));
   });
+  protected readonly unitsMissing = computed(() => this.unitsFailed() && this.groups().length === 0);
   private readonly out = computed(() => new Map(
     (this.report()?.outOfService ?? []).filter(o => ALREADY_OUT.includes(o.reason)).map(o => [o.unit, o.reason.toLowerCase()])));
 
   constructor() {
     inject(BoardApi).board().subscribe({
       next: b => this.units.set(b.equipment.map(e => ({ id: e.id, group: e.group }))),
-      error: () => {},
+      error: () => this.unitsFailed.set(true),
     });
     this.route.queryParamMap.pipe(
       map(q => q.getAll('maintenance')),
       distinctUntilChanged((a, b) => a.join() === b.join()),
       // a new plan or a new tick cancels the request in flight, so only the latest answer lands
       switchMap(units => interval(REFRESH_MS).pipe(startWith(0), switchMap(() => this.api.assess(units).pipe(
+        timeout(TIMEOUT_MS),
         map(r => ({ r })),
-        catchError((e: HttpErrorResponse) => of({ e })))))),
+        catchError((e: unknown) => of({ e })))))),
       takeUntilDestroyed(),
     ).subscribe(result => {
       if ('r' in result) {
         this.report.set(result.r);
         this.error.set(null);
         this.failedAt.set(null);
-      } else if (result.e.status === 400 && result.e.error?.detail) {
+      } else if (result.e instanceof HttpErrorResponse && result.e.status === 400 && result.e.error?.detail) {
+        // the plan itself is refused, so no earlier report may stand for it
+        this.report.set(null);
         this.error.set(result.e.error.detail);
         this.failedAt.set(null);
       } else {
+        this.error.set(null);
         this.failedAt.set(formatUtcTime(Date.now()));
       }
     });

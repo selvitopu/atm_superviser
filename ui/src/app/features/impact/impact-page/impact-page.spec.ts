@@ -29,7 +29,7 @@ describe('ImpactPage', () => {
   beforeEach(() => vi.useFakeTimers({ now: Date.parse('2026-11-19T10:15:00Z'), toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] }));
   afterEach(() => vi.useRealTimers());
 
-  async function setup(url = '/impact') {
+  async function setup(url = '/impact', boardFails = false) {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [provideHttpClient(), provideHttpClientTesting(),
@@ -39,10 +39,14 @@ describe('ImpactPage', () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl(url, ImpactPage);
     const http = TestBed.inject(HttpTestingController);
-    http.expectOne('/api/v1/board').flush(board({
-      equipment: [eq('RAD-N'), eq('FDPS-A', { group: 'FLIGHT_DATA' }), eq('FDPS-B', { group: 'FLIGHT_DATA' })],
-      services: [svc('SURV', 'OK'), svc('FD', 'OK')],
-    }));
+    if (boardFails) {
+      http.expectOne('/api/v1/board').flush(null, { status: 503, statusText: 'Service Unavailable' });
+    } else {
+      http.expectOne('/api/v1/board').flush(board({
+        equipment: [eq('RAD-N'), eq('FDPS-A', { group: 'FLIGHT_DATA' }), eq('FDPS-B', { group: 'FLIGHT_DATA' })],
+        services: [svc('SURV', 'OK'), svc('FD', 'OK')],
+      }));
+    }
     const el = harness.routeNativeElement as HTMLElement;
     const text = () => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
     const impact = () => http.expectOne(r => r.url === '/api/v1/impact');
@@ -79,6 +83,7 @@ describe('ImpactPage', () => {
     expect(text()).toContain('No maintenance planned');
     expect(text()).toContain('Single points of failure');
     expect(text()).not.toContain('with the plan applied');
+    expect(text()).not.toContain('Unconfirmed');
   });
 
   it('tickingAUnitPutsItInTheUrl', async () => {
@@ -137,14 +142,44 @@ describe('ImpactPage', () => {
       .toEqual(['Unit', 'State now', 'If it fails', 'Services']);
   });
 
+  /** The N-1 view of a board where FDPS-A is UNKNOWN, as the server reports it. */
+  const unknownFdpsA = (plan: Partial<ImpactDto['plan']> = {}) => report({
+    plan: { units: [], verdict: 'NO_SERVICE_IMPACT', unconfirmed: false, services: [change('SURV'), change('FD',
+      { before: 'UNKNOWN', beforeBestCase: 'OK', after: 'UNKNOWN', afterBestCase: 'OK' })], notes: [], ...plan },
+    singlePoints: [
+      { unit: 'FDPS-B', health: 'OPERATIONAL', verdict: 'SERVICE_LOSS', unconfirmed: true,
+        changes: [change('FD', { verdict: 'SERVICE_LOSS', before: 'UNKNOWN', beforeBestCase: 'OK', after: 'UNKNOWN',
+          afterBestCase: 'DEGRADED', reasonsAfter: ['No FDPS unit available'] })] },
+      { unit: 'FDPS-A', health: 'UNKNOWN', verdict: 'REDUCED_MARGIN', unconfirmed: false,
+        changes: [change('FD', { verdict: 'REDUCED_MARGIN', before: 'UNKNOWN', beforeBestCase: 'OK', after: 'DEGRADED',
+          reasonsAfter: ['Only one FDPS unit available'] })] },
+    ],
+    unknownUnits: ['FDPS-A'],
+  });
+
   it('anUnconfirmedVerdictNamesTheUnknownUnits', async () => {
     const { impact, refresh, text } = await setup();
-    impact().flush(report({
-      plan: { units: [], verdict: 'REDUCED_MARGIN', unconfirmed: true, services: [], notes: [] },
-      unknownUnits: ['SDPS-A', 'SDPS-B'],
-    }));
+    impact().flush(unknownFdpsA());
     refresh();
-    expect(text()).toContain('Unconfirmed: depends on units in UNKNOWN state: SDPS-A, SDPS-B');
+    expect(text()).toContain('Unconfirmed verdicts depend on units in UNKNOWN state: FDPS-A');
+  });
+
+  it('aConfirmedPlanWithAnUnconfirmedSinglePointStillNamesTheUnknownUnits', async () => {
+    const { impact, refresh, text } = await setup('/impact?maintenance=RAD-N');
+    impact().flush(unknownFdpsA({ units: ['RAD-N'] }));
+    refresh();
+    expect(text()).toContain('NO SERVICE IMPACT — taking RAD-N into maintenance');
+    expect(text()).toContain('Unconfirmed verdicts depend on units in UNKNOWN state: FDPS-A');
+  });
+
+  it('anUnknownSideShowsItsBestCase', async () => {
+    const { impact, refresh, text, el } = await setup('/impact?maintenance=RAD-N');
+    impact().flush(unknownFdpsA({ units: ['RAD-N'] }));
+    refresh();
+    expect(text()).toContain('FD UNKNOWN (at best OK) → UNKNOWN (at best OK)');
+    const rows = Array.from(el.querySelectorAll('tbody tr')).map(r => (r.textContent ?? '').replace(/\s+/g, ' ').trim());
+    expect(rows[0]).toContain('FD UNKNOWN (at best OK) → UNKNOWN (at best DEGRADED): No FDPS unit available');
+    expect(rows[1]).toContain('FD UNKNOWN (at best OK) → DEGRADED: Only one FDPS unit available');
   });
 
   it('refreshesEveryFiveSecondsAndKeepsTheLastResultOnFailure', async () => {
@@ -163,6 +198,20 @@ describe('ImpactPage', () => {
     expect(text()).toContain('as of 10:15:05 UTC');
     expect(text()).toContain('Last refresh failed at 10:15:10 UTC');
     expect(text()).toContain('No maintenance planned');
+  });
+
+  it('aRefreshThatHangsCountsAsFailedAndIsAnnouncedPolitely', async () => {
+    const { impact, refresh, text, el } = await setup();
+    impact().flush(report({ asOf: '2026-11-19T10:15:00Z' }));
+    await vi.advanceTimersByTimeAsync(5000);
+    const hung = impact();
+    await vi.advanceTimersByTimeAsync(4000);
+    refresh();
+    expect(hung.cancelled).toBe(true);
+    expect(text()).toContain('Last refresh failed at 10:15:09 UTC');
+    expect(text()).toContain('as of 10:15:00 UTC');
+    const line = Array.from(el.querySelectorAll('p')).find(p => p.textContent?.includes('Last refresh failed'))!;
+    expect(line.getAttribute('role')).toBe('status');
   });
 
   it('onlyTheLatestRequestLands', async () => {
@@ -184,6 +233,55 @@ describe('ImpactPage', () => {
     expect(text()).toContain('Unknown unit: NOPE');
     expect(text()).not.toContain('Last refresh failed');
     expect(Array.from(el.querySelectorAll('button')).some(b => b.textContent?.trim() === 'Clear')).toBe(true);
+  });
+
+  it('aFourHundredClearsTheShownReport', async () => {
+    const { impact, refresh, text, el } = await setup('/impact?maintenance=RAD-N');
+    impact().flush(report({ plan: { units: ['RAD-N'], verdict: 'REDUCED_MARGIN', unconfirmed: false, services: [], notes: [] } }));
+    refresh();
+    expect(text()).toContain('REDUCED MARGIN');
+    await TestBed.inject(Router).navigateByUrl('/impact?maintenance=NOPE');
+    impact().flush({ detail: 'Unknown unit: NOPE' }, { status: 400, statusText: 'Bad Request' });
+    refresh();
+    expect(text()).toContain('Unknown unit: NOPE');
+    expect(text()).not.toContain('REDUCED MARGIN');
+    expect(text()).not.toContain(BASIS);
+    expect(el.querySelector('table')).toBeNull();
+  });
+
+  it('aLaterFailureReplacesTheFourHundredTextAndASuccessClearsBoth', async () => {
+    const { impact, refresh, text, el } = await setup('/impact?maintenance=NOPE');
+    impact().flush({ detail: 'Unknown unit: NOPE' }, { status: 400, statusText: 'Bad Request' });
+    await vi.advanceTimersByTimeAsync(5000);
+    impact().flush(null, { status: 503, statusText: 'Service Unavailable' });
+    refresh();
+    expect(text()).toContain('Last refresh failed at 10:15:05 UTC');
+    expect(text()).not.toContain('Unknown unit: NOPE');
+
+    (Array.from(el.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Clear') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toBe('/impact'));
+    impact().flush(report());
+    refresh();
+    expect(text()).not.toContain('Last refresh failed');
+    expect(text()).not.toContain('Unknown unit');
+    expect(text()).toContain('No maintenance planned');
+  });
+
+  it('whenTheUnitsCannotBeLoadedThePlannerSaysSoThenUsesTheReport', async () => {
+    const { impact, refresh, text, box, el } = await setup('/impact', true);
+    refresh();
+    expect(text()).toContain('Units could not be loaded');
+    impact().flush(report({
+      singlePoints: [{ unit: 'FDPS-A', health: 'OPERATIONAL', verdict: 'SERVICE_LOSS', unconfirmed: false, changes: [] },
+        { unit: 'RAD-N', health: 'OPERATIONAL', verdict: 'NO_SERVICE_IMPACT', unconfirmed: false, changes: [] }],
+      outOfService: [{ unit: 'FDPS-B', reason: 'MAINTENANCE' }],
+    }));
+    refresh();
+    expect(text()).not.toContain('Units could not be loaded');
+    expect(Array.from(el.querySelectorAll('legend')).map(l => l.textContent?.trim())).toEqual(['Units']);
+    expect(Array.from(el.querySelectorAll<HTMLInputElement>('input[type=checkbox]')).map(i => i.value))
+      .toEqual(['FDPS-A', 'FDPS-B', 'RAD-N']);
+    expect(box('FDPS-B').disabled).toBe(true);
   });
 
   it('neverSaysSafe', async () => {

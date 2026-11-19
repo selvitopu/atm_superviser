@@ -218,10 +218,12 @@ maintenance. It reruns the same service rules the board uses, so it can never di
 * **Unconfirmed:** a unit in `UNKNOWN` state is never read as healthy. A verdict is the worst over every possible
   state of the `UNKNOWN` units, each working or not, and is marked unconfirmed when those states disagree. The unit
   asked about, or planned, counts as working now. With more than 10 `UNKNOWN` units the verdict is a conservative
-  bound, which can only overstate. The screen adds `Unconfirmed: depends on units in UNKNOWN state:` followed by their
-  names.
+  bound, which can only overstate. Whenever the plan or any single point is unconfirmed, the screen adds
+  `Unconfirmed verdicts depend on units in UNKNOWN state:` followed by their names. A service that depends on them
+  reads, for example, `UNKNOWN (at best OK)`, as on the board.
 * **Freshness:** the screen refreshes every 5 s and shows the time the answer is based on (`as of`). If a refresh
-  fails, it keeps the last result and says `Last refresh failed at …`, so the `as of` time shows how old it is.
+  fails or takes longer than 4 s, it keeps the last result and says `Last refresh failed at …`, so the `as of` time
+  shows how old it is. A plan that names a unit the supervisor does not know shows the reason instead of a result.
 * **Basis:** every result ends with `Derived from the supervised equipment and the service rules; not a safety
   assessment`. The analysis counts available units only: it does not model the brief interruption of a switchover or
   a radar's coverage. The verdict informs a decision and never blocks a command.
