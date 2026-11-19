@@ -254,10 +254,11 @@ the features exist:
 - **Consequence:** an operator injects what they believe is a training fault, or someone unauthenticated does.
 - **Mitigation:**
   - The console exists only with `atm.demo-mode=true` ([SimulatorConsoleController]); outside demo mode its API
-    answers 404 and the screen is not linked.
+    answers 404, the screen is not linked, and its address leads to the board.
   - It needs a signed-in supervisor, and nginx no longer exposes the simulator.
   - Demo credentials and demo accounts are refused outside demo mode.
-- **Verified by:** [SimulatorConsoleAbsentTest], [SimulatorConsoleControllerTest] (`aViewerCannotInjectFaults`).
+- **Verified by:** [SimulatorConsoleAbsentTest], [SimulatorConsoleControllerTest] (`aViewerCannotInjectFaults`), and
+  the UI spec `demo.guard.spec.ts`.
 - **Status:** mitigated.
 
 [CommandController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/CommandController.java

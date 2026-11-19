@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { AlarmDto, PageDto } from '../../../core/api/models';
-import { alarm, board, eq } from '../../../core/state/test-fixtures';
+import { alarm, board, eq, svc } from '../../../core/state/test-fixtures';
 import { authProvider, clockProvider, FakeAuth, FakeStore, render, storeProviders } from '../../../testing/render';
 import { HistoryPage } from './history-page';
 
@@ -16,7 +16,8 @@ describe('HistoryPage', () => {
     const f = render(HistoryPage, {}, [provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
       authProvider(new FakeAuth(['VIEWER'])), ...storeProviders(new FakeStore()), clockProvider('2026-11-16T10:00:00Z')]);
     const http = TestBed.inject(HttpTestingController);
-    http.expectOne('/api/v1/board').flush(board({ equipment: [eq('RAD-N'), eq('SDPS-A')] }));
+    http.expectOne('/api/v1/board').flush(board({ equipment: [eq('RAD-N'), eq('SDPS-A')],
+      services: [svc('SURV', 'OK'), svc('FD', 'OK')] }));
     const search = () => http.expectOne(r => r.url === '/api/v1/alarms');
     const refresh = () => f.fixture.detectChanges();
     const set = (selector: string, value: string) => {
@@ -50,11 +51,12 @@ describe('HistoryPage', () => {
       + '&from=2026-11-16T08:00:00.000Z&to=2026-11-16T09:30:00.000Z&page=0&size=50');
   });
 
-  it('offersTheKnownEquipment', () => {
+  it('offersTheKnownEquipmentAndTheServicesWhoseAlarmsTheSupervisorRaises', () => {
     const { f, search, refresh } = setup();
     search().flush(page([]));
     refresh();
-    expect(f.all('select.equipment option').map(o => o.textContent?.trim())).toEqual(['Any', 'RAD-N', 'SDPS-A']);
+    expect(f.all('select.equipment option').map(o => o.textContent?.trim()))
+      .toEqual(['Any', 'RAD-N', 'SDPS-A', 'SURV', 'FD']);
   });
 
   it('pagesThroughTheResults', () => {
@@ -96,10 +98,42 @@ describe('HistoryPage', () => {
     expect(f.text()).toContain('No alarms match');
   });
 
+  it('pagesThroughTheSearchItShowsNotTheFiltersBeingEdited', () => {
+    const { f, search, refresh, click, set } = setup();
+    search().flush(page(Array.from({ length: 50 }, (_, i) => alarm('a' + i)), 0, 120));
+    refresh();
+
+    set('select.severity', 'CRITICAL'); // edited, not searched yet
+    click('Next');
+    expect(search().request.params.toString()).toBe('state=all&page=1&size=50');
+    expect(f.el.querySelector<HTMLSelectElement>('select.severity')!.value).toBe('CRITICAL');
+  });
+
   it('saysSoWhenTheSearchFails', () => {
     const { f, search, refresh } = setup();
-    search().flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    search().flush(null, { status: 500, statusText: 'Server Error' });
     refresh();
-    expect(f.text()).toContain('Search failed');
+    expect(f.text()).toContain('Search failed. Try again.');
+  });
+
+  it('showsTheServersReasonForARefusedSearch', () => {
+    const { f, search, refresh } = setup();
+    search().flush({ detail: 'Validation failure' }, { status: 400, statusText: 'Bad Request' });
+    refresh();
+    expect(f.text()).toContain('Validation failure');
+    expect(f.text()).not.toContain('Search failed');
+  });
+
+  it('onlyTheLatestSearchLands', () => {
+    const { f, http, search, refresh, set, click } = setup();
+    const first = search();
+    set('select.severity', 'CRITICAL');
+    click('Search');
+
+    expect(first.cancelled).toBe(true);
+    const latest = http.expectOne(r => r.url === '/api/v1/alarms' && r.params.get('severity') === 'CRITICAL');
+    latest.flush(page([alarm('critical', { text: 'Latest search' })]));
+    refresh();
+    expect(f.text()).toContain('Latest search');
   });
 });

@@ -1,4 +1,6 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { AlarmQuery, AlarmSearch } from '../../../core/api/alarm-search';
 import { BoardApi } from '../../../core/api/board-api';
 import { AlarmDto, PageDto } from '../../../core/api/models';
@@ -16,7 +18,10 @@ function utc(local: string): string {
   return local ? new Date(local + ':00Z').toISOString() : '';
 }
 
-/** Every alarm, open or closed, newest first: who acknowledged it and when it cleared. */
+/**
+ * Every alarm, open or closed, newest first: who acknowledged it and when it cleared. Previous and Next page through
+ * the search last submitted, and only the latest request may land.
+ */
 @Component({
   selector: 'app-history-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -25,7 +30,7 @@ function utc(local: string): string {
     <app-app-header />
     <main>
       <h2>ALARM HISTORY</h2>
-      <form class="filters" (submit)="$event.preventDefault(); search(0)">
+      <form class="filters" (submit)="$event.preventDefault(); search()">
         <label>State
           <select class="state" (change)="state.set($any($event.target).value)">
             <option value="all" [selected]="state() === 'all'">All</option>
@@ -49,8 +54,8 @@ function utc(local: string): string {
         <button type="submit">Search</button>
       </form>
 
-      @if (failed()) {
-        <p class="error" role="alert">Search failed. Try again.</p>
+      @if (error(); as message) {
+        <p class="error" role="alert">{{ message }}</p>
       }
       <div class="scroll">
         <table>
@@ -77,8 +82,8 @@ function utc(local: string): string {
       </div>
       <nav class="pager" aria-label="Pages">
         <span class="mono">{{ range() }}</span>
-        <button type="button" [disabled]="!hasPrevious()" (click)="search(page() - 1)">Previous</button>
-        <button type="button" [disabled]="!hasNext()" (click)="search(page() + 1)">Next</button>
+        <button type="button" [disabled]="!hasPrevious()" (click)="turnTo(page() - 1)">Previous</button>
+        <button type="button" [disabled]="!hasNext()" (click)="turnTo(page() + 1)">Next</button>
       </nav>
     </main>
   `,
@@ -120,10 +125,11 @@ export class HistoryPage {
   protected readonly equipment = signal('');
   protected readonly from = signal('');
   protected readonly to = signal('');
+  /** Equipment ids, then the service ids that the supervisor's own alarms (903, 904) carry. */
   protected readonly equipmentIds = signal<string[]>([]);
 
   protected readonly result = signal<PageDto<AlarmDto> | null>(null);
-  protected readonly failed = signal(false);
+  protected readonly error = signal<string | null>(null);
   protected readonly page = computed(() => this.result()?.page ?? 0);
   protected readonly rows = computed(() => this.result()?.items ?? []);
   protected readonly hasPrevious = computed(() => this.page() > 0);
@@ -140,20 +146,38 @@ export class HistoryPage {
     return `${first}–${first + r.items.length - 1} of ${r.total}`;
   });
 
+  /** The filters of the last search submitted; paging keeps them while the form is edited. */
+  private submitted: AlarmQuery | null = null;
+  private inFlight: Subscription | null = null;
+
   constructor() {
-    inject(BoardApi).board().subscribe({ next: b => this.equipmentIds.set(b.equipment.map(e => e.id)), error: () => {} });
-    this.search(0);
+    inject(BoardApi).board().subscribe({
+      next: b => this.equipmentIds.set([...b.equipment.map(e => e.id), ...b.services.map(s => s.id)]),
+      error: () => {},
+    });
+    this.search();
   }
 
-  protected search(page: number): void {
-    const query: AlarmQuery = {
+  protected search(): void {
+    this.submitted = {
       state: this.state(), severity: this.severity(), equipment: this.equipment(),
-      from: utc(this.from()), to: utc(this.to()), page, size: SIZE,
+      from: utc(this.from()), to: utc(this.to()), page: 0, size: SIZE,
     };
-    this.failed.set(false);
-    this.alarms.search(query).subscribe({
+    this.load(this.submitted);
+  }
+
+  protected turnTo(page: number): void {
+    if (this.submitted) {
+      this.load({ ...this.submitted, page });
+    }
+  }
+
+  private load(query: AlarmQuery): void {
+    this.inFlight?.unsubscribe(); // an answer to an older search must not replace a newer one
+    this.error.set(null);
+    this.inFlight = this.alarms.search(query).subscribe({
       next: r => this.result.set(r),
-      error: () => this.failed.set(true),
+      error: (e: HttpErrorResponse) => this.error.set(e.error?.detail ?? 'Search failed. Try again.'),
     });
   }
 }

@@ -159,9 +159,10 @@ The bottom pane tracks every open alarm (`ACTIVE_UNACK`, `ACTIVE_ACK`, `CLEARED_
 ### 2.7 Alarm History
 
 **Alarm history** in the header searches every alarm, open or closed, newest first. Filter by state (`All` or
-`Open`), severity, equipment, and a **From/To** range in UTC, then click **Search**. Each row shows when the alarm
-was raised, who acknowledged it and when, and when it cleared. **Previous** and **Next** page through 50 alarms at a
-time.
+`Open`), severity, equipment (or the service `SURV` or `FD`, for the supervisor's alarms `903` and `904`), and a
+**From/To** range in UTC, then click **Search**. Each row shows when the alarm was raised, who acknowledged it and
+when, and when it cleared. **Previous** and **Next** page through 50 alarms at a time of the search you last
+submitted, even while you edit the filters. If the server refuses a search, the page shows its reason.
 
 ### 2.8 Simulator (Demo Centre Only)
 
@@ -169,7 +170,7 @@ Supervisors and administrators see **Simulator** in the header when the stack ru
 simulated device with its status, role, whether it answers SNMP, and its active faults, and offers the faults its type
 supports: **Fail**, **Degrade**, **Channel A fail** and **Channel B fail** (radars), **Sensor lost** with the radar it
 concerns (SDPS), **Unreachable**, **Drop traps**, and **Recover**. **Reset all** asks for a confirmation first. The
-screen refreshes every two seconds. Outside demo mode the screen and its API do not exist.
+screen refreshes every two seconds. Outside demo mode its API does not exist, and its address leads to the board.
 
 ### 2.9 Users (Administrators)
 

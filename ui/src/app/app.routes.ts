@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/auth/auth.guard';
+import { demoGuard } from './core/auth/demo.guard';
 import { RegisterPage } from './features/auth/register-page/register-page';
 import { SignInPage } from './features/auth/sign-in-page/sign-in-page';
 import { BoardPage } from './features/board/board-page/board-page';
@@ -19,7 +20,7 @@ export const routes: Routes = [
   },
   { path: 'history', component: HistoryPage, canActivate: [authGuard], title: 'Alarm history · ATM Supervisor' },
   {
-    path: 'simulator', component: SimulatorPage, canActivate: [authGuard, roleGuard('SUPERVISOR')],
+    path: 'simulator', component: SimulatorPage, canActivate: [authGuard, roleGuard('SUPERVISOR'), demoGuard],
     title: 'Simulator · ATM Supervisor',
   },
   {
