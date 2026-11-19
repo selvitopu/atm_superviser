@@ -21,6 +21,8 @@ import io.github.selvitopu.atmsup.supervisor.api.Dtos.BoardDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDetailDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EventSummaryDto;
+import io.github.selvitopu.atmsup.supervisor.api.Dtos.ImpactDto;
+import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceChangeDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceDto;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -343,6 +345,32 @@ class SupervisorEndToEndIT {
         assertThat(detail.recentEvents()).filteredOn(e -> e.type().equals("EQUIPMENT_COMMANDED"))
                 .extracting(EventSummaryDto::summary)
                 .containsExactly("Maintenance on by supervisor1: done", "Maintenance on by supervisor1: issued");
+
+        assertThat(postCommand("FDPS-B", "MAINTENANCE_OFF").statusCode()).isEqualTo(200);
+        await().atMost(ofSeconds(10)).until(() -> !maintenance("FDPS-B"));
+    }
+
+    @Test
+    @Order(7)
+    void thePredictedImpactOfMaintenanceIsWhatTheBoardShows() {
+        // the radars failed in the first scenario stay failed until recovered; the prediction starts from a healthy board
+        fixture.centre().applyFault("RAD-N", new FaultRequest(RECOVER, null));
+        fixture.centre().applyFault("RAD-E", new FaultRequest(RECOVER, null));
+        await().atMost(ofSeconds(20)).until(this::allOperational);
+        ImpactDto impact = getJson("/api/v1/impact?maintenance=FDPS-B", ImpactDto.class);
+        assertThat(impact.plan().verdict()).isEqualTo("REDUCED_MARGIN");
+
+        assertThat(postCommand("FDPS-B", "MAINTENANCE_ON").statusCode()).isEqualTo(200);
+        await().atMost(ofSeconds(10)).until(() -> maintenance("FDPS-B"));
+        await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(service("FD").status()).isEqualTo("DEGRADED"));
+
+        assertThat(impact.plan().services()).isNotEmpty();
+        for (ServiceChangeDto predicted : impact.plan().services()) {
+            ServiceDto actual = service(predicted.id());
+            assertThat(actual.status()).as("%s status", predicted.id()).isEqualTo(predicted.after());
+            assertThat(actual.redundancyLost()).as("%s redundancy", predicted.id())
+                    .isEqualTo(predicted.redundancyLostAfter());
+        }
 
         assertThat(postCommand("FDPS-B", "MAINTENANCE_OFF").statusCode()).isEqualTo(200);
         await().atMost(ofSeconds(10)).until(() -> !maintenance("FDPS-B"));

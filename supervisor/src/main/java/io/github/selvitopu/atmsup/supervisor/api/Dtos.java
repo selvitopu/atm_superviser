@@ -78,4 +78,26 @@ public final class Dtos {
 
     public record CommandResultDto(String equipmentId, String command, String outcome) {
     }
+
+    /** What-if maintenance report; {@code basis} says what the verdicts rest on. */
+    public record ImpactDto(Instant asOf, String basis, PlanDto plan, List<SinglePointDto> singlePoints,
+                            List<OutOfServiceDto> outOfService, List<String> unknownUnits) {
+    }
+
+    public record PlanDto(List<String> units, String verdict, boolean unconfirmed, List<ServiceChangeDto> services,
+                          List<String> notes) {
+    }
+
+    /** {@code name} is the service label; the best cases are null unless the side is UNKNOWN. */
+    public record ServiceChangeDto(String id, String name, String verdict, String before, String beforeBestCase,
+                                   String after, String afterBestCase, boolean redundancyLostAfter,
+                                   List<String> reasonsAfter) {
+    }
+
+    public record SinglePointDto(String unit, String health, String verdict, boolean unconfirmed,
+                                 List<ServiceChangeDto> changes) {
+    }
+
+    public record OutOfServiceDto(String unit, String reason) {
+    }
 }
