@@ -159,8 +159,9 @@ Status values:
     retried, and it still invalidates the results it made stale ([BoardWriter]).
   - Poll concurrency is bounded (8 by default), and stable values are stored as one sample per device
     every 30 s, not on every poll.
-  - An equipment command is never sent unless its intent is stored first, and no command waits more than 3 s for
-    the writer ([EquipmentControl], H13). While the database is down, commands are refused with 503.
+  - An equipment command is never sent unless its intent is stored first, and no single wait on the writer lasts
+    more than 3 s, so 6 s for a command's two records ([EquipmentControl], H13). While the database is down,
+    commands are refused with 503.
 - **Verified by:** [BoardWriterTest] (`commitFailureLeavesBoardUnchangedAndRetries`,
   `failedCommitStillBumpsGenerationsAndRequestsTheRepoll`, `commitFailureDoesNotLoseTheTelemetrySample`),
   [PollDispatcherTest], [EquipmentControlTest] (`anIntentTheStoreCannotCommitIsNeverSent`,
@@ -230,7 +231,9 @@ the features exist:
   - Every command first shows a confirm bar that names the unit and what will happen; only Confirm sends it, and the
     controls are disabled until the answer arrives, so a double click sends one SET.
   - The panel offers a command only while the unit's state allows it (Make active for an operational standby out of
-    maintenance, Restart in maintenance and not during a restart). A confirm bar disappears once its command no
+    maintenance, Restart in maintenance). Restart is also greyed out while the board shows a restart in progress,
+    but this is not relied on: the unit stops answering moments after a restart starts, so a poll seldom sees it,
+    and a second restart then gets the uncertain no-answer outcome. A confirm bar disappears once its command no
     longer fits the unit, and every result names the unit it concerns, even if another unit was selected meanwhile.
   - The agent refuses a command that does not fit the unit's state (`inconsistentValue`), and the panel shows the
     rule of that command. Any other error status is reported as a fault of the operator user's access on the unit,

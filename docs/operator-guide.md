@@ -133,8 +133,9 @@ Click any equipment tile to select it (deep-linked at `/board/:equipmentId`, for
 * **Recent Events:** Lists up to the last **50 durable events** recorded in PostgreSQL for this device (`EQUIPMENT_STATE_CHANGED`, `CONTACT_LOST`, `CONTACT_RESTORED`, `ALARM_RAISED`, `ALARM_CLEARED`, etc.) with their UTC timestamps and human-readable summaries.
 
 * **Control (supervisors and administrators):** **Maintenance on** or **Maintenance off**, **Restart** (only in
-  maintenance, and not while a restart is in progress), and **Make active** (for the standby unit of a pair, enabled
-  only while it is operational and not in maintenance). A greyed-out button says why when you point at it. See
+  maintenance; it is also greyed out if the board shows a restart in progress, which is rare because the unit stops
+  answering as soon as it restarts), and **Make active** (for the standby unit of a pair, enabled only while it is
+  operational and not in maintenance). A greyed-out button says why when you point at it. See
   Playbook 4.
 
 ### 2.6 Alarms Pane (Bottom Bar & Table)
