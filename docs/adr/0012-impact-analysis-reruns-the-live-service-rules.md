@@ -59,7 +59,7 @@ Chosen option: **Option 1.**
   `GET /api/v1/impact?maintenance=<id>` to every signed-in role. An id that is not in the inventory is a 400 problem
   detail.
 * **Screens.** The Impact screen (`/impact`, linked for every role) has a planner whose selection lives in the URL,
-  the plan's verdict, a table of single points of failure, a refresh every 5 s, the time the answer is based on and
+  the plan's verdict, a table of single points of failure, a refresh every 5 s, the time of the answer and
   the basis line "Derived from the supervised equipment and the service rules; not a safety assessment". The confirm
   bar of **Maintenance on** shows the same verdict as a preview, with the time of its answer, and asks again every
   5 s while it is armed, so the line beside Confirm follows the board. Confirm is never blocked.
@@ -69,7 +69,7 @@ Chosen option: **Option 1.**
 
 ### Consequences
 
-* **Good:** the analysis can never drift from the board, because it is the board's rules. A property test shows that
+* **Good:** the analysis can never drift from the board, because it is the board's rules. A table test shows that
   `assess` with no extra unit agrees with `evaluate`, and an end-to-end test shows that the plan's prediction equals
   what the board shows once the unit is in maintenance.
 * **Good:** it is exact for whatever the board itself believes, and fast: units times rules, microseconds. New rules

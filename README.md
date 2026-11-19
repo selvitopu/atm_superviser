@@ -204,6 +204,8 @@ who sent it and what came of it; the confirmation for **Maintenance on** also pr
 services. **Alarm history** searches every alarm, **Impact** shows which single failure would cost a service
 and what a planned maintenance leaves, and administrators manage accounts on **Users**.
 
+![The Impact screen with FDPS-B planned for maintenance on a healthy board: the plan reads REDUCED MARGIN because flight data drops from OK to DEGRADED with only one FDPS unit available, FDPS-A becomes a SERVICE LOSS single point of failure, and a note says that maintenance switches the pair over to FDPS-A](docs/images/impact-plan.png)
+
 Stop the stack with `docker compose -f deploy/docker-compose.yml down` (add `-v` to drop the data volumes).
 
 ### Signing in

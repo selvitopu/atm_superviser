@@ -102,7 +102,7 @@ address of the page now carries the plan. Arm **Maintenance on** for `FDPS-B` on
 shows the same impact; cancel it.
 
 Talking point: the screen reruns the board's own service rules with chosen units out, so it cannot disagree with
-the board. It says what the rules count and nothing else, shows its basis and the time it is based on, and never
+the board. It says what the rules count and nothing else, shows its basis and the time of its answer, and never
 blocks a command: the supervisor decides.
 
 ## 8. RAD-S loses its traps, then fails

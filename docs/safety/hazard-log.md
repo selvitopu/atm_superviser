@@ -277,7 +277,7 @@ the features exist:
     clearance or an approval, and `NO SERVICE IMPACT` is shown in neutral text, never the OK green. The verdict is text, not
     colour alone.
   - Every result states its basis, "Derived from the supervised equipment and the service rules; not a safety
-    assessment", and the board time it was computed from. The Impact screen refreshes every 5 s, keeps the last result
+    assessment", and the time of the answer. The Impact screen refreshes every 5 s, keeps the last result
     with `Last refresh failed at …` when a refresh fails, and drops an answer to a superseded request. The
     **Maintenance on** preview also asks again every 5 s while it is armed, states the time of its answer, and adds
     `(last refresh failed)` to the last answer when a refresh fails; a request that hangs for 4 s counts as failed.

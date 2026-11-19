@@ -221,7 +221,7 @@ maintenance. It reruns the same service rules the board uses, so it can never di
   bound, which can only overstate. Whenever the plan or any single point is unconfirmed, the screen adds
   `Unconfirmed verdicts depend on units in UNKNOWN state:` followed by their names. A service that depends on them
   reads, for example, `UNKNOWN (at best OK)`, as on the board.
-* **Freshness:** the screen refreshes every 5 s and shows the time the answer is based on (`as of`). If a refresh
+* **Freshness:** the screen refreshes every 5 s and shows the time of the answer (`as of`). If a refresh
   fails or takes longer than 4 s, it keeps the last result and says `Last refresh failed at …`, so the `as of` time
   shows how old it is. A plan that names a unit the supervisor does not know shows the reason instead of a result.
 * **Basis:** every result ends with `Derived from the supervised equipment and the service rules; not a safety
@@ -322,9 +322,10 @@ not sent: it could not be recorded*.
    failure leaves no FDPS unit.
 4. **Do it from the board:** select `FDPS-B`, click **Maintenance on**. The confirm bar shows the same preview,
    `Impact at … UTC: REDUCED MARGIN — FD: Only one FDPS unit available`. Click **Confirm**, and the board shows `FD`
-   `▲ DEGRADED`, as the plan said.
-5. **Take it out again:** click **Maintenance off** and **Confirm**. `FD` returns to `✓ OK`, and on **Impact** `FDPS-A` is
-   back to `▲ REDUCED MARGIN`.
+   `▲ DEGRADED`, as the plan said. On **Impact**, a plan that still names `FDPS-B` now reads `NO SERVICE IMPACT`,
+   because the unit is already out and taking it out again changes nothing.
+5. **Take it out again:** click **Maintenance off** and **Confirm**. `FD` returns to `✓ OK`. On **Impact**, click
+   **Clear** (or open Impact from the header), and `FDPS-A` is back to `▲ REDUCED MARGIN`.
 
 ---
 
