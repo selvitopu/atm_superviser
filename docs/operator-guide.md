@@ -56,8 +56,10 @@ The board opens with the sign-in screen. In demo mode it lists three accounts; s
 
 Each password is the account name followed by `-demo`. **Create a read-only account** registers a new VIEWER. When a
 session ends (after 12 hours without the board open, or when the supervisor restarts), the board returns to the
-sign-in screen with the notice *Your session ended. Sign in again.* **Sign out** is at the right of the header; it
-ends the session in every window at once, and so does an administrator's change to your account.
+sign-in screen with the notice *Your session ended. Sign in again.* **Sign out** is at the right of the header. It
+ends the session in every window, and so does an administrator's change to your account: every request from that
+session is refused at once, and a window showing the board returns to the sign-in screen within seconds. A window on
+another screen returns to sign-in at its next action, and the Simulator screen within its two-second refresh.
 
 ---
 
@@ -173,7 +175,8 @@ screen refreshes every two seconds. Outside demo mode the screen and its API do 
 
 **Users** lists every account with its role and whether it is enabled. An administrator can change a role and
 **Save**, **Disable** an account after a confirmation or **Enable** it again, and **Set password** under the same rule
-as registration. Every change signs that user out at once, in every window. Your own row is read-only, so an
+as registration. Every change ends that user's sessions: the server refuses their next request, their board returns
+to the sign-in screen within seconds, and their other screens at their next action. Your own row is read-only, so an
 administrator cannot lock themselves out.
 
 ---

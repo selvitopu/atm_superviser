@@ -48,7 +48,8 @@ final class SseClient {
     private final BlockingQueue<SseMessage> durable;
     private final Map<String, SseMessage> latest = new ConcurrentHashMap<>();
     private final Consumer<SseClient> onClose;
-    private final String sessionId;
+    /** Follows the session when its id changes, so that ending the session still finds this stream. */
+    private volatile String sessionId;
     /** Wakes the idle thread; at most a few permits are ever pending, and they are drained on every wake-up. */
     private final Semaphore wake = new Semaphore(0);
     private final AtomicReference<String> closeReason = new AtomicReference<>();
@@ -110,14 +111,18 @@ final class SseClient {
         signal();
     }
 
-    /**
-     * Stops delivery at once and, on the client's thread, completes the emitter and ends the thread. Only the first
-     * call counts; it calls {@code onClose}.
-     */
     String sessionId() {
         return sessionId;
     }
 
+    void sessionId(String id) {
+        this.sessionId = id;
+    }
+
+    /**
+     * Stops delivery at once and, on the client's thread, completes the emitter and ends the thread. Only the first
+     * call counts; it calls {@code onClose}.
+     */
     void disconnect(String reason) {
         if (!closeReason.compareAndSet(null, reason)) {
             return;

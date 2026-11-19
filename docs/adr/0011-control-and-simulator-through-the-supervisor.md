@@ -52,8 +52,9 @@ Chosen option: **Option 2.**
 * **Simulator console:** [`SimulatorConsoleController`] exists only with `atm.demo-mode=true`. It forwards
   `/api/v1/simulator/**` to the simulator's console API for supervisors, and nginx no longer exposes the simulator.
 * **Accounts:** `/api/v1/admin/users` (ADMIN) changes roles, enables and disables accounts, and sets passwords. An
-  administrator cannot change their own account there. [`LiveSessions`] ends every session of the changed account,
-  and each ended session closes its live streams, so the user's windows go to the sign-in screen at once.
+  administrator cannot change their own account there. Once the change is committed, [`LiveSessions`] ends every
+  session of the changed account. The server then refuses each of its requests, and each ended session closes its
+  live streams, so a board returns to the sign-in screen within seconds; other screens follow at their next request.
 * **Screens:** the board's detail panel gets a Control section with an inline confirm bar that names the unit and
   the effect. The header links Alarm history for everyone, Simulator for supervisors in demo mode, and Users for
   administrators.
@@ -91,9 +92,10 @@ Chosen option: **Option 2.**
 * [`SimulatorConsoleControllerTest`] and [`SimulatorConsoleAbsentTest`] — forwarding, refusals, an unreachable
   simulator, and no console outside demo mode.
 * [`AdminUserServiceIT`], [`AdminUserControllerTest`] and [`LiveSessionsTest`] — account changes, the own-account
-  rule, and ended sessions.
+  rule, and sessions ended once the change is committed.
 * [`SupervisorEndToEndIT`] — a supervisor puts a unit into maintenance and its events show the command issued, then
-  done; signing out ends the open stream.
+  done; signing out ends the open stream, and so does an administrator's change to the signed-in account, after which
+  its session is refused.
 
 [`EquipmentControl`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/control/EquipmentControl.java
 [`SimulatorConsoleController`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/simconsole/SimulatorConsoleController.java

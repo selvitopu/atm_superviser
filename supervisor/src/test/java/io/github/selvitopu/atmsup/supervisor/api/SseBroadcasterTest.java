@@ -64,6 +64,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.web.session.HttpSessionDestroyedEvent;
+import org.springframework.security.web.session.HttpSessionIdChangedEvent;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** Review focus 5 (amendment §4): ring filled with ids 101..1100; test emitters record what each client sends. */
@@ -400,6 +401,21 @@ class SseBroadcasterTest {
         assertThat(other.completed()).isFalse();
         assertThat(gauge("atmsup.sse.clients")).isEqualTo(2.0); // the set-up client and s2
         assertThat(counter("atmsup.sse.disconnects", "reason", "session-ended")).isEqualTo(2.0);
+    }
+
+    @Test
+    void aStreamFollowsItsSessionToANewId() {
+        // signing in again in another tab changes the session's id; ending the session must still end this stream
+        nextMode = Mode.NORMAL;
+        TestEmitter renamed = (TestEmitter) broadcaster.subscribe(null, null, "s1");
+        TestEmitter other = (TestEmitter) broadcaster.subscribe(null, null, "s2");
+
+        broadcaster.onSessionIdChanged(new HttpSessionIdChangedEvent(new MockHttpSession(null, "s1-new"), "s1"));
+        broadcaster.onSessionDestroyed(new HttpSessionDestroyedEvent(new MockHttpSession(null, "s1-new")));
+
+        await().atMost(ofSeconds(1)).until(renamed::completed);
+        assertThat(other.completed()).isFalse();
+        assertThat(counter("atmsup.sse.disconnects", "reason", "session-ended")).isEqualTo(1.0);
     }
 
     @Test

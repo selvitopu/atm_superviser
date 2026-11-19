@@ -9,11 +9,14 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Account administration: one role per account, enabling and disabling, and setting a new password. Every change ends
- * the account's live sessions at once, so a new role or a disabled account takes effect immediately. An administrator
- * cannot change their own account here: that could lock the last administrator out or sign them out mid-change.
+ * the account's live sessions as soon as it is committed, so a new role or a disabled account takes effect at once.
+ * An administrator cannot change their own account here: that could lock the last administrator out or sign them out
+ * mid-change.
  */
 @Service
 public class AdminUserService {
@@ -58,7 +61,7 @@ public class AdminUserService {
         }
         if (!changes.isEmpty()) {
             users.flush();
-            sessions.endSessionsOf(user.getUsername());
+            endSessionsAfterCommit(user.getUsername());
             log.info("{} changed {}: {}", actor, user.getUsername(), String.join(", ", changes));
         }
         return dto(user);
@@ -70,8 +73,22 @@ public class AdminUserService {
         AccountService.checkPassword(user.getUsername(), password);
         user.changePasswordHash(passwords.encode(password));
         users.flush();
-        sessions.endSessionsOf(user.getUsername());
+        endSessionsAfterCommit(user.getUsername());
         log.info("{} set a new password for {}", actor, user.getUsername());
+    }
+
+    /**
+     * Ends the account's sessions once the change is committed. Ended earlier, a sign-in completing before the commit
+     * would read the old role or enabled flag and keep its session; one that reads the account before the commit and
+     * stores its session after this runs still can, which only a check of the account on every request would close.
+     */
+    private void endSessionsAfterCommit(String username) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                sessions.endSessionsOf(username);
+            }
+        });
     }
 
     private AppUser editable(String username, String actor) {

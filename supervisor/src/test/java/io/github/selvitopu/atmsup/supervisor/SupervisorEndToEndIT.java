@@ -145,8 +145,12 @@ class SupervisorEndToEndIT {
     }
 
     private static HttpResponse<String> send(HttpRequest request) {
+        return send(http, request);
+    }
+
+    private static HttpResponse<String> send(HttpClient client, HttpRequest request) {
         try {
-            return http.send(request, BodyHandlers.ofString());
+            return client.send(request, BodyHandlers.ofString());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {
@@ -166,16 +170,26 @@ class SupervisorEndToEndIT {
     }
 
     private static String csrfToken() {
-        return COOKIES.getCookieStore().getCookies().stream().filter(c -> c.getName().equals("XSRF-TOKEN"))
+        return csrfToken(COOKIES);
+    }
+
+    private static String csrfToken(CookieManager jar) {
+        return jar.getCookieStore().getCookies().stream().filter(c -> c.getName().equals("XSRF-TOKEN"))
                 .map(HttpCookie::getValue).findFirst().orElse("");
     }
 
-    /** Signs in through the real form-login endpoint: first the sign-in configuration (which sets the CSRF cookie). */
     private HttpResponse<String> signIn(String username, String password) {
-        get(baseUrl() + "/api/v1/auth/config");
-        return send(HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/auth/login")).timeout(ofSeconds(10))
+        return signIn(http, COOKIES, username, password);
+    }
+
+    /** Signs in through the real form-login endpoint: first the sign-in configuration (which sets the CSRF cookie). */
+    private HttpResponse<String> signIn(HttpClient client, CookieManager jar, String username, String password) {
+        send(client, HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/auth/config")).timeout(ofSeconds(10))
+                .build());
+        return send(client, HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/auth/login"))
+                .timeout(ofSeconds(10))
                 .header("Content-Type", "application/x-www-form-urlencoded")
-                .header("X-XSRF-TOKEN", csrfToken())
+                .header("X-XSRF-TOKEN", csrfToken(jar))
                 .POST(BodyPublishers.ofString("username=" + username + "&password=" + password))
                 .build());
     }
@@ -399,6 +413,34 @@ class SupervisorEndToEndIT {
             await().atMost(ofSeconds(5)).until(stream::ended);
         }
         COOKIES.getCookieStore().removeAll();
+    }
+
+    @Test
+    @Order(14)
+    void anAdministratorsChangeEndsTheUsersOpenStream() {
+        COOKIES.getCookieStore().removeAll();
+        assertThat(signIn("demo1", "demo1-demo").statusCode()).isEqualTo(200);
+        CookieManager adminCookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        try (HttpClient admin = HttpClient.newBuilder().cookieHandler(adminCookies).build();
+             SseRecorder stream = SseRecorder.open(baseUrl() + "/api/v1/stream")) {
+            assertThat(signIn(admin, adminCookies, "admin1", "admin1-demo").statusCode()).isEqualTo(200);
+
+            assertThat(changeUser(admin, adminCookies, "demo1", "{\"role\":\"SUPERVISOR\"}").statusCode())
+                    .isEqualTo(200);
+
+            await().atMost(ofSeconds(5)).until(stream::ended);
+            assertThat(get(baseUrl() + "/api/v1/board").statusCode()).as("demo1's old session").isEqualTo(401);
+            assertThat(changeUser(admin, adminCookies, "demo1", "{\"role\":\"VIEWER\"}").statusCode())
+                    .isEqualTo(200);
+        }
+        COOKIES.getCookieStore().removeAll();
+    }
+
+    private HttpResponse<String> changeUser(HttpClient client, CookieManager jar, String username, String change) {
+        return send(client, HttpRequest.newBuilder(URI.create(baseUrl() + "/api/v1/admin/users/" + username))
+                .timeout(ofSeconds(10)).header("Content-Type", "application/json")
+                .header("X-XSRF-TOKEN", csrfToken(jar))
+                .method("PATCH", BodyPublishers.ofString(change)).build());
     }
 
     @Test

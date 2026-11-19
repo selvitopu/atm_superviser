@@ -52,7 +52,8 @@ Chosen option: **Option 1.**
 * **Good:** the stream, the REST calls and sign-out all work through one cookie, with no token handling in the UI.
 * **Good:** a session that ends (expiry, restart, sign-out, an administrator's change) sends the UI back to the
   sign-in screen. The supervisor tracks its live sessions ([`LiveSessions`]) and closes a session's open live streams
-  when the session is destroyed, so every window of that session follows at once.
+  when the session is destroyed, so a window showing the board follows within seconds and any other window at its
+  next request.
 * **Trade-off:** a disabled account is refused before the password check, so its refusal is measurably faster. That
   tells an attacker an account exists but is disabled, which is accepted for this tool.
 * **Trade-off:** sessions live in the supervisor's memory, so a supervisor restart signs everyone out. This is
