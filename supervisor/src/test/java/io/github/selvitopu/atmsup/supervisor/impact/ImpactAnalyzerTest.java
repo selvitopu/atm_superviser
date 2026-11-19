@@ -1,6 +1,7 @@
 package io.github.selvitopu.atmsup.supervisor.impact;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.selvitopu.atmsup.inventory.Device;
 import io.github.selvitopu.atmsup.inventory.DeviceProperties;
@@ -87,6 +88,10 @@ class ImpactAnalyzerTest {
         assertThat(r.lastEventId()).isEqualTo(7);
         assertThat(r.plan().verdict()).isEqualTo(Verdict.NO_SERVICE_IMPACT);
         assertThat(r.plan().notes()).isEmpty();
+        assertThat(r.plan().services()).extracting(ServiceChange::id, ServiceChange::verdict,
+                ServiceChange::before, ServiceChange::after).containsExactly(
+                tuple(ServiceId.SURV, Verdict.NO_SERVICE_IMPACT, ServiceStatus.OK, ServiceStatus.OK),
+                tuple(ServiceId.FD, Verdict.NO_SERVICE_IMPACT, ServiceStatus.OK, ServiceStatus.OK));
         assertThat(r.singlePoints()).extracting(SinglePoint::unit)
                 .containsExactly("SDPS-A", "SDPS-B", "FDPS-A", "FDPS-B", "RAD-N", "RAD-E", "RAD-S");
         for (String radar : List.of("RAD-N", "RAD-E", "RAD-S")) {
@@ -129,6 +134,10 @@ class ImpactAnalyzerTest {
         ImpactReport r = analyzer.analyze(b, Set.of("FDPS-B"));
 
         assertThat(r.plan().verdict()).isEqualTo(Verdict.REDUCED_MARGIN);
+        assertThat(r.plan().services()).extracting(ServiceChange::id, ServiceChange::verdict,
+                ServiceChange::before, ServiceChange::after).containsExactly(
+                tuple(ServiceId.SURV, Verdict.NO_SERVICE_IMPACT, ServiceStatus.OK, ServiceStatus.OK),
+                tuple(ServiceId.FD, Verdict.REDUCED_MARGIN, ServiceStatus.OK, ServiceStatus.DEGRADED));
         ServiceChange fd = r.plan().services().stream().filter(c -> c.id() == ServiceId.FD).findFirst().orElseThrow();
         assertThat(fd.before()).isEqualTo(ServiceStatus.OK);
         assertThat(fd.after()).isEqualTo(ServiceStatus.DEGRADED);

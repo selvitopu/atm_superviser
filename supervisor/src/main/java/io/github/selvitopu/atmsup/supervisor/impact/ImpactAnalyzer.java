@@ -33,7 +33,7 @@ public final class ImpactAnalyzer {
     public ImpactReport analyze(Board board, Set<String> plan) {
         Map<ServiceId, Assessment> baseline = evaluator.assess(board, Set.of());
         Map<ServiceId, Assessment> planned = evaluator.assess(board, plan);
-        Compared planCompared = compare(baseline, planned);
+        Compared planCompared = compare(baseline, planned, false);
 
         List<String> planUnits = new ArrayList<>();
         List<OutOfService> out = new ArrayList<>();
@@ -57,7 +57,7 @@ public final class ImpactAnalyzer {
             } else {
                 Set<String> withUnit = new LinkedHashSet<>(plan);
                 withUnit.add(id);
-                Compared c = compare(planned, evaluator.assess(board, withUnit));
+                Compared c = compare(planned, evaluator.assess(board, withUnit), true);
                 points.add(new SinglePoint(id, s.health(), c.verdict, c.unconfirmed, c.changes));
             }
         }
@@ -88,7 +88,8 @@ public final class ImpactAnalyzer {
     private record Compared(Verdict verdict, boolean unconfirmed, List<ServiceChange> changes) {
     }
 
-    private static Compared compare(Map<ServiceId, Assessment> before, Map<ServiceId, Assessment> after) {
+    private static Compared compare(Map<ServiceId, Assessment> before, Map<ServiceId, Assessment> after,
+                                   boolean onlyChanged) {
         Verdict worst = Verdict.NO_SERVICE_IMPACT;
         boolean unconfirmed = false;
         List<ServiceChange> changes = new ArrayList<>();
@@ -100,7 +101,7 @@ public final class ImpactAnalyzer {
             Verdict verdict = optimistic.compareTo(pessimistic) >= 0 ? optimistic : pessimistic;
             unconfirmed |= optimistic != pessimistic;
             worst = worst.compareTo(verdict) >= 0 ? worst : verdict;
-            if (verdict != Verdict.NO_SERVICE_IMPACT) {
+            if (!onlyChanged || verdict != Verdict.NO_SERVICE_IMPACT) {
                 boolean afterConfirmed = a.confirmed();
                 changes.add(new ServiceChange(e.getKey(), verdict,
                         b.confirmed() ? b.optimistic().status() : ServiceStatus.UNKNOWN,
