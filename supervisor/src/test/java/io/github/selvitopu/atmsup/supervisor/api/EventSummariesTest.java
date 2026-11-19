@@ -12,6 +12,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.Contact;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
@@ -124,12 +125,19 @@ class EventSummariesTest {
 
     @Test
     void commandsNameTheActorAndTheOutcome() {
-        var done = new io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent(
-                T, "FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE");
-        var refused = new io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent(
-                T, "FDPS-B", "RESTART", "supervisor1", "REFUSED");
+        var done = new CommandEvent(T, "FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE");
+        var refused = new CommandEvent(T, "FDPS-B", "RESTART", "supervisor1", "REFUSED");
 
         assertThat(EventSummaries.describe(stored(done))).isEqualTo("Maintenance on by supervisor1: done");
         assertThat(EventSummaries.describe(stored(refused))).isEqualTo("Restart by supervisor1: refused");
+    }
+
+    @Test
+    void aCommandIsIssuedBeforeItIsSentAndCanEndUnsent() {
+        var issued = new CommandEvent(T, "FDPS-B", "MAKE_ACTIVE", "supervisor1", "ISSUED");
+        var notSent = new CommandEvent(T, "FDPS-B", "MAKE_ACTIVE", "supervisor1", "NOT_SENT");
+
+        assertThat(EventSummaries.describe(stored(issued))).isEqualTo("Make active by supervisor1: issued");
+        assertThat(EventSummaries.describe(stored(notSent))).isEqualTo("Make active by supervisor1: not sent");
     }
 }

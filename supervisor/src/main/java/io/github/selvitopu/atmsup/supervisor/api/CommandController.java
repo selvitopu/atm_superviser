@@ -2,7 +2,7 @@ package io.github.selvitopu.atmsup.supervisor.api;
 
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.CommandRequest;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.CommandResultDto;
-import io.github.selvitopu.atmsup.supervisor.control.CommandOutcome;
+import io.github.selvitopu.atmsup.supervisor.control.CommandResult;
 import io.github.selvitopu.atmsup.supervisor.control.EquipmentControl;
 import jakarta.validation.Valid;
 import java.security.Principal;
@@ -16,13 +16,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Equipment control for supervisors: maintenance mode, restart and make active. */
+/**
+ * Equipment control for supervisors: maintenance mode, restart and make active. Every outcome but DONE is a problem
+ * detail carrying the reason {@link EquipmentControl} gives.
+ */
 @RestController
 @RequestMapping("/api/v1")
 public class CommandController {
-
-    static final String REFUSED = "The equipment refused the command: restart needs maintenance mode, and make active"
-            + " needs a standby unit";
 
     private final EquipmentControl control;
 
@@ -34,14 +34,14 @@ public class CommandController {
     @PreAuthorize("hasRole('SUPERVISOR')")
     public ResponseEntity<?> command(@PathVariable String id, @RequestBody @Valid CommandRequest body,
                                      Principal principal) {
-        CommandOutcome outcome = control.command(id, body.command(), principal.getName());
-        return switch (outcome) {
-            case DONE -> ResponseEntity.ok(new CommandResultDto(id, body.command().name(), outcome.name()));
-            case REFUSED -> problem(HttpStatus.CONFLICT, REFUSED);
-            case NO_ANSWER -> problem(HttpStatus.GATEWAY_TIMEOUT, "No answer from the equipment: the command may or"
-                    + " may not have been applied. Check the unit before you send it again");
-            case FAILED -> problem(HttpStatus.BAD_GATEWAY,
-                    "The command could not be sent to the equipment; check the operator SNMP credentials");
+        CommandResult result = control.command(id, body.command(), principal.getName());
+        return switch (result.outcome()) {
+            case DONE -> ResponseEntity.ok(new CommandResultDto(id, body.command().name(), result.outcome().name()));
+            case REFUSED -> problem(HttpStatus.CONFLICT, result.reason());
+            case NO_ANSWER -> problem(HttpStatus.GATEWAY_TIMEOUT, result.reason());
+            case FAILED -> problem(HttpStatus.BAD_GATEWAY, result.reason());
+            case NOT_SENT -> problem(HttpStatus.SERVICE_UNAVAILABLE, result.reason());
+            case ISSUED -> throw new IllegalStateException("A command is answered with its outcome, never as issued");
         };
     }
 

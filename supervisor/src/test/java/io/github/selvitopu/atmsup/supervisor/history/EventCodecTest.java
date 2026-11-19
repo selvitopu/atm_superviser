@@ -2,6 +2,7 @@ package io.github.selvitopu.atmsup.supervisor.history;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.EventType;
 import io.github.selvitopu.atmsup.supervisor.board.ServiceId;
@@ -60,14 +61,15 @@ class EventCodecTest {
 
     @Test
     void aCommandEventRoundTripsWithItsActorAndEquipment() {
-        var event = new io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent(
-                T0, "FDPS-B", "RESTART", "supervisor1", "REFUSED");
+        var event = new CommandEvent(T0, "FDPS-B", "RESTART", "supervisor1", "REFUSED");
+        var intent = new CommandEvent(T0, "FDPS-B", "RESTART", "supervisor1", "ISSUED");
 
         withCodec(codec -> {
             EventLogEntity row = codec.encode(event, T0);
             assertThat(row.getEquipmentId()).isEqualTo("FDPS-B");
             assertThat(row.getActor()).isEqualTo("supervisor1");
             assertThat(codec.decode(row)).isEqualTo(event);
+            assertThat(codec.decode(codec.encode(intent, T0))).isEqualTo(intent);
         });
     }
 }

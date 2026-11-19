@@ -228,14 +228,17 @@ open the **Simulator** screen from the header in a second window, so you can inj
 Equipment commands are on the board itself: select a tile, and the detail panel shows a **Control** section to
 supervisors and administrators. Every command first shows a confirm bar that names the unit and what will happen;
 only **Confirm** sends it. The supervisor sends each command to the unit as an SNMP `SET` with the read-write
-`operator` user, and records it in the event log with your username and the outcome.
+`operator` user. It records the command in the event log with your username twice: as *issued* before it is sent,
+and again with its outcome. If it cannot record the command, it does not send it, and the panel says *The command was
+not sent: it could not be recorded*.
 
 1. **Put `FDPS-B` (`STANDBY`) into maintenance:** select the `FDPS-B` tile, click **Maintenance on**, then **Confirm**.
    * **What you see on the board:**
      * `FDPS-B` keeps its **`✓ OPERATIONAL`** badge and gains the blue **`MAINT`** badge beside it.
      * Because a unit in maintenance counts as unavailable (a planned outage), `FD` turns **`▲ DEGRADED`** (`Only one FDPS unit available`) and raises alarm `903`.
      * Alarm `103 Maintenance mode on` is raised on `FDPS-B`, but because `FDPS-B` is in maintenance, it is **suppressed**! Check **`Show suppressed (1)`** in the alarm bar to see it.
-     * **Recent events** in the detail panel lists `Maintenance on by supervisor1: done`.
+     * **Recent events** in the detail panel lists `Maintenance on by supervisor1: issued`, then
+       `Maintenance on by supervisor1: done`.
 2. **Restart `FDPS-B` while it is in maintenance:** click **Restart**, then **Confirm**.
    * **Restart** is available only in maintenance. The unit itself enforces this too: a restart it receives outside
      maintenance is refused, and the panel shows the reason.

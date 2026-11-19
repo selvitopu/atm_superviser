@@ -76,12 +76,19 @@ public class Snmp4jClient implements SnmpClient {
         throw new SnmpRequestException(Kind.MALFORMED, "walk of " + subtree + " did not end");
     }
 
+    /** A SET that never left the supervisor is {@code SEND_FAILED}: its outcome is certain, unlike a timeout. */
     @Override
     public void set(Device d, List<VariableBinding> bindings) throws SnmpRequestException {
+        UserTarget<UdpAddress> target;
+        try {
+            target = session.operatorTarget(d);
+        } catch (IllegalArgumentException unresolved) { // SNMP4J resolves the host as it builds the address
+            throw new SnmpRequestException(Kind.SEND_FAILED, "cannot resolve host " + d.host());
+        }
         ScopedPDU pdu = new ScopedPDU();
         pdu.setType(PDU.SET);
         bindings.forEach(pdu::add);
-        send(d, pdu, session.operatorTarget(d));
+        send(d, pdu, target);
     }
 
     private PDU send(Device d, PDU pdu) {
@@ -91,13 +98,13 @@ public class Snmp4jClient implements SnmpClient {
     private PDU send(Device d, PDU pdu, UserTarget<UdpAddress> target) {
         String where = d.host() + ":" + d.port();
         if (!target.getAddress().isValid()) {
-            throw new SnmpRequestException(Kind.TIMEOUT, "cannot resolve host " + d.host());
+            throw new SnmpRequestException(Kind.SEND_FAILED, "cannot resolve host " + d.host());
         }
         ResponseEvent<UdpAddress> event;
         try {
             event = session.snmp().send(pdu, target);
         } catch (IOException e) {
-            throw new SnmpRequestException(Kind.TIMEOUT, "send to " + where + " failed: " + e.getMessage());
+            throw new SnmpRequestException(Kind.SEND_FAILED, "send to " + where + " failed: " + e.getMessage());
         }
         PDU response = event == null ? null : event.getResponse();
         if (response == null) {

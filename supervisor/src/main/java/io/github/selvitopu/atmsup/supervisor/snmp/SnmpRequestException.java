@@ -3,8 +3,11 @@ package io.github.selvitopu.atmsup.supervisor.snmp;
 /** A failed SNMP request or an unusable answer; {@link #getMessage()} is {@code KIND: detail}. */
 public class SnmpRequestException extends RuntimeException {
 
-    /** Why the request failed. */
-    public enum Kind { TIMEOUT, AUTH_FAILURE, ERROR_STATUS, MALFORMED }
+    /**
+     * Why the request failed. {@code SEND_FAILED} means it never left the supervisor (the host did not resolve, or the
+     * socket refused it), so unlike {@code TIMEOUT} it cannot have reached the device.
+     */
+    public enum Kind { TIMEOUT, AUTH_FAILURE, ERROR_STATUS, MALFORMED, SEND_FAILED }
 
     private final Kind kind;
     private final String detail;

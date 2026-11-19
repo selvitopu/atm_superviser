@@ -325,10 +325,10 @@ class SupervisorEndToEndIT {
         await().atMost(ofSeconds(10)).until(() -> maintenance("FDPS-B"));
 
         EquipmentDetailDto detail = getJson("/api/v1/equipment/FDPS-B", EquipmentDetailDto.class);
-        assertThat(detail.recentEvents()).anySatisfy(e -> {
-            assertThat(e.type()).isEqualTo("EQUIPMENT_COMMANDED");
-            assertThat(e.summary()).isEqualTo("Maintenance on by supervisor1: done");
-        });
+        // newest first: the intent was stored before the SET, the outcome after it
+        assertThat(detail.recentEvents()).filteredOn(e -> e.type().equals("EQUIPMENT_COMMANDED"))
+                .extracting(EventSummaryDto::summary)
+                .containsExactly("Maintenance on by supervisor1: done", "Maintenance on by supervisor1: issued");
 
         assertThat(postCommand("FDPS-B", "MAINTENANCE_OFF").statusCode()).isEqualTo(200);
         await().atMost(ofSeconds(10)).until(() -> !maintenance("FDPS-B"));

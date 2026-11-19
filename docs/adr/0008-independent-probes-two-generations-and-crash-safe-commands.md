@@ -1,6 +1,6 @@
 # ADR-0008: Independent Health Probes, Two-Generation Single-Flight Polling, Confirmed Service Facts, and Crash-Safe `UNCERTAIN` Commands
 
-* **Status:** Accepted — Independent probes, `HALF_OPEN` verification on contact restore, two poll generations, and confirmed-only service facts implemented in `v0.1.1`; crash-safe supervisor commands (`UNCERTAIN`) planned for `v0.3`
+* **Status:** Accepted — Independent probes, `HALF_OPEN` verification on contact restore, two poll generations, and confirmed-only service facts implemented in `v0.1.1`; of the crash-safe supervisor commands, the intent recorded first, 0 retries and an uncertain outcome on no answer are implemented after `v0.1.1` ([ADR-0011](0011-control-and-simulator-through-the-supervisor.md#relation-to-adr-0008)), and the `Idempotency-Key`, `active_command` exclusion and `UNCERTAIN` reconciliation by polling are planned for `v0.3`
 * **Date:** 2026-11-14 (revised 2026-11-15 for `v0.1.1` hardening)
 * **Deciders:** Project maintainers
 
@@ -41,6 +41,10 @@ We adopt five architectural invariants across polling, board evaluation, and com
   * `ServiceState.redundancyUnconfirmed` is `true` when `best.redundancyLost() != worst.redundancyLost()`. [`BoardDecider`] then passes no redundancy fact to [`AlarmEngine`], so alarm `903` (*Service redundancy lost*) is neither raised nor cleared.
 
 ### 4. Crash-Safe Commands with `active_command` Exclusion and `UNCERTAIN` (`v0.3`)
+
+Commands arrived before `v0.3` ([ADR-0011](0011-control-and-simulator-through-the-supervisor.md#relation-to-adr-0008)):
+they already record their intent first, refuse to send when it cannot be stored, use 0 retries and report no answer as
+uncertain. The rest of this section is still planned.
 
 * Every supervisor command (`SWITCHOVER`, `MAINTENANCE_ON`, `MAINTENANCE_OFF`, `RESTART`, `RESET_COUNTERS`) will carry an `Idempotency-Key` + `request_fingerprint`, claim durable exclusion in `active_command(equipment_id PRIMARY KEY)` (locking both pair members in alphabetical order for `SWITCHOVER`) inside the initial `COMMAND_ISSUED` transaction, and send the SNMP `SET` with **0 retries**.
 * Timeout or post-crash recovery sets the command status to **`UNCERTAIN`** and reconciles by polling only, keeping `active_command` locked until polling confirms the state or a supervisor records an audited manual resolution.

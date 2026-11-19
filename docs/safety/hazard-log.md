@@ -159,9 +159,12 @@ Status values:
     retried, and it still invalidates the results it made stale ([BoardWriter]).
   - Poll concurrency is bounded (8 by default), and stable values are stored as one sample per device
     every 30 s, not on every poll.
+  - An equipment command is never sent unless its intent is stored first, and no command waits more than 3 s for
+    the writer ([EquipmentControl], H13). While the database is down, commands are refused with 503.
 - **Verified by:** [BoardWriterTest] (`commitFailureLeavesBoardUnchangedAndRetries`,
   `failedCommitStillBumpsGenerationsAndRequestsTheRepoll`, `commitFailureDoesNotLoseTheTelemetrySample`),
-  [PollDispatcherTest].
+  [PollDispatcherTest], [EquipmentControlTest] (`anIntentTheStoreCannotCommitIsNeverSent`,
+  `anIntentNotRecordedInTimeIsNeverSentAndIsFollowedByNotSent`).
 - **Status:** partly mitigated. There is no explicit "storage down" signal yet (the tiles turn stale),
   the writer's input queue is not bounded, and the event log has no retention purge yet.
 
@@ -226,10 +229,18 @@ the features exist:
   - Commands need SUPERVISOR or ADMIN, on the server ([CommandController]).
   - Every command first shows a confirm bar that names the unit and what will happen; only Confirm sends it, and the
     controls are disabled until the answer arrives, so a double click sends one SET.
-  - The agent refuses a command that does not fit the unit's state (`inconsistentValue`), and the panel shows why.
+  - The agent refuses a command that does not fit the unit's state (`inconsistentValue`), and the panel shows the
+    rule of that command. Any other error status is reported as a fault of the operator user's access on the unit,
+    and a SET that never left the supervisor as not sent, so neither is blamed on the unit's state.
   - A SET is never retried, and no answer is reported as an uncertain outcome to check before sending again.
-  - Every command, accepted or not, is recorded with the username and outcome ([EquipmentControl]).
-- **Verified by:** [EquipmentControlTest], [CommandControllerTest], [SnmpClientIT]
+  - Every command is recorded with the username twice: its intent before the SET (`issued`) and its outcome after
+    it ([EquipmentControl]). A command whose intent is not stored within 3 s is not sent (503), and `not sent` is
+    recorded after the intent. An outcome that cannot be stored is still shown to the supervisor and logged as an
+    error; the intent stays in the event log.
+- **Verified by:** [EquipmentControlTest] (`theIntentIsRecordedBeforeTheSetAndTheOutcomeAfterIt`,
+  `anIntentTheStoreCannotCommitIsNeverSent`, `aStoppedWriterMeansNothingIsSent`,
+  `anIntentNotRecordedInTimeIsNeverSentAndIsFollowedByNotSent`, `inconsistentValueIsARefusalThatGivesTheRuleOfTheCommand`,
+  `anyOtherErrorStatusIsAFailureOfTheOperatorUsersAccessNotARefusal`), [CommandControllerTest], [SnmpClientIT]
   (`aSetTheAgentRefusesCarriesItsErrorStatus`), [SupervisorEndToEndIT]
   (`aSupervisorPutsAUnitIntoMaintenanceAndTheCommandIsLogged`), and the UI spec `equipment-control.spec.ts`.
 - **Status:** mitigated.
