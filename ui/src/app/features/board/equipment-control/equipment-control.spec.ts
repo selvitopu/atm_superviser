@@ -69,7 +69,7 @@ describe('EquipmentControl', () => {
     const { f, http, click } = setup(FDPS_B);
     click('Maintenance on');
     expect(f.text()).toContain('Put FDPS-B into maintenance?');
-    http.expectNone(() => true);
+    http.expectNone(r => r.url.endsWith('/commands')); // the impact read is allowed; no command is sent
 
     click('Cancel');
     expect(f.text()).not.toContain('Put FDPS-B into maintenance?');
@@ -159,5 +159,92 @@ describe('EquipmentControl', () => {
     const bar = f.el.querySelector('.confirm')!;
     expect(bar.getAttribute('aria-labelledby')).toBe(question!.id);
     expect(bar.getAttribute('aria-live')).toBe('polite');
+  });
+
+  describe('impact preview', () => {
+    const plan = (over: object = {}) => ({
+      asOf: 'now', basis: 'b', singlePoints: [], outOfService: [], unknownUnits: [],
+      plan: {
+        units: ['FDPS-B'], verdict: 'REDUCED_MARGIN', unconfirmed: false, notes: [],
+        services: [
+          { id: 'SURV', verdict: 'NO_SERVICE_IMPACT', reasonsAfter: [] },
+          { id: 'FD', verdict: 'REDUCED_MARGIN', reasonsAfter: ['Only one FDPS unit available'] },
+        ], ...over,
+      },
+    });
+    const impactUrl = (r: { url: string; params: { getAll(k: string): string[] | null } }) =>
+      r.url === '/api/v1/impact' && r.params.getAll('maintenance')?.[0] === 'FDPS-B';
+
+    it('maintenanceOnShowsTheImpactPreview', () => {
+      const { f, http, click } = setup(FDPS_B);
+      click('Maintenance on');
+      expect(f.text()).toContain('Impact: assessing…');
+      http.expectOne(impactUrl).flush(plan());
+      f.fixture.detectChanges();
+      expect(f.text()).toContain('Impact: REDUCED MARGIN — FD: Only one FDPS unit available');
+      expect(f.el.querySelector('.confirm')!.textContent).toContain('Impact: REDUCED MARGIN');
+    });
+
+    it('confirmStaysEnabledWhileTheImpactLoads', () => {
+      const { http, click, button } = setup(FDPS_B);
+      click('Maintenance on');
+      expect(button('Confirm')!.disabled).toBe(false);
+      http.expectOne(impactUrl);
+    });
+
+    it('aFailedPreviewSaysSoAndConfirmStillWorks', () => {
+      const { f, http, click, button } = setup(FDPS_B);
+      click('Maintenance on');
+      http.expectOne(impactUrl).flush({}, { status: 500, statusText: 'Server Error' });
+      f.fixture.detectChanges();
+      expect(f.text()).toContain('Impact could not be assessed');
+      expect(button('Confirm')!.disabled).toBe(false);
+      click('Confirm');
+      http.expectOne('/api/v1/equipment/FDPS-B/commands');
+    });
+
+    it('showsNotesAndUnconfirmed', () => {
+      const { f, http, click } = setup(FDPS_B);
+      click('Maintenance on');
+      http.expectOne(impactUrl).flush(plan({ notes: ['A note'], unconfirmed: true }));
+      f.fixture.detectChanges();
+      expect(f.text()).toContain('Impact: REDUCED MARGIN — FD: Only one FDPS unit available · A note (unconfirmed)');
+    });
+
+    it('aPreviewForAnotherUnitIsDropped', () => {
+      const { f, http, click } = setup(FDPS_B);
+      click('Maintenance on');
+      const stale = http.expectOne(impactUrl);
+      f.fixture.componentRef.setInput('equipment', eq('FDPS-A', { type: 'FDPS', pair: 'FDPS', role: 'STANDBY' }));
+      f.fixture.detectChanges();
+      click('Maintenance on');
+      stale.flush(plan());
+      f.fixture.detectChanges();
+      expect(f.text()).toContain('Impact: assessing…');
+      expect(f.text()).not.toContain('REDUCED MARGIN');
+      http.expectOne(r => r.url === '/api/v1/impact' && r.params.getAll('maintenance')?.[0] === 'FDPS-A');
+    });
+
+    it('aPreviewAfterCancelIsDropped', () => {
+      const { f, http, click } = setup(FDPS_B);
+      click('Maintenance on');
+      const stale = http.expectOne(impactUrl);
+      click('Cancel');
+      click('Maintenance on');
+      stale.flush(plan());
+      f.fixture.detectChanges();
+      expect(f.text()).toContain('Impact: assessing…');
+      http.expectOne(impactUrl);
+    });
+
+    it('otherCommandsHaveNoPreview', () => {
+      const a = setup(FDPS_B);
+      a.click('Make active');
+      a.http.expectNone('/api/v1/impact');
+      const b = setup({ ...FDPS_B, maintenance: true });
+      b.click('Restart');
+      b.http.expectNone(r => r.url === '/api/v1/impact');
+      expect(b.f.text()).not.toContain('Impact');
+    });
   });
 });
