@@ -94,8 +94,11 @@ three verdicts:
   a reason.
 - **`NO SERVICE IMPACT`:** nothing changes. This is not a clearance: it says only what the rules count.
 
-A unit in `UNKNOWN` state is handled as in the next section: the analysis takes the worse of its two passes and marks
-the result unconfirmed. The rules know nothing about roles, so planning an active unit adds a note that the pair
+A unit in `UNKNOWN` state (see the next section) is never read as healthy. The analysis tries every possible state
+of the `UNKNOWN` units, each one working or not, and gives the worst verdict across them, marked unconfirmed when they
+disagree. The unit asked about, or planned, counts as working now, because "if it failed" and "take it out" presume
+that it works. Up to 10 `UNKNOWN` units are tried exactly; beyond that, the analysis uses a conservative bound, which
+can only overstate. The rules know nothing about roles, so planning an active unit adds a note that the pair
 switches over, and the verdict stays as the rules give it. The analysis is a view of the rules, and it does not model
 a switchover's brief interruption or a radar's coverage; it is not a safety assessment.
 

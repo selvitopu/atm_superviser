@@ -279,17 +279,24 @@ the features exist:
   - Every result states its basis, "Derived from the supervised equipment and the service rules; not a safety
     assessment", and the board time it was computed from. The Impact screen refreshes every 5 s, keeps the last result
     with `Last refresh failed at …` when a refresh fails, and drops an answer to a superseded request.
-  - A unit in `UNKNOWN` state gives the worse of the two passes, marked unconfirmed, with the units named.
-  - The analysis calls the same [ServiceEvaluator] as the board, through `assess`, and compares only results of
-    `assess`, so it cannot contradict the board. It reads a snapshot of the board and writes nothing.
+  - With units in `UNKNOWN` state, a verdict is the worst over every possible state of those units, marked
+    unconfirmed when the states disagree, with the units named. The unit asked about, or planned, counts as working
+    now. It is exact up to 10 `UNKNOWN` units, and beyond that a conservative bound, which can only overstate.
+  - The analysis calls the same [ServiceEvaluator] as the board, through `assess` for the statuses it shows and
+    `evaluateWorld` for its verdicts, so it cannot contradict the board. It reads a snapshot of the board and writes
+    nothing.
   - The preview informs and never blocks: a person decides. Interlocks stay planned (H11).
   - The rules count available units only. Switchover transients and radar coverage are not modelled, and the basis
     line says the verdict is not a safety assessment.
 - **Verified by:** [ServiceEvaluatorAssessTest] (`withNothingExtraItAgreesWithEvaluate`,
-  `unknownStillSplitsThePasses`), [ImpactAnalyzerTest] (`allHealthyRadarsHaveNoImpactAndProcessorsReduceMargin`,
-  `aFailedPartnerMakesTheOtherASinglePoint`, `planningTheStandbyReducesMarginAndExposesTheActive`,
-  `anUnknownUnitGivesTheWorstCaseUnconfirmed`, `planningTheActiveUnitNotesTheSwitchover`), [ImpactControllerTest]
-  (`aViewerGetsTheReport`, `signedOutIs401`, `anUnknownUnitIs400`), [SupervisorEndToEndIT]
+  `unknownStillSplitsThePasses`, `aWorldWithNoUnknownUnitUpIsThePessimisticPassAndWithAllUpTheOptimistic`,
+  `aWorldSettlesEachUnknownUnitAndDownWins`), [ImpactAnalyzerTest]
+  (`allHealthyRadarsHaveNoImpactAndProcessorsReduceMargin`, `aFailedPartnerMakesTheOtherASinglePoint`,
+  `planningTheStandbyReducesMarginAndExposesTheActive`, `anUnknownUnitGivesTheWorstCaseUnconfirmed`,
+  `unknownSurveillanceUnitsMakeTheLastConfirmedRadarASinglePoint`, `twoUnknownRadarsMakeEachOfThemReduceTheMargin`,
+  `anUnknownPairMakesEachOfItsUnitsASinglePoint`, `aCentreThatIsAllUnknownGivesEveryRadarTheWorstCase`,
+  `aboveTheCapTheBoundIsNeverBetterThanTheExactAnswer`, `planningTheActiveUnitNotesTheSwitchover`),
+  [ImpactControllerTest] (`aViewerGetsTheReport`, `signedOutIs401`, `anUnknownUnitIs400`), [SupervisorEndToEndIT]
   (`thePredictedImpactOfMaintenanceIsWhatTheBoardShows`), and the UI specs [impact-page.spec.ts]
   (`neverSaysSafe`, `noServiceImpactIsNotGreen`, `anUnconfirmedVerdictNamesTheUnknownUnits`,
   `refreshesEveryFiveSecondsAndKeepsTheLastResultOnFailure`, `onlyTheLatestRequestLands`) and

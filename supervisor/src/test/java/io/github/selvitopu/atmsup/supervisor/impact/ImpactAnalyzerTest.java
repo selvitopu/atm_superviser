@@ -34,9 +34,12 @@ class ImpactAnalyzerTest {
 
     private static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
 
+    private static final List<String> ALL = List.of("RAD-N", "RAD-E", "RAD-S", "SDPS-A", "SDPS-B", "FDPS-A", "FDPS-B");
+
     private final Inventory inv = inventory();
-    private final ImpactAnalyzer analyzer = new ImpactAnalyzer(inv,
-            new ServiceEvaluator(inv, List.of(new SurveillanceRule(), new FlightDataRule())));
+    private final ServiceEvaluator evaluator =
+            new ServiceEvaluator(inv, List.of(new SurveillanceRule(), new FlightDataRule()));
+    private final ImpactAnalyzer analyzer = new ImpactAnalyzer(inv, evaluator);
 
     private static Inventory inventory() {
         List<DeviceProperties> d = new ArrayList<>();
@@ -71,6 +74,19 @@ class ImpactAnalyzerTest {
 
     private Board board(Map<String, Health> health) {
         return board(health, Set.of(), Map.of());
+    }
+
+    /** These units UNKNOWN, the others OPERATIONAL. */
+    private Board unknown(String... ids) {
+        Map<String, Health> health = new LinkedHashMap<>();
+        for (String id : ids) {
+            health.put(id, Health.UNKNOWN);
+        }
+        return board(health);
+    }
+
+    private static ServiceChange service(ImpactReport r, ServiceId id) {
+        return r.plan().services().stream().filter(c -> c.id() == id).findFirst().orElseThrow();
     }
 
     private static SinglePoint point(ImpactReport r, String unit) {
@@ -121,9 +137,12 @@ class ImpactAnalyzerTest {
 
         SinglePoint p = point(r, "FDPS-B");
         assertThat(p.verdict()).isEqualTo(Verdict.SERVICE_LOSS);
+        assertThat(p.unconfirmed()).isFalse();
         ServiceChange c = change(p, ServiceId.FD);
         assertThat(c.before()).isEqualTo(ServiceStatus.DEGRADED);
+        assertThat(c.beforeBestCase()).isNull();
         assertThat(c.after()).isEqualTo(ServiceStatus.FAILED);
+        assertThat(c.afterBestCase()).isNull();
         assertThat(c.reasonsAfter()).containsExactly("No FDPS unit available");
         assertThat(r.outOfService()).containsExactly(new OutOfService("FDPS-A", OutReason.FAILED));
     }
@@ -169,7 +188,141 @@ class ImpactAnalyzerTest {
         ServiceChange c = change(p, ServiceId.FD);
         assertThat(c.before()).isEqualTo(ServiceStatus.UNKNOWN);
         assertThat(c.beforeBestCase()).isEqualTo(ServiceStatus.OK);
+        assertThat(c.after()).isEqualTo(ServiceStatus.UNKNOWN);
+        assertThat(c.afterBestCase()).isEqualTo(ServiceStatus.DEGRADED);
+        assertThat(c.redundancyLostAfter()).isFalse();
+        assertThat(c.reasonsAfter()).containsExactly("No FDPS unit available");
         assertThat(r.unknownUnits()).containsExactly("FDPS-A");
+    }
+
+    @Test
+    void anUnknownUnitAskedAboutCountsAsWorkingBeforeItFails() {
+        ImpactReport r = analyzer.analyze(board(Map.of("FDPS-A", Health.UNKNOWN)), Set.of());
+
+        SinglePoint p = point(r, "FDPS-A");
+        assertThat(p.verdict()).isEqualTo(Verdict.REDUCED_MARGIN);
+        assertThat(p.unconfirmed()).isFalse();
+    }
+
+    @Test
+    void unknownSurveillanceUnitsMakeTheLastConfirmedRadarASinglePoint() {
+        // the Maintenance on preview for RAD-N while the SDPS pair, RAD-E and RAD-S do not answer
+        Board b = unknown("SDPS-A", "SDPS-B", "RAD-E", "RAD-S");
+
+        ImpactReport r = analyzer.analyze(b, Set.of("RAD-N"));
+        assertThat(r.plan().verdict()).isEqualTo(Verdict.SERVICE_LOSS);
+        assertThat(r.plan().unconfirmed()).isTrue();
+        ServiceChange surv = service(r, ServiceId.SURV);
+        assertThat(surv.verdict()).isEqualTo(Verdict.SERVICE_LOSS);
+        assertThat(surv.before()).isEqualTo(ServiceStatus.UNKNOWN);
+        assertThat(surv.beforeBestCase()).isEqualTo(ServiceStatus.OK);
+        assertThat(surv.after()).isEqualTo(ServiceStatus.UNKNOWN);
+        assertThat(surv.afterBestCase()).isEqualTo(ServiceStatus.OK);
+        ServiceChange fd = service(r, ServiceId.FD);
+        assertThat(fd.verdict()).isEqualTo(Verdict.NO_SERVICE_IMPACT);
+        assertThat(fd.beforeBestCase()).isNull();
+        assertThat(fd.afterBestCase()).isNull();
+
+        SinglePoint radN = point(analyzer.analyze(b, Set.of()), "RAD-N");
+        assertThat(radN.verdict()).isEqualTo(Verdict.SERVICE_LOSS);
+        assertThat(radN.unconfirmed()).isTrue();
+    }
+
+    @Test
+    void twoUnknownRadarsMakeEachOfThemReduceTheMargin() {
+        Board b = unknown("RAD-E", "RAD-S");
+
+        ImpactReport r = analyzer.analyze(b, Set.of());
+        for (String radar : List.of("RAD-E", "RAD-S")) {
+            assertThat(point(r, radar).verdict()).isEqualTo(Verdict.REDUCED_MARGIN);
+            assertThat(point(r, radar).unconfirmed()).isTrue();
+        }
+        ImpactReport plan = analyzer.analyze(b, Set.of("RAD-E"));
+        assertThat(plan.plan().verdict()).isEqualTo(Verdict.REDUCED_MARGIN);
+        assertThat(plan.plan().unconfirmed()).isTrue();
+    }
+
+    @Test
+    void anUnknownPairMakesEachOfItsUnitsASinglePoint() {
+        ImpactReport r = analyzer.analyze(unknown("FDPS-A", "FDPS-B"), Set.of());
+
+        for (String fdps : List.of("FDPS-A", "FDPS-B")) {
+            assertThat(point(r, fdps).verdict()).isEqualTo(Verdict.SERVICE_LOSS);
+            assertThat(point(r, fdps).unconfirmed()).isTrue();
+        }
+    }
+
+    @Test
+    void aCentreThatIsAllUnknownGivesEveryRadarTheWorstCase() {
+        ImpactReport r = analyzer.analyze(unknown(ALL.toArray(String[]::new)), Set.of());
+
+        for (String radar : List.of("RAD-N", "RAD-E", "RAD-S")) {
+            assertThat(point(r, radar).verdict()).isEqualTo(Verdict.SERVICE_LOSS);
+            assertThat(point(r, radar).unconfirmed()).isTrue();
+        }
+        assertThat(r.unknownUnits()).containsExactlyElementsOf(ALL);
+    }
+
+    @Test
+    void aboveTheCapTheBoundOverstatesAndIsUnconfirmed() {
+        // with the SDPS pair UNKNOWN, losing one of three known radars changes nothing in any possible state
+        Board b = unknown("SDPS-A", "SDPS-B");
+        SinglePoint exact = point(analyzer.analyze(b, Set.of()), "RAD-N");
+        assertThat(exact.verdict()).isEqualTo(Verdict.NO_SERVICE_IMPACT);
+        assertThat(exact.unconfirmed()).isFalse();
+
+        SinglePoint bound = point(new ImpactAnalyzer(inv, evaluator, 1).analyze(b, Set.of()), "RAD-N");
+        assertThat(bound.verdict()).isEqualTo(Verdict.SERVICE_LOSS);
+        assertThat(bound.unconfirmed()).isTrue();
+    }
+
+    @Test
+    void aboveTheCapTheBoundIsNeverBetterThanTheExactAnswer() {
+        ImpactAnalyzer bounded = new ImpactAnalyzer(inv, evaluator, 1);
+        List<Board> boards = List.of(unknown("SDPS-A", "SDPS-B", "RAD-E", "RAD-S"), unknown("RAD-E", "RAD-S"),
+                unknown("FDPS-A", "FDPS-B"), unknown(ALL.toArray(String[]::new)), unknown("SDPS-A", "SDPS-B"),
+                board(Map.of("RAD-N", Health.FAILED, "SDPS-A", Health.UNKNOWN, "RAD-S", Health.UNKNOWN)));
+        List<Set<String>> plans = List.of(Set.of(), Set.of("RAD-N"), Set.of("RAD-E"), Set.of("FDPS-B"),
+                Set.of("RAD-N", "SDPS-A"));
+        for (Board b : boards) {
+            for (Set<String> plan : plans) {
+                ImpactReport exact = analyzer.analyze(b, plan);
+                ImpactReport bound = bounded.analyze(b, plan);
+                assertNeverBetter(bound.plan().verdict(), bound.plan().unconfirmed(),
+                        exact.plan().verdict(), exact.plan().unconfirmed());
+                for (int i = 0; i < exact.plan().services().size(); i++) {
+                    assertThat(bound.plan().services().get(i).verdict())
+                            .isGreaterThanOrEqualTo(exact.plan().services().get(i).verdict());
+                }
+                for (SinglePoint p : exact.singlePoints()) {
+                    SinglePoint q = point(bound, p.unit());
+                    assertNeverBetter(q.verdict(), q.unconfirmed(), p.verdict(), p.unconfirmed());
+                }
+            }
+        }
+    }
+
+    private static void assertNeverBetter(Verdict bound, boolean boundUnconfirmed, Verdict exact,
+                                          boolean exactUnconfirmed) {
+        assertThat(bound).isGreaterThanOrEqualTo(exact);
+        if (exactUnconfirmed) {
+            assertThat(boundUnconfirmed).isTrue();
+        }
+    }
+
+    @Test
+    void aNewReasonAloneReducesTheMargin() {
+        ImpactReport r = analyzer.analyze(board(Map.of("SDPS-A", Health.FAILED)), Set.of("RAD-N", "RAD-E"));
+
+        assertThat(r.plan().verdict()).isEqualTo(Verdict.REDUCED_MARGIN);
+        assertThat(r.plan().unconfirmed()).isFalse();
+        ServiceChange surv = service(r, ServiceId.SURV);
+        assertThat(surv.verdict()).isEqualTo(Verdict.REDUCED_MARGIN);
+        assertThat(surv.before()).isEqualTo(ServiceStatus.DEGRADED);
+        assertThat(surv.after()).isEqualTo(ServiceStatus.DEGRADED);
+        assertThat(surv.redundancyLostAfter()).isTrue();
+        assertThat(surv.reasonsAfter())
+                .containsExactly("Only one SDPS unit available", "Fewer than 2 radars available");
     }
 
     @Test

@@ -34,8 +34,8 @@ public final class ServiceEvaluator {
      * adds is reported as a single "Unconfirmed" reason.
      */
     public Map<ServiceId, ServiceState> evaluate(Board b, Instant now) {
-        Predicate<String> optimistic = id -> availability(b, id, Set.of()) != Availability.UNAVAILABLE;
-        Predicate<String> pessimistic = id -> availability(b, id, Set.of()) == Availability.AVAILABLE;
+        Predicate<String> optimistic = available(b, Set.of(), id -> true);
+        Predicate<String> pessimistic = available(b, Set.of(), id -> false);
         Map<ServiceId, ServiceState> out = new LinkedHashMap<>();
         for (ServiceRule rule : rules) {
             RuleOutcome best = rule.evaluate(inv, optimistic);
@@ -68,11 +68,25 @@ public final class ServiceEvaluator {
      * units counted as unavailable in both passes. It uses no previous state, no {@code since} and no clock.
      */
     public Map<ServiceId, Assessment> assess(Board b, Set<String> alsoUnavailable) {
-        Predicate<String> optimistic = id -> availability(b, id, alsoUnavailable) != Availability.UNAVAILABLE;
-        Predicate<String> pessimistic = id -> availability(b, id, alsoUnavailable) == Availability.AVAILABLE;
+        Predicate<String> optimistic = available(b, alsoUnavailable, id -> true);
+        Predicate<String> pessimistic = available(b, alsoUnavailable, id -> false);
         Map<ServiceId, Assessment> out = new LinkedHashMap<>();
         for (ServiceRule rule : rules) {
             out.put(rule.id(), new Assessment(rule.evaluate(inv, optimistic), rule.evaluate(inv, pessimistic)));
+        }
+        return out;
+    }
+
+    /**
+     * Pure what-if over one possible state of the UNKNOWN equipment: every rule's outcome, in registration order,
+     * with the units in {@code down} unavailable and an UNKNOWN unit available only if it is in {@code assumedUp}.
+     * A unit that is FAILED or in maintenance stays unavailable even if it is in {@code assumedUp}.
+     */
+    public Map<ServiceId, RuleOutcome> evaluateWorld(Board b, Set<String> down, Set<String> assumedUp) {
+        Predicate<String> world = available(b, down, assumedUp::contains);
+        Map<ServiceId, RuleOutcome> out = new LinkedHashMap<>();
+        for (ServiceRule rule : rules) {
+            out.put(rule.id(), rule.evaluate(inv, world));
         }
         return out;
     }
@@ -87,8 +101,7 @@ public final class ServiceEvaluator {
                 .filter(id -> availability(b, id, Set.of()) == Availability.UNKNOWN).collect(Collectors.toSet());
         Set<DeviceType> relevant = unknown.stream().map(id -> inv.device(id).type()).distinct()
                 .filter(t -> differs.test(rule.evaluate(inv,
-                        id -> availability(b, id, Set.of()) != Availability.UNAVAILABLE
-                        && !(unknown.contains(id) && inv.device(id).type() == t)), best))
+                        available(b, Set.of(), id -> inv.device(id).type() != t)), best))
                 .collect(Collectors.toSet());
         return inv.devices().stream().filter(d -> unknown.contains(d.id()) && relevant.contains(d.type()))
                 .map(Device::id).toList();
@@ -99,6 +112,18 @@ public final class ServiceEvaluator {
     }
 
     private enum Availability { AVAILABLE, UNAVAILABLE, UNKNOWN }
+
+    /**
+     * The one availability test of every pass: a unit in {@code down}, FAILED or in maintenance is unavailable, a
+     * known working unit is available, and an UNKNOWN unit is available when {@code unknownUp} says so.
+     */
+    private static Predicate<String> available(Board b, Set<String> down, Predicate<String> unknownUp) {
+        return id -> switch (availability(b, id, down)) {
+            case AVAILABLE -> true;
+            case UNAVAILABLE -> false;
+            case UNKNOWN -> unknownUp.test(id);
+        };
+    }
 
     private static Availability availability(Board b, String id, Set<String> alsoUnavailable) {
         if (alsoUnavailable.contains(id)) {

@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -75,6 +76,46 @@ class ServiceEvaluatorAssessTest {
                 Set.of("FDPS-A", "FDPS-B")).get(ServiceId.FD);
         assertThat(fd.confirmed()).isTrue();
         assertThat(fd.optimistic().status()).isEqualTo(ServiceStatus.FAILED);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("io.github.selvitopu.atmsup.supervisor.board.ServiceEvaluatorTest#rows")
+    void aWorldWithNoUnknownUnitUpIsThePessimisticPassAndWithAllUpTheOptimistic(
+            String name, Map<String, Object> overrides, Set<String> maintenance, ServiceStatus survStatus,
+            ServiceStatus survBest, boolean survRedundancyLost, boolean survRedundancyUnconfirmed,
+            List<String> survReasons, ServiceStatus fdStatus, boolean fdRedundancyLost) {
+        Board b = board(overrides, maintenance);
+        Set<String> unknown = overrides.keySet().stream()
+                .filter(id -> overrides.get(id) == UnknownReason.NOT_YET_POLLED).collect(Collectors.toSet());
+        var assessed = evaluator.assess(b, Set.of());
+        var none = evaluator.evaluateWorld(b, Set.of(), Set.of());
+        var all = evaluator.evaluateWorld(b, Set.of(), unknown);
+        assertThat(none.keySet()).containsExactly(ServiceId.SURV, ServiceId.FD);
+        for (ServiceId id : assessed.keySet()) {
+            assertThat(none.get(id)).isEqualTo(assessed.get(id).pessimistic());
+            assertThat(all.get(id)).isEqualTo(assessed.get(id).optimistic());
+        }
+    }
+
+    @Test
+    void aWorldSettlesEachUnknownUnitAndDownWins() {
+        Board b = board(Map.of("FDPS-A", UnknownReason.NOT_YET_POLLED, "FDPS-B", UnknownReason.NOT_YET_POLLED),
+                Set.of());
+        assertThat(evaluator.evaluateWorld(b, Set.of(), Set.of()).get(ServiceId.FD).status())
+                .isEqualTo(ServiceStatus.FAILED);
+        assertThat(evaluator.evaluateWorld(b, Set.of(), Set.of("FDPS-A")).get(ServiceId.FD).status())
+                .isEqualTo(ServiceStatus.DEGRADED);
+        assertThat(evaluator.evaluateWorld(b, Set.of(), Set.of("FDPS-A", "FDPS-B")).get(ServiceId.FD).status())
+                .isEqualTo(ServiceStatus.OK);
+        assertThat(evaluator.evaluateWorld(b, Set.of("FDPS-A"), Set.of("FDPS-A", "FDPS-B")).get(ServiceId.FD)
+                .status()).isEqualTo(ServiceStatus.DEGRADED);
+    }
+
+    @Test
+    void assumingAUnitUpNeverCountsAFailedOrMaintainedUnitAsWorking() {
+        Board b = board(Map.of("FDPS-A", Health.FAILED), Set.of("FDPS-B"));
+        assertThat(evaluator.evaluateWorld(b, Set.of(), Set.of("FDPS-A", "FDPS-B")).get(ServiceId.FD).status())
+                .isEqualTo(ServiceStatus.FAILED);
     }
 
     @Test

@@ -33,18 +33,28 @@ ever contradicting its own board?
 
 Chosen option: **Option 1.**
 
-* **One evaluator.** `ServiceEvaluator` gains one public, pure method, `assess(board, alsoUnavailable)`. It returns
-  both passes of every rule (unknown counted as available, then as unavailable) with the extra units counted as
-  unavailable, and has no side effects. `evaluate` keeps its behaviour, and the analyzer calls nothing else, so no
-  service rule exists outside `board`.
-* **Both sides of every comparison come from `assess`.** The plan compares `assess(board, {})` with
-  `assess(board, plan)`. The N-1 table compares `assess(board, plan)` with `assess(board, plan + unit)`. A
-  difference can therefore only come from the units removed, never from the stored services.
+* **One evaluator.** `ServiceEvaluator` gains two public, pure methods with no side effects.
+  `assess(board, alsoUnavailable)` returns both passes of every rule (unknown counted as available, then as
+  unavailable) with the extra units counted as unavailable. `evaluateWorld(board, down, assumedUp)` returns every
+  rule's outcome in one possible state of the centre, where an `UNKNOWN` unit works only if it is in `assumedUp`.
+  `evaluate` keeps its behaviour, and the analyzer calls nothing else, so no service rule exists outside `board`.
+* **Both sides of every comparison come from the evaluator.** The plan compares the board now with the board with
+  the plan's units out. The N-1 table compares the board with the plan applied with that plus one more unit out. A
+  difference can therefore only come from the units removed, never from the stored services. The statuses shown
+  come from `assess`, as on the board, so a plan's `after` on a fully known board is what the board will show.
 * **Three verdicts.** `NO_SERVICE_IMPACT` (nothing changes), `REDUCED_MARGIN` (no service is newly failed, but one
   gets worse) and `SERVICE_LOSS` (a service that was not failed becomes failed). The overall verdict is the worst
   across services. A service that is already failed contributes `NO_SERVICE_IMPACT`.
-* **`UNKNOWN` gives the worst case.** The verdict is computed in each pass separately, and the worse one is
-  reported. When the passes differ, the result is flagged unconfirmed and lists the units in `UNKNOWN`.
+* **`UNKNOWN` gives the worst case.** The analyzer compares before and after in every possible state of the
+  `UNKNOWN` units, each working or not, through `evaluateWorld`. A verdict is the worst over those states, and it
+  is flagged unconfirmed when they disagree; the report lists the units in `UNKNOWN`. The unit asked about, or
+  planned, counts as working before, because "if it failed" and "take it out" presume that it works. Comparing
+  the optimistic and the pessimistic pass alone is not enough: with two `UNKNOWN` units, both passes can agree on
+  `NO_SERVICE_IMPACT` for different reasons while a possible state loses the service.
+* **A cap on the states.** Up to 10 `UNKNOWN` units, the states are enumerated exactly (at most 1024 per question).
+  Beyond that, a service that the question changes in either pass, or whose passes disagree, compares its best
+  possible before with its worst possible after and is flagged unconfirmed. Under monotone rules this bound can
+  only overstate.
 * **A new `impact` module** (`ImpactAnalyzer`) depends only on `board`. [`ImpactController`] in `api` serves
   `GET /api/v1/impact?maintenance=<id>` to every signed-in role. An id that is not in the inventory is a 400 problem
   detail.
@@ -80,9 +90,11 @@ Chosen option: **Option 1.**
 ## Verification
 
 * [`ServiceEvaluatorAssessTest`] — `assess` agrees with `evaluate` when nothing extra is unavailable, an extra unit
-  counts as unavailable, and `UNKNOWN` still splits the passes.
-* [`ImpactAnalyzerTest`] — the demo scenarios, `UNKNOWN` as an unconfirmed worst case, the pair notes and the order
-  of the table.
+  counts as unavailable, `UNKNOWN` still splits the passes, and `evaluateWorld` settles each `UNKNOWN` unit, with
+  no unit up giving the pessimistic pass and all up the optimistic one.
+* [`ImpactAnalyzerTest`] — the demo scenarios, `UNKNOWN` as an unconfirmed worst case over every possible state
+  (including two or more `UNKNOWN` units and a centre that is all `UNKNOWN`), the bound above the cap never better
+  than the exact answer, the pair notes and the order of the table.
 * [`ImpactControllerTest`] — the roles, the 400 for an unknown unit, and duplicates ignored.
 * [`SupervisorEndToEndIT`] — `thePredictedImpactOfMaintenanceIsWhatTheBoardShows`.
 

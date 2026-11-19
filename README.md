@@ -37,7 +37,9 @@ because the answer depends on SDPS-A, and its open alarms are marked unconfirmed
 - **The impact analysis is the board's own rules.** The Impact screen reruns the same service evaluator with
   chosen units out of service, so a single point of failure or a planned maintenance can never be judged by a
   second model that disagrees with the board. Its verdicts are NO SERVICE IMPACT, REDUCED MARGIN and SERVICE
-  LOSS, a unit in `UNKNOWN` gives the worst case marked unconfirmed, and nothing is blocked.
+  LOSS, and nothing is blocked. With units in `UNKNOWN` state, a verdict is the worst over every possible state of
+  those units, marked unconfirmed when the states disagree. It is exact up to 10 such units, and beyond that a
+  conservative bound that can only overstate.
 - **Telemetry is sampled, never invented.** Values are stored every 30 s while polls succeed, and a
   missed poll produces no sample.
 

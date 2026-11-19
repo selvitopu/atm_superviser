@@ -208,8 +208,11 @@ maintenance. It reruns the same service rules the board uses, so it can never di
 * **Single points of failure:** a table, worst first, lists every unit still in service with what would happen to
   the services if it failed as well, on top of the plan. Units that are failed, in maintenance or in the plan are
   listed last as `Out of service`, with the reason.
-* **Unconfirmed:** a unit in `UNKNOWN` state is never read as healthy. The verdict shows the worse case and the
-  screen adds `Unconfirmed: depends on units in UNKNOWN state:` followed by their names.
+* **Unconfirmed:** a unit in `UNKNOWN` state is never read as healthy. A verdict is the worst over every possible
+  state of the `UNKNOWN` units, each working or not, and is marked unconfirmed when those states disagree. The unit
+  asked about, or planned, counts as working now. With more than 10 `UNKNOWN` units the verdict is a conservative
+  bound, which can only overstate. The screen adds `Unconfirmed: depends on units in UNKNOWN state:` followed by their
+  names.
 * **Freshness:** the screen refreshes every 5 s and shows the time the answer is based on (`as of`). If a refresh
   fails, it keeps the last result and says `Last refresh failed at …`, so the `as of` time shows how old it is.
 * **Basis:** every result ends with `Derived from the supervised equipment and the service rules; not a safety
