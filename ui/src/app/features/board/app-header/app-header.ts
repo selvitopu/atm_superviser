@@ -68,7 +68,8 @@ export class AppHeader {
     if (!this.user()) {
       return [];
     }
-    const links = [{ path: '/board', label: 'Board' }, { path: '/history', label: 'Alarm history' }];
+    const links = [{ path: '/board', label: 'Board' }, { path: '/history', label: 'Alarm history' },
+      { path: '/impact', label: 'Impact' }];
     if (this.config()?.demoMode && this.auth.hasRole('SUPERVISOR')) {
       links.push({ path: '/simulator', label: 'Simulator' });
     }

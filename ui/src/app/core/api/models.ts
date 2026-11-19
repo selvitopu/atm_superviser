@@ -154,3 +154,47 @@ export interface RegisterRequest {
   displayName: string;
   password: string;
 }
+
+/** What-if maintenance report; {@code basis} says what the verdicts rest on. */
+export interface ImpactDto {
+  asOf: string;
+  basis: string;
+  plan: PlanDto;
+  singlePoints: SinglePointDto[];
+  outOfService: OutOfServiceDto[];
+  unknownUnits: string[];
+}
+
+export interface PlanDto {
+  units: string[];
+  verdict: string;
+  unconfirmed: boolean;
+  services: ServiceChangeDto[];
+  notes: string[];
+}
+
+/** The best cases are null unless the side is UNKNOWN. */
+export interface ServiceChangeDto {
+  id: string;
+  name: string;
+  verdict: string;
+  before: string;
+  beforeBestCase: string | null;
+  after: string;
+  afterBestCase: string | null;
+  redundancyLostAfter: boolean;
+  reasonsAfter: string[];
+}
+
+export interface SinglePointDto {
+  unit: string;
+  health: string;
+  verdict: string;
+  unconfirmed: boolean;
+  changes: ServiceChangeDto[];
+}
+
+export interface OutOfServiceDto {
+  unit: string;
+  reason: string;
+}

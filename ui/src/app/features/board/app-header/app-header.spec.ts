@@ -49,10 +49,10 @@ describe('AppHeader', () => {
     expect(f.text()).toContain('Supervisor One');
   });
 
-  it('aViewerSeesTheBoardAndTheAlarmHistory', () => {
+  it('aViewerSeesImpact', () => {
     const f = setup('LIVE', new FakeAuth(['VIEWER'], 'Demo One', 'demo1'));
     expect(f.all('nav a').map(a => [a.textContent?.trim(), a.getAttribute('href')]))
-      .toEqual([['Board', '/board'], ['Alarm history', '/history']]);
+      .toEqual([['Board', '/board'], ['Alarm history', '/history'], ['Impact', '/impact']]);
   });
   it('aSupervisorSeesTheSimulatorOnlyInDemoMode', () => {
     const demo = { demoMode: true, registrationEnabled: true, demoAccounts: [] };

@@ -5,6 +5,7 @@ import { RegisterPage } from './features/auth/register-page/register-page';
 import { SignInPage } from './features/auth/sign-in-page/sign-in-page';
 import { BoardPage } from './features/board/board-page/board-page';
 import { HistoryPage } from './features/history/history-page/history-page';
+import { ImpactPage } from './features/impact/impact-page/impact-page';
 import { SimulatorPage } from './features/simulator/simulator-page/simulator-page';
 import { UsersPage } from './features/admin/users-page/users-page';
 import { roleGuard } from './core/auth/role.guard';
@@ -19,6 +20,7 @@ export const routes: Routes = [
     children: [{ path: '', children: [] }, { path: ':equipmentId', children: [] }],
   },
   { path: 'history', component: HistoryPage, canActivate: [authGuard], title: 'Alarm history · ATM Supervisor' },
+  { path: 'impact', component: ImpactPage, canActivate: [authGuard], title: 'Service impact · ATM Supervisor' },
   {
     path: 'simulator', component: SimulatorPage, canActivate: [authGuard, roleGuard('SUPERVISOR'), demoGuard],
     title: 'Simulator · ATM Supervisor',
