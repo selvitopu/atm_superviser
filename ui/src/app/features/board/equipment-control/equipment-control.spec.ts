@@ -44,6 +44,27 @@ describe('EquipmentControl', () => {
     expect(setup(eq('RAD-N', { pair: null, role: 'MAIN' })).button('Make active')).toBeUndefined();
   });
 
+  it('makesActiveOnlyAnOperationalStandbyOutOfMaintenance', () => {
+    const why = 'Make active needs a standby unit that is operational and not in maintenance';
+    expect(setup(FDPS_B).button('Make active')!.disabled).toBe(false);
+    for (const unit of [{ ...FDPS_B, health: 'FAILED' as const }, { ...FDPS_B, health: 'UNKNOWN' as const },
+      { ...FDPS_B, maintenance: true }]) {
+      const makeActive = setup(unit).button('Make active')!;
+      expect(makeActive.disabled).toBe(true);
+      expect(makeActive.title).toBe(why);
+    }
+  });
+
+  it('restartsOnlyInMaintenanceAndNotWhileARestartIsInProgress', () => {
+    expect(setup(FDPS_B).button('Restart')!.title).toBe('Restart needs maintenance mode');
+    const restarting = setup({ ...FDPS_B, maintenance: true, values: { lastCommandResult: 'IN_PROGRESS' } })
+      .button('Restart')!;
+    expect(restarting.disabled).toBe(true);
+    expect(restarting.title).toBe('A restart is in progress');
+    const done = setup({ ...FDPS_B, maintenance: true, values: { lastCommandResult: 'SUCCESS' } }).button('Restart')!;
+    expect(done.disabled).toBe(false);
+  });
+
   it('armingAsksToConfirmNamingTheUnitAndSendsNothing', () => {
     const { f, http, click } = setup(FDPS_B);
     click('Maintenance on');
@@ -65,9 +86,11 @@ describe('EquipmentControl', () => {
     expect(button('Confirm')).toBeUndefined(); // no second SET while the first is pending
     expect(button('Maintenance on')!.disabled).toBe(true);
 
+    expect(f.text()).toContain('Sending Make active to FDPS-B…');
+
     req.flush({ equipmentId: 'FDPS-B', command: 'MAKE_ACTIVE', outcome: 'DONE' });
     f.fixture.detectChanges();
-    expect(f.text()).toContain('Make active: done');
+    expect(f.text()).toContain('FDPS-B: Make active done');
     expect(button('Maintenance on')!.disabled).toBe(false);
   });
 
@@ -77,10 +100,10 @@ describe('EquipmentControl', () => {
     expect(f.text()).toContain('Restart FDPS-B?');
     click('Confirm');
     http.expectOne('/api/v1/equipment/FDPS-B/commands').flush(
-      { detail: 'The equipment refused the command: restart needs maintenance mode, and make active needs a standby unit' },
+      { detail: 'The equipment refused the command: restart needs maintenance mode, and no restart in progress' },
       { status: 409, statusText: 'Conflict' });
     f.fixture.detectChanges();
-    expect(f.text()).toContain('The equipment refused the command');
+    expect(f.text()).toContain('FDPS-B: The equipment refused the command: restart needs maintenance mode');
   });
 
   it('anotherUnitClearsTheConfirmation', () => {
@@ -89,5 +112,52 @@ describe('EquipmentControl', () => {
     f.fixture.componentRef.setInput('equipment', eq('SDPS-B', { type: 'SDPS', pair: 'SDPS', role: 'STANDBY' }));
     f.fixture.detectChanges();
     expect(f.text()).not.toContain('Put FDPS-B into maintenance?');
+  });
+
+  it('aResultThatArrivesAfterAnotherUnitIsSelectedNamesItsUnit', () => {
+    const { f, http, click } = setup(FDPS_B);
+    click('Maintenance on');
+    click('Confirm');
+    f.fixture.componentRef.setInput('equipment', eq('SDPS-B', { type: 'SDPS', pair: 'SDPS', role: 'STANDBY' }));
+    f.fixture.detectChanges();
+
+    http.expectOne('/api/v1/equipment/FDPS-B/commands').flush(
+      { equipmentId: 'FDPS-B', command: 'MAINTENANCE_ON', outcome: 'DONE' });
+    f.fixture.detectChanges();
+    expect(f.text()).toContain('FDPS-B: Maintenance on done');
+  });
+
+  it('aConfirmationIsDroppedOnceTheUnitNoLongerAllowsIt', () => {
+    const { f, click } = setup(FDPS_B);
+    const update = (e: EquipmentDto) => {
+      f.fixture.componentRef.setInput('equipment', e);
+      f.fixture.detectChanges();
+    };
+    click('Make active');
+    update({ ...FDPS_B, values: { flightPlans: 12 } }); // a fresh sample: the command still fits
+    expect(f.text()).toContain('Make FDPS-B the active unit?');
+
+    update({ ...FDPS_B, health: 'FAILED' });
+    expect(f.text()).not.toContain('Make FDPS-B the active unit?');
+    update(FDPS_B); // the unit recovers: nothing comes back armed
+    expect(f.text()).not.toContain('Make FDPS-B the active unit?');
+
+    click('Maintenance on');
+    update({ ...FDPS_B, maintenance: true }); // another supervisor did it first
+    expect(f.text()).not.toContain('Put FDPS-B into maintenance?');
+  });
+
+  it('theConfirmBarTakesFocusAndIsAnnounced', async () => {
+    const { f, click, button } = setup(FDPS_B);
+    click('Maintenance on');
+    await f.fixture.whenStable();
+
+    const confirm = button('Confirm')!;
+    expect(document.activeElement).toBe(confirm);
+    const question = f.el.querySelector('#' + confirm.getAttribute('aria-describedby'));
+    expect(question?.textContent).toBe('Put FDPS-B into maintenance?');
+    const bar = f.el.querySelector('.confirm')!;
+    expect(bar.getAttribute('aria-labelledby')).toBe(question!.id);
+    expect(bar.getAttribute('aria-live')).toBe('polite');
   });
 });

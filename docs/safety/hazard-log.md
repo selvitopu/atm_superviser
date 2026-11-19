@@ -229,6 +229,9 @@ the features exist:
   - Commands need SUPERVISOR or ADMIN, on the server ([CommandController]).
   - Every command first shows a confirm bar that names the unit and what will happen; only Confirm sends it, and the
     controls are disabled until the answer arrives, so a double click sends one SET.
+  - The panel offers a command only while the unit's state allows it (Make active for an operational standby out of
+    maintenance, Restart in maintenance and not during a restart). A confirm bar disappears once its command no
+    longer fits the unit, and every result names the unit it concerns, even if another unit was selected meanwhile.
   - The agent refuses a command that does not fit the unit's state (`inconsistentValue`), and the panel shows the
     rule of that command. Any other error status is reported as a fault of the operator user's access on the unit,
     and a SET that never left the supervisor as not sent, so neither is blamed on the unit's state.

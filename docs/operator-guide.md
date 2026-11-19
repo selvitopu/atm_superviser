@@ -131,7 +131,9 @@ Click any equipment tile to select it (deep-linked at `/board/:equipmentId`, for
 * **Recent Events:** Lists up to the last **50 durable events** recorded in PostgreSQL for this device (`EQUIPMENT_STATE_CHANGED`, `CONTACT_LOST`, `CONTACT_RESTORED`, `ALARM_RAISED`, `ALARM_CLEARED`, etc.) with their UTC timestamps and human-readable summaries.
 
 * **Control (supervisors and administrators):** **Maintenance on** or **Maintenance off**, **Restart** (only in
-  maintenance), and **Make active** (only for the standby unit of a pair). See Playbook 4.
+  maintenance, and not while a restart is in progress), and **Make active** (for the standby unit of a pair, enabled
+  only while it is operational and not in maintenance). A greyed-out button says why when you point at it. See
+  Playbook 4.
 
 ### 2.6 Alarms Pane (Bottom Bar & Table)
 
@@ -241,9 +243,11 @@ not sent: it could not be recorded*.
        `Maintenance on by supervisor1: done`.
 2. **Restart `FDPS-B` while it is in maintenance:** click **Restart**, then **Confirm**.
    * **Restart** is available only in maintenance. The unit itself enforces this too: a restart it receives outside
-     maintenance is refused, and the panel shows the reason.
+     maintenance is refused, and the panel shows the reason. Every result in the panel starts with the unit it
+     concerns, for example `FDPS-B: Restart done`.
 3. **Take `FDPS-B` out of maintenance, then make it active:** click **Maintenance off** and **Confirm**, then
-   **Make active** and **Confirm**. **Make active** appears only for the standby unit of a redundant pair.
+   **Make active** and **Confirm**. **Make active** appears only for the standby unit of a redundant pair, and is
+   enabled only while that unit is operational and out of maintenance, which is why it waits for **Maintenance off**.
    * **What you see:** `MAINT` disappears, `FD` returns to **`✓ OK`**, and `FDPS-B` swaps roles with `FDPS-A` to become **`ACTIVE`**.
 
 ---

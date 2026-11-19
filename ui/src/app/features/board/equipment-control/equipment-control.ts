@@ -1,5 +1,8 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, computed, inject, input, linkedSignal, output,
+  signal, viewChild,
+} from '@angular/core';
 import { BoardApi, EquipmentCommand } from '../../../core/api/board-api';
 import { EquipmentDto } from '../../../core/api/models';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -18,9 +21,15 @@ function question(command: EquipmentCommand, id: string): string {
   }
 }
 
+/** Why each command cannot be sent now, as the unit would refuse it; empty when it can. */
+type Blocked = Record<EquipmentCommand, string>;
+
+let nextId = 0;
+
 /**
- * Equipment control for supervisors. A command is armed first and sent only on Confirm, one at a time; the unit
- * decides whether it fits its state, and a refusal shows the server's reason.
+ * Equipment control for supervisors. A command is armed first and sent only on Confirm, one at a time. The panel
+ * offers a command only when the unit's state allows it, the unit decides again, and a refusal shows the server's
+ * reason. A confirmation lasts while its command still fits the unit, and every result names its unit.
  */
 @Component({
   selector: 'app-equipment-control',
@@ -31,23 +40,25 @@ function question(command: EquipmentCommand, id: string): string {
         <h3>Control</h3>
         <div class="buttons">
           <button type="button" [disabled]="busy()" (click)="arm(maintenanceCommand())">{{ label(maintenanceCommand()) }}</button>
-          <button type="button" [disabled]="busy() || !equipment().maintenance" (click)="arm('RESTART')"
-            [title]="equipment().maintenance ? '' : 'Restart needs maintenance mode'">Restart</button>
+          <button type="button" [disabled]="busy() || !!blocked().RESTART" (click)="arm('RESTART')"
+            [title]="blocked().RESTART">Restart</button>
           @if (standbyPairMember()) {
-            <button type="button" [disabled]="busy()" (click)="arm('MAKE_ACTIVE')">Make active</button>
+            <button type="button" [disabled]="busy() || !!blocked().MAKE_ACTIVE" (click)="arm('MAKE_ACTIVE')"
+              [title]="blocked().MAKE_ACTIVE">Make active</button>
           }
         </div>
         @if (armed(); as command) {
           @if (!pending()) {
-            <div class="confirm" role="group" aria-label="Confirm command">
-              <span>{{ question(command, equipment().id) }}</span>
-              <button type="button" class="go" (click)="send(command)">Confirm</button>
+            <div class="confirm" role="group" [attr.aria-labelledby]="questionId" aria-live="polite">
+              <span [id]="questionId">{{ question(command, equipment().id) }}</span>
+              <button #confirm type="button" class="go" [attr.aria-describedby]="questionId"
+                (click)="send(command)">Confirm</button>
               <button type="button" (click)="armed.set(null)">Cancel</button>
             </div>
           }
         }
-        @if (pending()) {
-          <p class="note" role="status">Sending…</p>
+        @if (pending(); as p) {
+          <p class="note" role="status">Sending {{ label(p.command) }} to {{ p.id }}…</p>
         }
         @if (message(); as m) {
           <p class="note" [class.error]="m.error" [attr.role]="m.error ? 'alert' : 'status'">{{ m.text }}</p>
@@ -85,15 +96,41 @@ export class EquipmentControl {
   protected readonly maintenanceCommand = computed<EquipmentCommand>(() =>
     this.equipment().maintenance ? 'MAINTENANCE_OFF' : 'MAINTENANCE_ON');
   protected readonly standbyPairMember = computed(() => !!this.equipment().pair && this.equipment().role === 'STANDBY');
+  protected readonly blocked = computed<Blocked>(() => {
+    const e = this.equipment();
+    return {
+      MAINTENANCE_ON: e.maintenance ? 'Already in maintenance' : '',
+      MAINTENANCE_OFF: e.maintenance ? '' : 'Not in maintenance',
+      RESTART: !e.maintenance ? 'Restart needs maintenance mode'
+        : e.values['lastCommandResult'] === 'IN_PROGRESS' ? 'A restart is in progress' : '',
+      MAKE_ACTIVE: this.standbyPairMember() && e.health === 'OPERATIONAL' && !e.maintenance ? ''
+        : 'Make active needs a standby unit that is operational and not in maintenance',
+    };
+  });
 
   private readonly unitId = computed(() => this.equipment().id);
-  /** A confirmation or result belongs to one unit: selecting another clears it. */
-  protected readonly armed = linkedSignal<string, EquipmentCommand | null>({ source: this.unitId, computation: () => null });
+  /** Cleared when another unit is selected, or when the unit's state no longer allows the command. */
+  protected readonly armed = linkedSignal<{ id: string; blocked: Blocked }, EquipmentCommand | null>({
+    source: () => ({ id: this.unitId(), blocked: this.blocked() }),
+    computation: (now, previous) => {
+      const command = previous?.value;
+      return command && previous.source.id === now.id && !now.blocked[command] ? command : null;
+    },
+  });
+  /** A result names its unit: it may arrive after another unit was selected. Selecting another unit clears it. */
   protected readonly message = linkedSignal<string, { text: string; error: boolean } | null>({
     source: this.unitId, computation: () => null,
   });
-  protected readonly pending = signal(false);
-  protected readonly busy = computed(() => this.pending());
+  protected readonly pending = signal<{ id: string; command: EquipmentCommand } | null>(null);
+  protected readonly busy = computed(() => !!this.pending());
+
+  protected readonly questionId = `confirm-question-${nextId++}`;
+  private readonly confirmButton = viewChild<ElementRef<HTMLButtonElement>>('confirm');
+
+  constructor() {
+    // the confirm bar takes the focus, so the keyboard and a screen reader land on the question it asks
+    afterRenderEffect(() => this.confirmButton()?.nativeElement.focus());
+  }
 
   protected arm(command: EquipmentCommand): void {
     this.message.set(null);
@@ -104,15 +141,17 @@ export class EquipmentControl {
     if (this.pending()) {
       return;
     }
-    this.pending.set(true);
-    this.api.command(this.equipment().id, command).subscribe({
-      next: () => this.done({ text: `${LABEL[command]}: done`, error: false }),
-      error: (e: HttpErrorResponse) => this.done({ text: e.error?.detail ?? `${LABEL[command]} failed`, error: true }),
+    const id = this.equipment().id;
+    this.pending.set({ id, command });
+    this.api.command(id, command).subscribe({
+      next: () => this.done({ text: `${id}: ${LABEL[command]} done`, error: false }),
+      error: (e: HttpErrorResponse) =>
+        this.done({ text: `${id}: ${e.error?.detail ?? `${LABEL[command]} failed`}`, error: true }),
     });
   }
 
   private done(message: { text: string; error: boolean }): void {
-    this.pending.set(false);
+    this.pending.set(null);
     this.armed.set(null);
     this.message.set(message);
     this.commanded.emit();
