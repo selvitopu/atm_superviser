@@ -17,6 +17,7 @@ import io.github.selvitopu.atmsup.supervisor.board.GenerationSource;
 import io.github.selvitopu.atmsup.supervisor.board.ServiceEvaluator;
 import io.github.selvitopu.atmsup.supervisor.board.StatusDeriver;
 import io.github.selvitopu.atmsup.supervisor.board.SurveillanceRule;
+import io.github.selvitopu.atmsup.supervisor.impact.ImpactAnalyzer;
 import io.github.selvitopu.atmsup.supervisor.polling.DeviceBreakers;
 import io.github.selvitopu.atmsup.supervisor.polling.PollDispatcher;
 import io.github.selvitopu.atmsup.supervisor.polling.PollScheduler;
@@ -181,6 +182,11 @@ public class SupervisorConfig {
     @Bean
     ServiceEvaluator serviceEvaluator(Inventory inventory) {
         return new ServiceEvaluator(inventory, List.of(new SurveillanceRule(), new FlightDataRule()));
+    }
+
+    @Bean
+    ImpactAnalyzer impactAnalyzer(Inventory inventory, ServiceEvaluator evaluator) {
+        return new ImpactAnalyzer(inventory, evaluator);
     }
 
     @Bean
