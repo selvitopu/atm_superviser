@@ -34,8 +34,8 @@ public final class ServiceEvaluator {
      * adds is reported as a single "Unconfirmed" reason.
      */
     public Map<ServiceId, ServiceState> evaluate(Board b, Instant now) {
-        Predicate<String> optimistic = id -> availability(b, id) != Availability.UNAVAILABLE;
-        Predicate<String> pessimistic = id -> availability(b, id) == Availability.AVAILABLE;
+        Predicate<String> optimistic = id -> availability(b, id, Set.of()) != Availability.UNAVAILABLE;
+        Predicate<String> pessimistic = id -> availability(b, id, Set.of()) == Availability.AVAILABLE;
         Map<ServiceId, ServiceState> out = new LinkedHashMap<>();
         for (ServiceRule rule : rules) {
             RuleOutcome best = rule.evaluate(inv, optimistic);
@@ -64,15 +64,30 @@ public final class ServiceEvaluator {
     }
 
     /**
+     * Pure what-if: the optimistic and pessimistic outcome of every rule, in registration order, with the given
+     * units counted as unavailable in both passes. It uses no previous state, no {@code since} and no clock.
+     */
+    public Map<ServiceId, Assessment> assess(Board b, Set<String> alsoUnavailable) {
+        Predicate<String> optimistic = id -> availability(b, id, alsoUnavailable) != Availability.UNAVAILABLE;
+        Predicate<String> pessimistic = id -> availability(b, id, alsoUnavailable) == Availability.AVAILABLE;
+        Map<ServiceId, Assessment> out = new LinkedHashMap<>();
+        for (ServiceRule rule : rules) {
+            out.put(rule.id(), new Assessment(rule.evaluate(inv, optimistic), rule.evaluate(inv, pessimistic)));
+        }
+        return out;
+    }
+
+    /**
      * Unknown devices (inventory order) of every type whose uncertainty alone changes the rule's result. Grouping
      * by type keeps thresholds such as "fewer than 2 of 3" visible.
      */
     private List<String> dependsOn(Board b, ServiceRule rule, RuleOutcome best,
                                    BiPredicate<RuleOutcome, RuleOutcome> differs) {
         Set<String> unknown = inv.devices().stream().map(Device::id)
-                .filter(id -> availability(b, id) == Availability.UNKNOWN).collect(Collectors.toSet());
+                .filter(id -> availability(b, id, Set.of()) == Availability.UNKNOWN).collect(Collectors.toSet());
         Set<DeviceType> relevant = unknown.stream().map(id -> inv.device(id).type()).distinct()
-                .filter(t -> differs.test(rule.evaluate(inv, id -> availability(b, id) != Availability.UNAVAILABLE
+                .filter(t -> differs.test(rule.evaluate(inv,
+                        id -> availability(b, id, Set.of()) != Availability.UNAVAILABLE
                         && !(unknown.contains(id) && inv.device(id).type() == t)), best))
                 .collect(Collectors.toSet());
         return inv.devices().stream().filter(d -> unknown.contains(d.id()) && relevant.contains(d.type()))
@@ -85,7 +100,10 @@ public final class ServiceEvaluator {
 
     private enum Availability { AVAILABLE, UNAVAILABLE, UNKNOWN }
 
-    private static Availability availability(Board b, String id) {
+    private static Availability availability(Board b, String id, Set<String> alsoUnavailable) {
+        if (alsoUnavailable.contains(id)) {
+            return Availability.UNAVAILABLE;
+        }
         EquipmentState s = b.equipment().get(id);
         if (s != null && s.maintenance()) {
             return Availability.UNAVAILABLE;
