@@ -137,6 +137,7 @@ Click any equipment tile to select it (deep-linked at `/board/:equipmentId`, for
   answering as soon as it restarts), and **Make active** (for the standby unit of a pair, enabled only while it is
   operational and not in maintenance). A greyed-out button says why when you point at it. See
   Playbook 4.
+* **Impact preview:** when you arm **Maintenance on**, the confirm bar also reads, for example, `Impact: REDUCED MARGIN — FD: Only one FDPS unit available`, with a note when the unit is the active one of its pair. It shows `Impact: assessing…` while it loads and `Impact could not be assessed` if it fails. **Confirm** stays enabled in every case: the preview informs, and you decide. The same answer, for any set of units, is on the **Impact** screen (2.10).
 
 ### 2.6 Alarms Pane (Bottom Bar & Table)
 
@@ -181,11 +182,45 @@ as registration. Every change ends that user's sessions: the server refuses thei
 to the sign-in screen within seconds, and their other screens at their next action. Your own row is read-only, so an
 administrator cannot lock themselves out.
 
+### 2.10 Impact (Plan Maintenance and Find Single Points of Failure)
+
+**Impact** in the header is open to every role. It answers two questions from the live board: which single unit, if
+it failed now, would cost a service or its redundancy, and what is left of each service if some units go into
+maintenance. It reruns the same service rules the board uses, so it can never disagree with the board.
+
+* **Plan maintenance:** tick the units you are thinking of taking out. They are grouped by function. A unit that is
+  already failed or in maintenance is shown ticked and greyed out with its reason. The ticks are kept in the page
+  address, so you can send the link to a colleague and it survives a reload; **Clear** removes them.
+* **The plan's verdict:** with a plan, the screen shows one of three verdicts, always as words and never by colour
+  alone, and each service's status before and after, with its reasons and whether redundancy is lost.
+
+  | Verdict | Meaning |
+  |---|---|
+  | `✕ SERVICE LOSS` | A service that is not failed now would be failed. |
+  | `▲ REDUCED MARGIN` | No service would fail, but at least one gets worse: a lower status, lost redundancy or a new reason. |
+  | `NO SERVICE IMPACT` | Every service keeps its status, its redundancy and its reasons. |
+
+  `NO SERVICE IMPACT` is shown in neutral text, never in the OK green, because it describes the rules and is not a
+  clearance. With no plan, the screen reads `No maintenance planned`.
+* **Notes:** if a planned unit is the active one of its pair, a note says that maintenance switches the pair over to
+  its partner, or that the partner cannot take over. The rules do not model switchovers, so the note never changes the
+  verdict.
+* **Single points of failure:** a table, worst first, lists every unit still in service with what would happen to
+  the services if it failed as well, on top of the plan. Units that are failed, in maintenance or in the plan are
+  listed last as `Out of service`, with the reason.
+* **Unconfirmed:** a unit in `UNKNOWN` state is never read as healthy. The verdict shows the worse case and the
+  screen adds `Unconfirmed: depends on units in UNKNOWN state:` followed by their names.
+* **Freshness:** the screen refreshes every 5 s and shows the time the answer is based on (`as of`). If a refresh
+  fails, it keeps the last result and says `Last refresh failed at …`, so the `as of` time shows how old it is.
+* **Basis:** every result ends with `Derived from the supervised equipment and the service rules; not a safety
+  assessment`. The analysis counts available units only: it does not model the brief interruption of a switchover or
+  a radar's coverage. The verdict informs a decision and never blocks a command.
+
 ---
 
 ## 3. Hands-On Operational Playbooks
 
-You can run these five workflows against the live stack to see how the board responds to faults, acknowledgements,
+You can run these six workflows against the live stack to see how the board responds to faults, acknowledgements,
 switchovers, lost contact, and maintenance. Sign in as `supervisor1`, keep the board open in one browser window, and
 open the **Simulator** screen from the header in a second window, so you can inject a fault and watch the board react.
 **Reset all** on the Simulator screen clears every fault and restores the default roles.
@@ -265,6 +300,22 @@ not sent: it could not be recorded*.
 
 ---
 
+### Playbook 6: Plan Maintenance with the Impact Screen
+
+1. **Pick the unit:** open **Impact** in the header and tick `FDPS-B` under **Plan maintenance**. The page address now
+   carries the plan.
+2. **Read the plan's verdict:** `▲ REDUCED MARGIN` for `FD`, which goes from `OK` to `DEGRADED` with the reason
+   `Only one FDPS unit available`. `SURV` does not change. No service is lost, but the margin is gone.
+3. **Find what that exposes:** in the table, `FDPS-A` now reads `✕ SERVICE LOSS`, because with `FDPS-B` out, one more
+   failure leaves no FDPS unit.
+4. **Do it from the board:** select `FDPS-B`, click **Maintenance on**. The confirm bar shows the same preview,
+   `Impact: REDUCED MARGIN — FD: Only one FDPS unit available`. Click **Confirm**, and the board shows `FD`
+   `▲ DEGRADED`, as the plan said.
+5. **Take it out again:** click **Maintenance off** and **Confirm**. `FD` returns to `✓ OK`, and on **Impact** `FDPS-A` is
+   back to `▲ REDUCED MARGIN`.
+
+---
+
 ## 4. REST API Reference
 
 Every user action has a screen; this reference is for integrators. The interactive OpenAPI page is at
@@ -276,6 +327,7 @@ needs the `X-XSRF-TOKEN` header with the value of the `XSRF-TOKEN` cookie. Refus
 | `GET /api/v1/board` | VIEWER | The live board snapshot (`centre`, `serverTime`, `lastEventId`, `services`, `equipment`, open `alarms`). |
 | `GET /api/v1/equipment/{id}` | VIEWER | The equipment state and its last 50 events (`recentEvents`); `404` for an unknown ID. |
 | `GET /api/v1/alarms` | VIEWER | Alarm search. Params: `state` (`open` \| `all`, default `open`), `severity`, `equipment`, `from` and `to` (ISO-8601 UTC), `page` (`0`), `size` (`1..500`, default `50`). |
+| `GET /api/v1/impact?maintenance=<id>` | VIEWER | Read-only impact analysis of the live board. Repeat `maintenance` for each planned unit (none is allowed, duplicates are ignored). Returns `asOf`, `basis`, the `plan` (`units`, `verdict`, `unconfirmed`, each service's `before` and `after`, `notes`), `singlePoints`, `outOfService` and `unknownUnits`. `400` for an id that is not in the inventory. Verdicts are `NO_SERVICE_IMPACT`, `REDUCED_MARGIN` and `SERVICE_LOSS`. |
 | `GET /api/v1/stream` | VIEWER | Server-Sent Events (`equipment`, `service`, `alarm`, `supervisor` with `id`, plus volatile `telemetry` and `heartbeat`); accepts `Last-Event-ID`. |
 | `POST /api/v1/alarms/{id}/ack` | SUPERVISOR | Acknowledges one alarm; optional body `{"comment":"..."}`. |
 | `POST /api/v1/alarms/ack` | SUPERVISOR | Acknowledges several alarms; body `{"ids":["..."],"comment":"..."}`. |

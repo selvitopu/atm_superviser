@@ -90,7 +90,22 @@ becomes CLEARED-UNACK. Acknowledge it and it leaves the list.
 Talking point: a recovered probe triggers one immediate verification poll instead of waiting for the
 breaker timer, so recovery takes seconds, not about 30 s (amendment §1).
 
-## 7. RAD-S loses its traps, then fails
+## 7. Ask Impact what one more failure would cost
+
+Command: none. Open **Impact** in the header, with RAD-N, RAD-E and SDPS-A still failed from steps 2 to 4.
+
+Shows: the table of single points of failure lists SDPS-B and RAD-S as `✕ SERVICE LOSS`, because losing either
+leaves Surveillance with no SDPS unit or no radar, and FDPS-A and FDPS-B as `▲ REDUCED MARGIN`. The three failed
+units are listed last as out of service. Tick `FDPS-B` under **Plan maintenance**: the plan reads `▲ REDUCED MARGIN`
+(`FD` goes from OK to DEGRADED, `Only one FDPS unit available`), `FDPS-A` becomes `✕ SERVICE LOSS`, and the
+address of the page now carries the plan. Arm **Maintenance on** for `FDPS-B` on the board, and the confirm bar
+shows the same impact; cancel it.
+
+Talking point: the screen reruns the board's own service rules with chosen units out, so it cannot disagree with
+the board. It says what the rules count and nothing else, shows its basis and the time it is based on, and never
+blocks a command: the supervisor decides.
+
+## 8. RAD-S loses its traps, then fails
 
 On the Simulator screen: **Drop traps** on `RAD-S`, then **Fail** on `RAD-S`.
 
@@ -102,7 +117,7 @@ RAD-N and RAD-E alarms were `via TRAP`.
 Talking point: polling is the source of truth and traps are only hints that make the board faster
 (§6.1, §8.2). A lost trap delays an alarm by at most one poll; it cannot hide the failure.
 
-## 8. Ask the agent directly
+## 9. Ask the agent directly
 
 The macOS `snmpget` is too old, so use the README's container command (the network name is
 `<compose project>_default`, `atm-supervisor_default` for the demo stack):
@@ -116,7 +131,7 @@ once, to install the package.
 
 Talking point: the agents are real SNMPv3 agents, not a mock; the supervisor uses the same protocol (§6.1).
 
-## 9. Reset
+## 10. Reset
 
 On the Simulator screen, click **Reset all**, then **Confirm**.
 

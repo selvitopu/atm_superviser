@@ -34,6 +34,10 @@ because the answer depends on SDPS-A, and its open alarms are marked unconfirmed
 - **A slow browser cannot stall supervision.** The writer never does network I/O. Each SSE client
   has a bounded queue, and a client that overflows it is disconnected and resumes from the server's
   buffer of recent events, never silently skipped.
+- **The impact analysis is the board's own rules.** The Impact screen reruns the same service evaluator with
+  chosen units out of service, so a single point of failure or a planned maintenance can never be judged by a
+  second model that disagrees with the board. Its verdicts are NO SERVICE IMPACT, REDUCED MARGIN and SERVICE
+  LOSS, a unit in `UNKNOWN` gives the worst case marked unconfirmed, and nothing is blocked.
 - **Telemetry is sampled, never invented.** Values are stored every 30 s while polls succeed, and a
   missed poll produces no sample.
 
@@ -60,8 +64,9 @@ The [design](docs/design/2026-11-13-atm-supervisor-design.md) describes the full
 | ADS-B, voice, radio, recorder and network switch (IF-MIB, SNMPv2c) supervision | Planned (v0.2) |
 | VOICE, REC and NET services | Planned (v0.2) |
 | Scripted fault scenarios | Planned (v0.2) |
-| Control commands with interlocks, preview and outcome tracking | Planned (v0.3) |
+| Control commands with interlocks, a mandatory reason and outcome tracking | Planned (v0.3) |
 | Sign-in, registration and roles (VIEWER, SUPERVISOR, ADMIN) | Implemented |
+| Impact analysis: single points of failure and a what-if maintenance planner, with a preview on Maintenance on | Implemented |
 | Replay, snapshots, export and retention | Planned (v0.3) |
 | Prometheus, `snmp_exporter` and Grafana | Planned (v1.0); Actuator metrics exist today |
 | Browser end-to-end tests | Planned (v1.0) |
@@ -193,8 +198,9 @@ confirmation. The Simulator screen exists only in demo mode.
 Equipment commands are on the board: select a tile, and supervisors see **Maintenance on/off**,
 **Restart** (in maintenance only) and **Make active** (for a standby unit) in its panel. Each asks for
 a confirmation that names the unit, the supervisor sends it as an SNMP `SET`, and the event log records
-who sent it and what came of it. **Alarm history** searches every alarm, and administrators manage
-accounts on **Users**.
+who sent it and what came of it; the confirmation for **Maintenance on** also previews the impact on the
+services. **Alarm history** searches every alarm, **Impact** shows which single failure would cost a service
+and what a planned maintenance leaves, and administrators manage accounts on **Users**.
 
 Stop the stack with `docker compose -f deploy/docker-compose.yml down` (add `-v` to drop the data volumes).
 
@@ -296,7 +302,7 @@ cd mib && ./lint.sh                            # lint the MIB with smilint (fall
 - [Architecture](docs/architecture.md): C4 context, container and component views, Spring Modulith
   boundaries, and the polling, board-writer and SSE pipelines
 - [Domain primer](docs/domain.md): technical supervision, the supervised systems, health versus
-  service state, and the alarm lifecycle
+  service state, N-1 and single points of failure, and the alarm lifecycle
 - [Operator guide](docs/operator-guide.md): how to read the board, `UNKNOWN` reasons, maintenance
   badges, freshness ages and alarm handling
 - [MIB guide](docs/mib.md): the custom MIB, the SNMPv3 users and `snmpwalk` examples
@@ -304,10 +310,10 @@ cd mib && ./lint.sh                            # lint the MIB with smilint (fall
   prevent it
 - [Change request CR-001](docs/safety/CR-001-auto-switchover-visibility.md): automatic 3 s A/B
   switchover visibility and confirmed service redundancy alarms
-- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0011 covering the
+- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0012 covering the
   modular monolith, SNMPv3/engine boots, full-poll alarm resync, full-state event log, bounded SSE,
   shared inventory, restart context preservation, two-generation polling, PostgreSQL with Liquibase,
-  and session sign-in with roles
+  session sign-in with roles, and impact analysis over the live service rules
 - [Demo walkthrough](docs/demo-v0.1.md): a scripted tour of v0.1
 - [Design](docs/design/2026-11-13-atm-supervisor-design.md): the target architecture for every phase,
   amended by the [architecture review decisions](docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md)

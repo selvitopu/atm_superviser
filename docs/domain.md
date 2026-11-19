@@ -76,6 +76,29 @@ Otherwise the service is `OK`. A device is **available** when its health is `OPE
 is down to one unit also raises supervisor alarm 903 *Service redundancy lost*, and a failed service
 raises 904 *Service failed*.
 
+## N-1 and single points of failure
+
+Engineers who plan work on a centre ask "what if one more thing fails?". That is **N-1**: with everything as it is
+now, or with some units already out for maintenance, would the loss of any one further unit cost a service? A unit
+whose loss would is a **single point of failure** for that service, even though nothing is wrong yet. With `FDPS-A`
+and `FDPS-B` both operational, neither is a single point of failure for `FD`. With `FDPS-B` in maintenance, `FDPS-A`
+is one.
+
+Because the service rules above are functions of which units are available, N-1 needs no new model. The impact
+analysis reruns the same rules with the extra units counted as unavailable and compares the result with the
+reference: the board as it is for a maintenance plan, or the board with the plan applied for N-1. It gives one of
+three verdicts:
+
+- **`SERVICE LOSS`:** a service that is not failed would become `FAILED`.
+- **`REDUCED MARGIN`:** no service would fail, but one gets worse (`OK` to `DEGRADED`), newly loses redundancy or gains
+  a reason.
+- **`NO SERVICE IMPACT`:** nothing changes. This is not a clearance: it says only what the rules count.
+
+A unit in `UNKNOWN` state is handled as in the next section: the analysis takes the worse of its two passes and marks
+the result unconfirmed. The rules know nothing about roles, so planning an active unit adds a note that the pair
+switches over, and the verdict stays as the rules give it. The analysis is a view of the rules, and it does not model
+a switchover's brief interruption or a radar's coverage; it is not a safety assessment.
+
 ## `UNKNOWN` belongs to the supervisor
 
 Devices only ever report `OPERATIONAL`, `DEGRADED` or `FAILED`. `UNKNOWN` is the supervisor saying

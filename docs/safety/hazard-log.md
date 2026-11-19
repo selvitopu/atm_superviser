@@ -28,6 +28,7 @@ Status values:
 | [H12](#h12-an-alarm-acknowledged-by-someone-not-entitled-to) | An alarm acknowledged by someone not entitled to | Mitigated |
 | [H13](#h13-a-command-sent-to-the-wrong-unit-or-at-the-wrong-time) | A command sent to the wrong unit or at the wrong time | Mitigated |
 | [H14](#h14-a-training-fault-reaches-a-live-centre) | A training fault reaches a live centre | Mitigated |
+| [H15](#h15-a-what-if-verdict-taken-as-clearance-or-used-when-stale) | A what-if verdict taken as clearance or used when stale | Mitigated |
 
 ## H1 Stale observations shown as current
 
@@ -131,7 +132,7 @@ Status values:
   `aMultiBindingSetReachesTheViewsOnlyOnceItIsComplete`, `aSetThatFailsMidwayStillPublishesWhatItChanged`),
   [DeviceAgentSetIT].
 - **Status:** mitigated in the simulator. The supervisor sends each command as a single-binding SET and never
-  retries it (H13); interlocks and an impact preview are planned (H11).
+  retries it (H13); interlocks are planned (H11), and the impact of maintenance is previewed (H15).
 
 ## H7 A supervisor restart loses operational context
 
@@ -198,8 +199,9 @@ the features exist:
 - **Replay mistaken for live:** a separate replay store with no live stream, a fixed replay band,
   commands disabled in replay, and `NO_DATA` for periods when the supervisor was not running.
 - **Unintended or unsafe control command:** roles, a confirm step, SETs without retries and an uncertain outcome
-  are in place (H13). Still planned: a mandatory reason, interlocks, and an impact preview through the same service
-  evaluator.
+  are in place (H13), and **Maintenance on** shows an impact preview computed by the same service evaluator, which
+  informs and never blocks (H15). Still planned: a mandatory reason, interlocks, and an impact preview for the other
+  commands.
 - **Failed SNMP authentication goes unnoticed:** a supervisor alarm on USM authentication reports.
 - **A restarted device shown with its pre-restart state:** `UNKNOWN (RESTARTING)` until the first
   poll after a commanded restart, with the restart proven through `sysUpTime`.
@@ -264,6 +266,36 @@ the features exist:
   the UI spec `demo.guard.spec.ts`.
 - **Status:** mitigated.
 
+## H15 A what-if verdict taken as clearance or used when stale
+
+- **Cause:** a planned-maintenance or single-point-of-failure verdict is read as a statement that an action is
+  acceptable, or it is acted on after the board has changed, or it hides that a unit's state is not confirmed.
+- **Consequence:** a unit is taken out when the board no longer supports it, or a service loses its margin because a
+  verdict looked like a clearance.
+- **Mitigation:**
+  - The verdicts are `NO SERVICE IMPACT`, `REDUCED MARGIN` and `SERVICE LOSS`. No verdict is worded as a
+    clearance or an approval, and `NO SERVICE IMPACT` is shown in neutral text, never the OK green. The verdict is text, not
+    colour alone.
+  - Every result states its basis, "Derived from the supervised equipment and the service rules; not a safety
+    assessment", and the board time it was computed from. The Impact screen refreshes every 5 s, keeps the last result
+    with `Last refresh failed at …` when a refresh fails, and drops an answer to a superseded request.
+  - A unit in `UNKNOWN` state gives the worse of the two passes, marked unconfirmed, with the units named.
+  - The analysis calls the same [ServiceEvaluator] as the board, through `assess`, and compares only results of
+    `assess`, so it cannot contradict the board. It reads a snapshot of the board and writes nothing.
+  - The preview informs and never blocks: a person decides. Interlocks stay planned (H11).
+  - The rules count available units only. Switchover transients and radar coverage are not modelled, and the basis
+    line says the verdict is not a safety assessment.
+- **Verified by:** [ServiceEvaluatorAssessTest] (`withNothingExtraItAgreesWithEvaluate`,
+  `unknownStillSplitsThePasses`), [ImpactAnalyzerTest] (`allHealthyRadarsHaveNoImpactAndProcessorsReduceMargin`,
+  `aFailedPartnerMakesTheOtherASinglePoint`, `planningTheStandbyReducesMarginAndExposesTheActive`,
+  `anUnknownUnitGivesTheWorstCaseUnconfirmed`, `planningTheActiveUnitNotesTheSwitchover`), [ImpactControllerTest]
+  (`aViewerGetsTheReport`, `signedOutIs401`, `anUnknownUnitIs400`), [SupervisorEndToEndIT]
+  (`thePredictedImpactOfMaintenanceIsWhatTheBoardShows`), and the UI specs [impact-page.spec.ts]
+  (`neverSaysSafe`, `noServiceImpactIsNotGreen`, `anUnconfirmedVerdictNamesTheUnknownUnits`,
+  `refreshesEveryFiveSecondsAndKeepsTheLastResultOnFailure`, `onlyTheLatestRequestLands`) and
+  [equipment-control.spec.ts] (`maintenanceOnShowsTheImpactPreview`, `confirmStaysEnabledWhileTheImpactLoads`).
+- **Status:** mitigated for Maintenance on and the Impact screen. A verdict is only as rich as the service rules.
+
 [CommandController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/CommandController.java
 [EquipmentControl]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/control/EquipmentControl.java
 [SimulatorConsoleController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/simconsole/SimulatorConsoleController.java
@@ -310,3 +342,8 @@ the features exist:
 [freshness.spec.ts]: ../../ui/src/app/core/state/freshness.spec.ts
 [status-badge.spec.ts]: ../../ui/src/app/features/board/status-badge/status-badge.spec.ts
 [SnmpClientIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/snmp/SnmpClientIT.java
+[ServiceEvaluatorAssessTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluatorAssessTest.java
+[ImpactAnalyzerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/impact/ImpactAnalyzerTest.java
+[ImpactControllerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/api/ImpactControllerTest.java
+[impact-page.spec.ts]: ../../ui/src/app/features/impact/impact-page/impact-page.spec.ts
+[equipment-control.spec.ts]: ../../ui/src/app/features/board/equipment-control/equipment-control.spec.ts
