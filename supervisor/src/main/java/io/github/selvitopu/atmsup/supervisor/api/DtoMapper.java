@@ -9,6 +9,7 @@ import io.github.selvitopu.atmsup.supervisor.api.Dtos.ContactDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.CorrelationDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.FloodDto;
+import io.github.selvitopu.atmsup.supervisor.api.Dtos.ReplayBoardDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.TelemetryDto;
 import io.github.selvitopu.atmsup.supervisor.board.Board;
@@ -17,9 +18,12 @@ import io.github.selvitopu.atmsup.supervisor.board.Health;
 import io.github.selvitopu.atmsup.supervisor.board.LiveBoard;
 import io.github.selvitopu.atmsup.supervisor.board.ServiceState;
 import io.github.selvitopu.atmsup.supervisor.board.Telemetry;
+import io.github.selvitopu.atmsup.supervisor.history.ReplayBoard;
+import io.github.selvitopu.atmsup.supervisor.history.Sample;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /** Maps the board and its entities to the API's DTOs. Stateless apart from the inventory. */
@@ -65,7 +69,31 @@ public class DtoMapper {
                 s.contact().lostAt(), t.lastPollAt(), t.consecutiveFailures(), d.pollInterval().toMillis());
         return new EquipmentDto(s.id(), d.name(), d.type().name(), d.group().name(), d.pair(), s.health().name(),
                 s.unknownReason() == null ? null : s.unknownReason().name(), s.maintenance(), s.role().name(),
-                s.healthSince(), contact, t.values(), t.tables());
+                s.healthSince(), contact, t.values(), t.tables(), null);
+    }
+
+    /**
+     * The board of a replay: units in inventory order with the values of their newest sample at the instant (none
+     * when there is none), {@code sampledAt} set, no poll time and no failures. Alarms are never flagged unconfirmed.
+     */
+    public ReplayBoardDto replayBoard(ReplayBoard rb, String centre, long gapThresholdSeconds) {
+        Board b = rb.board();
+        List<ServiceDto> services = b.services().values().stream()
+                .sorted(Comparator.comparing(s -> s.id().ordinal()))
+                .map(this::service).toList();
+        List<EquipmentDto> equipment = inventory.devices().stream().map(d -> {
+            EquipmentDto e = equipment(b.equipment().get(d.id()), Telemetry.EMPTY);
+            Sample s = rb.samples().get(d.id());
+            return s == null ? e : new EquipmentDto(e.id(), e.name(), e.type(), e.group(), e.pair(), e.health(),
+                    e.unknownReason(), e.maintenance(), e.role(), e.healthSince(), e.contact(), s.values(),
+                    s.tables(), s.observedAt());
+        }).toList();
+        Board noUnits = new Board(Map.of(), Map.of(), Map.of(), 0);
+        List<AlarmDto> alarms = b.openAlarms().values().stream().sorted(MOST_SEVERE_THEN_NEWEST)
+                .map(a -> alarm(a, noUnits)).toList();
+        BoardDto board = new BoardDto(centre, rb.at(), b.lastEventId(), services, equipment, alarms,
+                new FloodDto(b.flood().active(), b.flood().since()));
+        return new ReplayBoardDto(rb.at(), rb.noData(), gapThresholdSeconds, board);
     }
 
     public TelemetryDto telemetry(String equipmentId, Telemetry t, Instant serverTime) {

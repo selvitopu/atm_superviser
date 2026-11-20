@@ -1,22 +1,11 @@
 package io.github.selvitopu.atmsup.supervisor.api;
 
-import io.github.selvitopu.atmsup.supervisor.api.Dtos.FloodDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.HeartbeatDto;
-import io.github.selvitopu.atmsup.supervisor.api.Dtos.SupervisorEventDto;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.BoardCommitted;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.TelemetryUpdated;
 import io.github.selvitopu.atmsup.supervisor.board.BoardWriter;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.TelemetrySampleEvent;
-import io.github.selvitopu.atmsup.supervisor.board.EventType;
 import io.github.selvitopu.atmsup.supervisor.board.LiveBoard;
 import io.github.selvitopu.atmsup.supervisor.board.StoredEvent;
-import io.github.selvitopu.atmsup.supervisor.board.Telemetry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -58,6 +47,7 @@ public class SseBroadcaster {
     private static final Logger log = LoggerFactory.getLogger(SseBroadcaster.class);
 
     private final DtoMapper mapper;
+    private final StreamMessages streamMessages;
     private final BoardWriter writer;
     private final InstantSource clock;
     private final MeterRegistry meters;
@@ -82,17 +72,18 @@ public class SseBroadcaster {
     private boolean closed;
 
     @Autowired
-    public SseBroadcaster(DtoMapper mapper, BoardWriter writer, InstantSource clock, MeterRegistry meters,
+    public SseBroadcaster(DtoMapper mapper, StreamMessages messages, BoardWriter writer, InstantSource clock, MeterRegistry meters,
                           @Value("${atm.supervisor.sse.ring-size:1000}") int ringSize,
                           @Value("${atm.supervisor.sse.client-queue-size:256}") int clientQueueSize) {
-        this(mapper, writer, clock, meters, ringSize, clientQueueSize,
+        this(mapper, messages, writer, clock, meters, ringSize, clientQueueSize,
                 () -> new SseEmitter(EMITTER_TIMEOUT.toMillis()));
     }
 
     /** Tests pass emitters that record, block or fail instead of writing to a response. */
-    SseBroadcaster(DtoMapper mapper, BoardWriter writer, InstantSource clock, MeterRegistry meters, int ringSize,
+    SseBroadcaster(DtoMapper mapper, StreamMessages messages, BoardWriter writer, InstantSource clock, MeterRegistry meters, int ringSize,
                    int clientQueueSize, Supplier<SseEmitter> emitters) {
         this.mapper = mapper;
+        this.streamMessages = messages;
         this.writer = writer;
         this.clock = clock;
         this.meters = meters;
@@ -155,7 +146,7 @@ public class SseBroadcaster {
         List<SseMessage> messages = new ArrayList<>(events.size());
         try {
             for (StoredEvent e : events) {
-                SseMessage m = message(e, live);
+                SseMessage m = streamMessages.live(e, live);
                 if (m != null) {
                     messages.add(m);
                 }
@@ -259,28 +250,6 @@ public class SseBroadcaster {
             floor = ring.removeFirst().id();
         }
         ring.addLast(m);
-    }
-
-    /**
-     * Null for TELEMETRY_SAMPLED and EQUIPMENT_COMMANDED, which are stored only. Equipment values and tables are the
-     * current telemetry.
-     */
-    private SseMessage message(StoredEvent stored, LiveBoard live) {
-        long id = stored.id();
-        return switch (stored.event()) {
-            case EquipmentEvent e -> new SseMessage("equipment", id, mapper.equipment(e.state(),
-                    live.telemetry().getOrDefault(e.state().id(), Telemetry.EMPTY)));
-            case ServiceEvent e -> new SseMessage("service", id, mapper.service(e.state()));
-            case AlarmEvent e -> new SseMessage("alarm", id, mapper.alarm(e.alarm(), live.board()));
-            case SupervisorEvent e -> new SseMessage("supervisor", id,
-                    new SupervisorEventDto(e.type().name(), e.occurredAt()));
-            case AlarmFloodEvent e -> {
-                boolean started = e.type() == EventType.ALARM_FLOOD_STARTED;
-                yield new SseMessage("flood", id, new FloodDto(started, started ? e.occurredAt() : null));
-            }
-            case TelemetrySampleEvent e -> null;
-            case CommandEvent e -> null; // the audit trail: stored and shown in the equipment's recent events
-        };
     }
 
     private void onClientClosed(SseClient client) {

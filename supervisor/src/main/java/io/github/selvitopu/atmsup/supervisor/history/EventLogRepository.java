@@ -51,4 +51,38 @@ public interface EventLogRepository extends JpaRepository<EventLogEntity, Long> 
             order by e.id""")
     List<EventLogEntity> findNewestOfTypePerEquipment(@Param("type") String type, @Param("afterId") long afterId,
                                                       @Param("from") Instant from, @Param("at") Instant at);
+
+    /** The events with an id above {@code afterId}, in id order; the page holds the limit (plus one to see more). */
+    @Query("select e from EventLogEntity e where e.id > :afterId order by e.id")
+    List<EventLogEntity> findPageAfter(@Param("afterId") long afterId, Pageable page);
+
+    /** As {@link #findPageAfter}, but only those that occurred at or before {@code until}. */
+    @Query("select e from EventLogEntity e where e.id > :afterId and e.occurredAt <= :until order by e.id")
+    List<EventLogEntity> findPageAfterUntil(@Param("afterId") long afterId, @Param("until") Instant until,
+                                            Pageable page);
+
+    /** The rows of {@code type} that occurred in [{@code from}, {@code to}], newest first; the page holds the cap. */
+    List<EventLogEntity> findByTypeAndOccurredAtBetweenOrderByOccurredAtDescIdDesc(String type, Instant from,
+                                                                                  Instant to, Pageable page);
+
+    List<EventLogEntity> findByTypeAndOccurredAtBetweenOrderByOccurredAtAscIdAsc(String type, Instant from,
+                                                                                Instant to);
+
+    List<EventLogEntity> findByTypeInAndOccurredAtBetweenOrderByOccurredAtAscIdAsc(Collection<String> types,
+                                                                                  Instant from, Instant to);
+
+    /** The newest event of one of the types that occurred before {@code before}. */
+    Optional<EventLogEntity> findFirstByTypeInAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(
+            Collection<String> types, Instant before);
+
+    /** Every event but those of {@code type} that occurred in ({@code after}, {@code to}], oldest first. */
+    @Query("""
+            select e from EventLogEntity e
+            where e.type <> :type and e.occurredAt > :after and e.occurredAt <= :to
+            order by e.occurredAt, e.id""")
+    List<EventLogEntity> findNonSampleAfterUpTo(@Param("type") String type, @Param("after") Instant after,
+                                                @Param("to") Instant to);
+
+    /** The newest stored row of {@code type} for the entity, by id. */
+    Optional<EventLogEntity> findFirstByTypeAndEntityIdOrderByIdDesc(String type, String entityId);
 }

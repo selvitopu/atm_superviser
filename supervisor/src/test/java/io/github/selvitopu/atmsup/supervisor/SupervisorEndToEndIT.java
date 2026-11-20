@@ -22,6 +22,7 @@ import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDetailDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EventSummaryDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ImpactDto;
+import io.github.selvitopu.atmsup.supervisor.api.Dtos.ReplayBoardDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceChangeDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceDto;
 import java.io.IOException;
@@ -37,6 +38,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +106,8 @@ class SupervisorEndToEndIT {
 
     /** The last event id before the first scenario's flood started. */
     private static long floodResumeFrom;
+    /** After RAD-N failed and before RAD-E was failed. */
+    private static Instant betweenRadarFailures;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -300,6 +304,7 @@ class SupervisorEndToEndIT {
             await().atMost(ofSeconds(5)).until(() -> sse.has("equipment",
                     m -> m.data().contains("\"id\":\"RAD-N\"") && m.data().contains("\"health\":\"FAILED\"")));
 
+            betweenRadarFailures = Instant.now();
             fixture.centre().applyFault("RAD-E", new FaultRequest(FAIL, null));
             await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(service("SURV")).isNotNull()
                     .extracting(ServiceDto::reasons).asInstanceOf(InstanceOfAssertFactories.LIST)
@@ -362,6 +367,18 @@ class SupervisorEndToEndIT {
             }));
             await().atMost(ofSeconds(10)).until(() -> sse.has("flood", m -> m.data().contains("\"active\":false")));
         }
+    }
+
+    @Test
+    @Order(9)
+    void replayShowsTheBoardBetweenTheTwoRadarFailures() {
+        ReplayBoardDto replay = getJson("/api/v1/history/board?at=" + betweenRadarFailures, ReplayBoardDto.class);
+
+        assertThat(replay.noData()).isFalse();
+        assertThat(replay.board().equipment()).filteredOn(e -> e.id().equals("RAD-N")).singleElement()
+                .extracting(EquipmentDto::health).isEqualTo("FAILED");
+        assertThat(replay.board().equipment()).filteredOn(e -> e.id().equals("RAD-E")).singleElement()
+                .extracting(EquipmentDto::health).isEqualTo("OPERATIONAL");
     }
 
     // --- sign-in and roles over the real server; each test leaves signed out, so the next one signs in again ------

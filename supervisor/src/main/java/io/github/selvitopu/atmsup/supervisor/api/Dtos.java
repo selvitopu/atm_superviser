@@ -29,7 +29,7 @@ public final class Dtos {
     public record EquipmentDto(String id, String name, String type, String group, String pair, String health,
                                String unknownReason, boolean maintenance, String role, Instant healthSince,
                                ContactDto contact, Map<String, Object> values,
-                               Map<String, List<Map<String, Object>>> tables) {
+                               Map<String, List<Map<String, Object>>> tables, Instant sampledAt) {
     }
 
     public record ContactDto(boolean reachable, Instant lastContactAt, Instant lostAt, Instant lastPollAt,
@@ -70,6 +70,37 @@ public final class Dtos {
     public record TelemetryDto(String equipmentId, Instant lastPollAt, int consecutiveFailures,
                                Map<String, Object> values, Map<String, List<Map<String, Object>>> tables,
                                Instant serverTime) {
+    }
+
+    /**
+     * The board at {@code at} for the Replay screen. {@code sampledAt} of each unit is when its values were sampled;
+     * {@code gapThresholdSeconds} is the gap rule's threshold, for the browser to apply during play.
+     */
+    public record ReplayBoardDto(Instant at, boolean noData, long gapThresholdSeconds, BoardDto board) {
+    }
+
+    /** One stored event for the replay feed; {@code message} is what the live stream would have carried. */
+    public record ReplayEventDto(long id, Instant occurredAt, String type, String equipmentId, String actor,
+                                 String summary, MessageDto message) {
+    }
+
+    public record MessageDto(String kind, Object data) {
+    }
+
+    /** {@code more} is true when events remain after the last one returned. */
+    public record ReplayEventsDto(List<ReplayEventDto> events, boolean more) {
+    }
+
+    /** Replay-only message kind {@code sample}. */
+    public record SampleDto(String equipmentId, Instant observedAt, Map<String, Object> values,
+                            Map<String, List<Map<String, Object>>> tables) {
+    }
+
+    /** Replay-only message kind {@code command}. */
+    public record CommandDto(String equipmentId, String command, String actor, String outcome, String commandId) {
+    }
+
+    public record RaisedDto(Instant occurredAt) {
     }
 
     /** SSE {@code heartbeat}. */
