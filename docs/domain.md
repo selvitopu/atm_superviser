@@ -169,6 +169,45 @@ stateDiagram-v2
   device's alarm table and corrects the supervisor's view, so a lost trap cannot hide an alarm
   beyond the next successful full poll.
 
+## Correlated alarms and floods
+
+One failure raises several alarms. When `RAD-N` fails, the supervisor raises five: `101 Equipment failed`,
+`201 Channel A failed` and `202 Channel B failed` on the radar, and a `401 Sensor input lost` on each SDPS unit. A
+list with one row per alarm leaves the System Controller to work out that these are one incident. The supervisor
+does that grouping with three fixed rules. An alarm that a known failure explains is a *correlated alarm*. The
+`101` it is linked to is its *cause*.
+
+| Rule | Which alarm | Linked to | Example |
+|---|---|---|---|
+| `SENSOR_INPUT` | An SDPS `401` for a radar | That radar's `101` | `SDPS-A` `401` for `RAD-N` → `RAD-N` `101` |
+| `SWITCHOVER` | A `104 Switchover occurred` on a paired unit | Its partner's `101` | `FDPS-B` `104` → `FDPS-A` `101` |
+| `SAME_UNIT` | Any other device alarm on a unit, except `101` and `103` | That unit's own `101` | `RAD-N` `201` → `RAD-N` `101` |
+
+- **The shape picks the rule.** A `401` for `RAD-N` is only ever linked to `RAD-N`'s `101`, even when `SDPS-A` has
+  failed too. Whether a cause is open only decides whether a link is made, so the order in which traps arrive never
+  changes a link. A cause that arrives after its correlated alarms adopts them.
+- **A cause is a failed unit's `101`** that is still active. The grouping stops when the cause is cleared.
+- **Never worse than the cause.** A correlated alarm is never more severe than its cause. If it escalates above the
+  cause, or the cause de-escalates below it, the link is removed.
+- **Grouped, never hidden.** A correlated alarm is still raised, counted, stored and acknowledgeable. The alarm list
+  shows it under its cause only while the cause is active and shown, and on its own otherwise.
+- **Recorded, not recomputed.** The link is stored with the alarm when it is made, so history and replay show the
+  grouping that was on screen at the time, whatever the rules say later.
+
+**Service and contact alarms are never correlated.** The service alarms `903` and `904` are the operational impact,
+not a symptom: the System Controller passes them on to the operational supervisor, so they always stay top-level
+rows. A service alarm also usually has several causes, and one link would misstate that. Lost contact (`901`) is not
+equipment failure, as the section above explains. A radar behind a broken management link can still feed the tracker.
+If the SDPS units report a radar's input lost while the radar is also unreachable, that points to the radar site, but
+the supervisor does not guess, so both alarms stay top-level.
+
+**An alarm flood** is a rate of new alarms that nobody can read one by one. Alarm-management practice (ISA-18.2 and
+EEMUA 191) takes about 10 new alarms in 10 minutes for one operator as the benchmark. The supervisor starts the
+`ALARM FLOOD` state when 10 alarms have been raised in the last 10 minutes, and ends it when fewer than 5 have. The
+end threshold is this project's own choice: the gap between 10 and 5 stops the indicator flapping on and off. Alarms
+of a device in maintenance are hidden by default and do not count; correlated alarms do, because the rate measures
+what arrives. During a flood, read the cause rows first and expect more alarms.
+
 ## What is simplified
 
 - **No real data.** Radar plots, tracks and flight plans appear only as counters and rates. Nothing
@@ -191,7 +230,10 @@ stateDiagram-v2
 | ACC | Area control centre: the unit that controls traffic en route. |
 | ADS-B | Automatic Dependent Surveillance–Broadcast: aircraft broadcast their own position. |
 | AFTN, OLDI | The networks over which flight data messages arrive: the aeronautical fixed telecommunication network, and on-line data interchange between neighbouring centres. |
+| Alarm flood | New alarms arriving faster than a person can read them: here, 10 in 10 minutes, ending below 5. The board shows `ALARM FLOOD` while it lasts. |
+| Cause | The `101 Equipment failed` alarm of a failed unit, to which the alarms it explains are linked. |
 | CNS | Communication, navigation and surveillance: the technical infrastructure behind ATM. |
+| Correlated alarm | An alarm that a known failure explains, linked to that failure's alarm (its cause) by a topology rule and listed under it. |
 | Degraded mode | Operation with reduced capability or without redundancy. |
 | FDPS | Flight data processing system. |
 | Mode S | A secondary surveillance radar mode that interrogates aircraft selectively. |

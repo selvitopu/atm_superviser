@@ -29,6 +29,7 @@ Status values:
 | [H13](#h13-a-command-sent-to-the-wrong-unit-or-at-the-wrong-time) | A command sent to the wrong unit or at the wrong time | Mitigated |
 | [H14](#h14-a-training-fault-reaches-a-live-centre) | A training fault reaches a live centre | Mitigated |
 | [H15](#h15-a-what-if-verdict-taken-as-clearance-or-used-when-stale) | A what-if verdict taken as clearance or used when stale | Mitigated |
+| [H16](#h16-correlation-hides-or-misstates-an-alarm) | Correlation hides or misstates an alarm | Mitigated |
 
 ## H1 Stale observations shown as current
 
@@ -174,10 +175,22 @@ Status values:
 
 - **Cause:** many alarms arrive at once.
 - **Consequence:** the operator misses the one that matters.
-- **Mitigation:** the alarm list is ordered by severity, then time; escalation makes an acknowledged
-  alarm unacknowledged again; alarms of a device in maintenance are recorded but hidden by default.
-- **Verified by:** [alarm-list.spec.ts] (`alarm list orders by severity then time`), [AlarmEngineTest]
-  (`escalationReUnacknowledges`, `raisedDuringMaintenanceIsSuppressed`).
+- **Mitigation:**
+  - the alarm list is ordered by severity, then time;
+  - escalation makes an acknowledged alarm unacknowledged again;
+  - alarms of a device in maintenance are recorded but hidden by default;
+  - alarms that a known failure explains are grouped under their cause, so one row stands for the incident (see
+    [H16](#h16-correlation-hides-or-misstates-an-alarm) for what keeps the grouping from hiding an alarm);
+  - the board page says `ALARM FLOOD` in its header and above the alarm list from 10 new alarms in 10 minutes
+    until fewer than 5, so the operator knows to read the cause rows first. The state is stored as events and
+    cannot flap between the two thresholds.
+- **Verified by:** [alarm-list.spec.ts] (`alarm list orders by severity then time and counts unacknowledged`,
+  `showsTheFloodBannerWhileTheFloodIsActive`, `groupsCorrelatedAlarmsUnderTheirActiveCause`,
+  `groupsSortByTheirWorstSeverity`), [AlarmEngineTest] (`escalationReUnacknowledges`,
+  `raisedDuringMaintenanceIsSuppressed`), [BoardDeciderTest] (`theFloodStartsAtTheThresholdRaise`,
+  `theFloodDoesNotFlapBetweenTheThresholds`, `suppressedRaisesAreNotCounted`), [BoardReducerTest]
+  (`supervisorStartedEndsTheFlood`), [BoardWriterTest] (`aFailedCommitLeavesTheFloodWindowAsItWas`) and
+  [app-header.spec.ts] (`showsTheFloodChipOnTheLiveBoard`, `showsNoFloodChipOffTheBoard`).
 - **Status:** mitigated. An audible alarm is planned.
 
 ## H10 v3 traps rejected after an agent restart
@@ -309,6 +322,34 @@ the features exist:
   `aPreviewThatHangsFailsAfterFourSeconds`).
 - **Status:** mitigated for Maintenance on and the Impact screen. A verdict is only as rich as the service rules.
 
+## H16 Correlation hides or misstates an alarm
+
+- **Cause:** an alarm is grouped under another, so it is out of sight in the list; or a link is wrong.
+- **Consequence:** the operator misses an alarm, or blames the wrong unit.
+- **Mitigation:**
+  - Only three named topology rules link alarms (`SENSOR_INPUT`, `SWITCHOVER` and `SAME_UNIT`), and an alarm's shape
+    alone picks its rule, so the order in which traps arrive never changes a link ([AlarmCorrelator]).
+  - A correlated alarm is never more severe than its cause. Escalation of the alarm above its cause, or a cause
+    that de-escalates or is re-raised below it, detaches the link.
+  - An alarm is listed under its cause only while the cause is active and shown. If the cause is cleared, closed or
+    hidden by the suppressed filter, the alarm is a top-level row.
+  - A collapsed group shows how many alarms are correlated and how many are unacknowledged, and the count in the
+    alarm bar includes every alarm. Selecting a collapsed group, or **Ack all visible**, acknowledges every alarm in
+    it, each on its own as before.
+  - Service alarms (`903`, `904`) and lost contact (`901`) are never correlated and never causes.
+  - The link is recorded when it is made, with the cause's equipment and code, so history and replay show what the
+    live list showed. Nothing recomputes it at read time.
+- **Verified by:** [AlarmCorrelatorTest] (`theShapeAloneChoosesTheRule`, `aMoreSevereAlarmIsNotCorrelated`,
+  `escalationAboveTheCauseDetaches`, `aCauseThatDeEscalatesDetachesTheMoreSevere`,
+  `aReRaisedCauseAtLowerSeverityDetachesTheMoreSevere`, `supervisorAlarmsAreNeverCorrelatedOrCauses`,
+  `aLateCauseAdoptsItsAlarms`, `aClearedCauseIsNoCause`), [BoardDeciderTest]
+  (`aCauseFirstAndACorrelatedFirstGiveTheSameLinks`, `aResyncChangeKeepsALinkMadeEarlierInTheSameDecision`),
+  [EventCodecTest] (`anAlarmPayloadWithoutCorrelationDecodesAsUncorrelated`), [JpaBoardStoreIT]
+  (`openAlarmsLoadWithTheirCorrelation`) and [alarm-list.spec.ts] (`aCorrelatedAlarmOfAClearedCauseIsTopLevel`,
+  `aCorrelatedAlarmOfAHiddenCauseIsTopLevel`, `theCollapsedRowCountsUnacknowledgedCorrelatedAlarms`,
+  `selectingACollapsedGroupAcknowledgesTheWholeGroup`, `ackAllVisibleIncludesCollapsedCorrelatedAlarms`).
+- **Status:** mitigated. The rules cover radars, SDPS and FDPS only; they grow with the device types.
+
 [CommandController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/CommandController.java
 [EquipmentControl]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/control/EquipmentControl.java
 [SimulatorConsoleController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/simconsole/SimulatorConsoleController.java
@@ -360,3 +401,8 @@ the features exist:
 [ImpactControllerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/api/ImpactControllerTest.java
 [impact-page.spec.ts]: ../../ui/src/app/features/impact/impact-page/impact-page.spec.ts
 [equipment-control.spec.ts]: ../../ui/src/app/features/board/equipment-control/equipment-control.spec.ts
+[AlarmCorrelator]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmCorrelator.java
+[AlarmCorrelatorTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmCorrelatorTest.java
+[BoardReducerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardReducerTest.java
+[EventCodecTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/EventCodecTest.java
+[app-header.spec.ts]: ../../ui/src/app/features/board/app-header/app-header.spec.ts

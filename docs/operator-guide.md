@@ -75,6 +75,9 @@ The operator console is a full-viewport grid divided into four regions: the **He
   * `● LIVE` (green) — Connected to the Server-Sent Events stream (`/api/v1/stream`).
   * `◌ RECONNECTING` (amber) — Stream interrupted; the browser is reconnecting and will automatically replay missed events (via `Last-Event-ID`) or refetch `/api/v1/board`.
   * `✕ OFFLINE` (red) — Disconnected.
+* **`ALARM FLOOD` Chip (amber):** Shown next to the connection indicator on the board while an alarm flood lasts; its
+  accessible name carries the start time. Only the board page shows it, because only the board runs the live stream.
+  See [2.6.1](#261-correlated-alarms-and-the-alarm-flood).
 * **UTC Clock:** Displays server-synchronised UTC time with a `Z` suffix (for example `15:24:18Z`).
 * **`DATA NOT LIVE` Safety Overlay:** If the SSE stream remains down for more than **10 seconds**, a diagonal hatched overlay covers the board so an operator cannot mistake a frozen browser tab for live supervision.
 
@@ -158,10 +161,41 @@ The bottom pane tracks every open alarm (`ACTIVE_UNACK`, `ACTIVE_ACK`, `CLEARED_
   * `Equipment` (`RAD-N`, `SDPS-A`, or service ID `SURV` / `FD` for supervisor alarms `903`/`904`)
   * `Alarm` (description, instance name such as `· RAD-N`, and a violet **`?`** badge if the equipment is currently `UNKNOWN` and its alarms are therefore **unconfirmed**)
   * `State` (`UNACK`, `ACK`, or `CLEARED-UNACK`)
+* **Grouping:** Alarms that a known failure explains are listed under the alarm of that failure. See
+  [2.6.1](#261-correlated-alarms-and-the-alarm-flood).
 * **Controls:**
   * **`Show suppressed (N)` checkbox:** Reveals alarms raised by devices that are in `MAINT` mode (hidden by default so planned work does not flood the watch).
   * **`Ack selected` button:** Acknowledges the checked rows.
-  * **`Ack all visible` button:** Acknowledges every `UNACK` and `CLEARED-UNACK` alarm currently visible in the table.
+  * **`Ack all visible` button:** Acknowledges every `UNACK` and `CLEARED-UNACK` alarm currently visible in the table, including alarms inside collapsed groups.
+
+#### 2.6.1 Correlated Alarms and the Alarm Flood
+
+One failure raises several alarms. The supervisor links each alarm that a known failure explains to that failure's
+`101 Equipment failed` alarm, its **cause**, and lists them together. The [domain primer](domain.md#correlated-alarms-and-floods)
+explains the three rules.
+
+* **A group row:** The cause is one row, for example `RAD-N Equipment failed`, with a button `+4 correlated`. When
+  any of the correlated alarms is unacknowledged, the button also says how many: `+4 correlated · 4 unack`. Groups
+  are collapsed by default and sorted by their worst severity.
+* **Expand it:** Click the button; click it again to collapse. The correlated alarms appear under the
+  cause, each with `↳` and a note that says why it is there:
+  * `input from RAD-N` for the `401 Sensor input lost` of an SDPS unit;
+  * `switchover after FDPS-A failed` for the `104 Switchover occurred` of its partner;
+  * `on the failed unit` for any other alarm of the failed unit, such as `201` and `202`.
+* **Acknowledge a group:** The checkbox of a collapsed group selects the cause and every correlated alarm
+  (`Select alarm RAD-N Equipment failed and its 4 correlated alarms`), so **Ack selected** acknowledges them all.
+  **Ack all visible** does the same for every group. Expand a group to acknowledge its alarms one at a time. The
+  `unacknowledged` count in the alarm bar counts every alarm, grouped or not.
+* **Nothing is hidden:** A correlated alarm is never more severe than its cause, and it is listed under the cause
+  only while the cause is active and shown. If the cause clears, or is hidden by the suppressed filter, the alarm
+  becomes an ordinary row again. Service alarms (`903`, `904`) and lost contact (`901`) are never grouped.
+* **The flood banner:** While a flood lasts, the alarm bar shows
+  `ALARM FLOOD since 14:02:10Z · correlated alarms are grouped under their cause`, and the amber **`ALARM FLOOD`**
+  chip shows in the header. A flood starts when 10 alarms have been raised in 10 minutes and ends when fewer than 5
+  have, so it does not flicker around one threshold. The banner is words as well as colour. Read the cause rows
+  first, and expect more alarms.
+* **History:** On **Alarm history**, the `Correlated` column shows the stored link, for example
+  `↳ RAD-N 101 · input from RAD-N`. It is what the live list showed when the alarm was raised.
 
 ---
 
@@ -170,7 +204,7 @@ The bottom pane tracks every open alarm (`ACTIVE_UNACK`, `ACTIVE_ACK`, `CLEARED_
 **Alarm history** in the header searches every alarm, open or closed, newest first. Filter by state (`All` or
 `Open`), severity, equipment (or the service `SURV` or `FD`, for the supervisor's alarms `903` and `904`), and a
 **From/To** range in UTC, then click **Search**. Each row shows when the alarm was raised, who acknowledged it and
-when, and when it cleared. **Previous** and **Next** page through 50 alarms at a time of the search you last
+when, when it cleared, and the cause it was correlated to, if any. **Previous** and **Next** page through 50 alarms at a time of the search you last
 submitted, even while you edit the filters. If the server refuses a search, the page shows its reason.
 
 ### 2.8 Simulator (Demo Centre Only)
@@ -232,7 +266,7 @@ maintenance. It reruns the same service rules the board uses, so it can never di
 
 ## 3. Hands-On Operational Playbooks
 
-You can run these six workflows against the live stack to see how the board responds to faults, acknowledgements,
+You can run these seven workflows against the live stack to see how the board responds to faults, acknowledgements,
 switchovers, lost contact, and maintenance. Sign in as `supervisor1`, keep the board open in one browser window, and
 open the **Simulator** screen from the header in a second window, so you can inject a fault and watch the board react.
 **Reset all** on the Simulator screen clears every fault and restores the default roles.
@@ -329,6 +363,24 @@ not sent: it could not be recorded*.
 
 ---
 
+### Playbook 7: Read a Flood of Alarms from Two Failed Radars
+
+1. **Fail the first radar:** on the **Simulator** screen, click **Fail** in the `RAD-N` row.
+   * **What you see:** five new alarms, shown as one row: `RAD-N Equipment failed` with `+4 correlated · 4 unack`.
+     No flood yet: five alarms are below the threshold.
+2. **Fail the second radar:** click **Fail** in the `RAD-E` row.
+   * **What you see:** five more alarms make ten in a few seconds. The amber **`ALARM FLOOD`** chip appears in the
+     header, and the alarm bar says `ALARM FLOOD since …Z · correlated alarms are grouped under their cause`. The
+     list has two cause rows, `RAD-N` and `RAD-E`, each with `+4 correlated · 4 unack`.
+3. **Read the groups:** click `+4 correlated` on `RAD-N`. Under it are `201` and `202` (`on the failed unit`) and
+   the `401` of `SDPS-A` and of `SDPS-B` (`input from RAD-N`). Click the button again to collapse it.
+4. **Acknowledge:** tick the checkbox of the `RAD-N` row and click **Ack selected**. The cause and its four alarms go
+   to `ACK`, and the unacknowledged count drops by five. The `RAD-E` group is untouched.
+5. **Reset:** click **Reset all** on the **Simulator** screen and confirm. The alarms clear. The flood ends once
+   fewer than 5 alarms have been raised in the last 10 minutes, so the chip stays for a while.
+
+---
+
 ## 4. REST API Reference
 
 Every user action has a screen; this reference is for integrators. The interactive OpenAPI page is at
@@ -337,11 +389,11 @@ needs the `X-XSRF-TOKEN` header with the value of the `XSRF-TOKEN` cookie. Refus
 
 | Method & Path | Role | Description |
 |---|---|---|
-| `GET /api/v1/board` | VIEWER | The live board snapshot (`centre`, `serverTime`, `lastEventId`, `services`, `equipment`, open `alarms`). |
+| `GET /api/v1/board` | VIEWER | The live board snapshot (`centre`, `serverTime`, `lastEventId`, `services`, `equipment`, open `alarms` with their `correlation`, and the `flood` state). |
 | `GET /api/v1/equipment/{id}` | VIEWER | The equipment state and its last 50 events (`recentEvents`); `404` for an unknown ID. |
 | `GET /api/v1/alarms` | VIEWER | Alarm search. Params: `state` (`open` \| `all`, default `open`), `severity`, `equipment`, `from` and `to` (ISO-8601 UTC), `page` (`0`), `size` (`1..500`, default `50`). |
 | `GET /api/v1/impact?maintenance=<id>` | VIEWER | Read-only impact analysis of the live board. Repeat `maintenance` for each planned unit (none is allowed, duplicates are ignored). Returns `asOf`, `basis`, the `plan` (`units`, `verdict`, `unconfirmed`, each service's `before` and `after`, `notes`), `singlePoints`, `outOfService` and `unknownUnits`. `400` for an id that is not in the inventory. Verdicts are `NO_SERVICE_IMPACT`, `REDUCED_MARGIN` and `SERVICE_LOSS`. |
-| `GET /api/v1/stream` | VIEWER | Server-Sent Events (`equipment`, `service`, `alarm`, `supervisor` with `id`, plus volatile `telemetry` and `heartbeat`); accepts `Last-Event-ID`. |
+| `GET /api/v1/stream` | VIEWER | Server-Sent Events (`equipment`, `service`, `alarm`, `flood`, `supervisor` with `id`, plus volatile `telemetry` and `heartbeat`); accepts `Last-Event-ID`. |
 | `POST /api/v1/alarms/{id}/ack` | SUPERVISOR | Acknowledges one alarm; optional body `{"comment":"..."}`. |
 | `POST /api/v1/alarms/ack` | SUPERVISOR | Acknowledges several alarms; body `{"ids":["..."],"comment":"..."}`. |
 | `POST /api/v1/equipment/{id}/commands` | SUPERVISOR | Body `{"command":"MAINTENANCE_ON"}` (or `MAINTENANCE_OFF`, `RESTART`, `MAKE_ACTIVE`). `200` with the outcome, `409` when the unit refuses, `504` when it does not answer (the outcome is then uncertain; a command is never retried), `502` when the command cannot be sent. |

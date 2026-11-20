@@ -59,6 +59,8 @@ The [design](docs/design/2026-11-13-atm-supervisor-design.md) describes the full
 | SNMPv3 traps and informs | Implemented |
 | Alarm-table reconciliation on every full poll | Implemented |
 | Alarms with acknowledgement, escalation and maintenance suppression | Implemented |
+| Root-cause alarm correlation: three topology rules group an incident's alarms under its cause, recorded when raised | Implemented |
+| `ALARM FLOOD` indicator: 10 new alarms in 10 minutes, ending below 5 | Implemented |
 | Event log and telemetry sampled every 30 s, in PostgreSQL | Implemented |
 | Live Angular board over SSE, with resume after a lost connection | Implemented |
 | Fault injection through the simulator's REST API | Demo-only |
@@ -134,6 +136,7 @@ Start here to see how the invariants above are implemented:
 | [`StatusDeriver`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/StatusDeriver.java) | Derives health, contact and the `UNKNOWN` reasons from probes and full polls. |
 | [`ServiceEvaluator`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluator.java) | Runs every service rule in two passes so unknown equipment can only make a service `UNKNOWN`, never `OK`. |
 | [`AlarmEngine`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java) | The alarm lifecycle, and the reconciliation of open alarms against a device's alarm table. |
+| [`AlarmCorrelator`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmCorrelator.java) | Links each alarm that a known failure explains to that failure's alarm by one of three topology rules, so the alarm list can group them. |
 | [`SseBroadcaster`](supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/SseBroadcaster.java) | Fans committed events out to browsers through bounded per-client queues, with resume from a ring buffer. |
 | [`DeviceResponder`](simulator/src/main/java/io/github/selvitopu/atmsup/simulator/agent/DeviceResponder.java) | The hand-written SNMP agent: GET, GETNEXT, GETBULK and SET with the correct SNMP error statuses. |
 | [`SupervisorEndToEndIT`](supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/SupervisorEndToEndIT.java) | The whole supervisor against real agents over UDP and PostgreSQL in Testcontainers, including recovery from lost traps. |
@@ -201,7 +204,9 @@ Equipment commands are on the board: select a tile, and supervisors see **Mainte
 **Restart** (in maintenance only) and **Make active** (for a standby unit) in its panel. Each asks for
 a confirmation that names the unit, the supervisor sends it as an SNMP `SET`, and the event log records
 who sent it and what came of it; the confirmation for **Maintenance on** also previews the impact on the
-services. **Alarm history** searches every alarm, **Impact** shows which single failure would cost a service
+services. The alarm list groups the alarms that one failure explains under its cause (for example `RAD-N Equipment
+failed · +4 correlated`), and the board says `ALARM FLOOD` while new alarms arrive faster than a person can read
+them. **Alarm history** searches every alarm, **Impact** shows which single failure would cost a service
 and what a planned maintenance leaves, and administrators manage accounts on **Users**.
 
 ![The Impact screen with FDPS-B planned for maintenance on a healthy board: the plan reads REDUCED MARGIN because flight data drops from OK to DEGRADED with only one FDPS unit available, FDPS-A becomes a SERVICE LOSS single point of failure, and a note says that maintenance switches the pair over to FDPS-A](docs/images/impact-plan.png)

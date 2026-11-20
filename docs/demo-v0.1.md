@@ -39,8 +39,12 @@ Shows, at once (the traps arrive within a second): RAD-N FAILED with alarms 101 
 (CRITICAL), 201 "Channel A failed" and 202 "Channel B failed" (both MAJOR). Both SDPS units raise alarm
 401 "Sensor input lost" (MINOR) for RAD-N. SURV stays OK: with two radars left it is still fully served.
 
+The alarm list shows one row for the incident: `RAD-N Equipment failed` with a button `+4 correlated · 4 unack`.
+Click it: 201 and 202 read "on the failed unit", and the two 401 alarms read "input from RAD-N".
+
 Talking point: the service rule is about what is still available, not about any single failure
-(§5.2). Alarm 401 shows that the SDPS notices the lost sensor input by itself.
+(§5.2). Alarm 401 shows that the SDPS notices the lost sensor input by itself. The grouping comes from three
+fixed rules over the inventory, recorded with each alarm when it is raised, so replay will show the same list.
 
 ## 3. RAD-E fails, then acknowledge
 
@@ -49,11 +53,17 @@ On the Simulator screen: **Fail** on `RAD-E`.
 Shows: RAD-E FAILED with 101, 201 and 202, and two more 401 alarms on the SDPS units. SURV turns DEGRADED
 with the reason "Fewer than 2 radars available". Redundancy is not flagged lost.
 
+Ten new alarms have now arrived within seconds, so the flood starts: an amber `ALARM FLOOD` chip appears in the
+header, and the alarm bar reads `ALARM FLOOD since …Z · correlated alarms are grouped under their cause`. The
+list has two cause rows, `RAD-N` and `RAD-E`, each with `+4 correlated · 4 unack`.
+
 Then press "Ack all visible" in the alarm list. The alarms change from UNACK to ACK and stay in the list
 because they are still active; the unacknowledged count drops to 0.
 
 Talking point: an alarm closes only when it is both cleared and acknowledged (§8.2). Acknowledging does not
-hide a live failure.
+hide a live failure. Ten new alarms in 10 minutes is the usual alarm-management benchmark for a flood (ISA-18.2,
+EEMUA 191); the supervisor ends it below 5, so it does not flicker. Grouping never hides an alarm: a correlated
+alarm sits under its cause only while the cause is active, and is never more severe than it.
 
 ## 4. SDPS-A fails
 
@@ -136,7 +146,8 @@ Talking point: the agents are real SNMPv3 agents, not a mock; the supervisor use
 On the Simulator screen, click **Reset all**, then **Confirm**.
 
 Shows: within a poll or two every device is OPERATIONAL again, roles go back to SDPS-A and FDPS-A
-ACTIVE, SURV and FD are OK, and the remaining alarms show CLEARED-UNACK until acknowledged. For a clean
+ACTIVE, SURV and FD are OK, and the remaining alarms show CLEARED-UNACK until acknowledged. The `ALARM FLOOD` chip goes once fewer than 5
+alarms have been raised in the last 10 minutes, which can take a while. For a clean
 board next time, run `scripts/demo-preflight.sh --fresh`.
 
 ## If asked

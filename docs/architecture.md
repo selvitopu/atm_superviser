@@ -173,16 +173,32 @@ sequenceDiagram
 * Each connected browser owns a [`SseClient`] with a bounded **256-entry durable queue** plus a latest-only coalescing map for volatile `telemetry` messages.
 * If a slow browser fills its 256-entry durable queue, [`SseBroadcaster`] disconnects it (`reason="overflow"`) instead of blocking [`BoardWriter`] or dropping durable events. On reconnect, the browser resumes from `Last-Event-ID` or receives `event: resync` and refetches `GET /api/v1/board`.
 
+### 2.5 Alarm Correlation and the Flood State (`AlarmCorrelator`)
+
+Every alarm change passes through [`AlarmCorrelator`](../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmCorrelator.java) inside [`BoardDecider`], before it becomes an event ([ADR-0013](adr/0013-alarm-correlation-recorded-from-topology-rules.md)).
+
+* **Recorded, not recomputed:** the alarm's `correlation` (cause id, cause equipment and code, and the rule: `SENSOR_INPUT`, `SWITCHOVER` or `SAME_UNIT`) is part of the `ALARM_RAISED` and `ALARM_UPDATED` payloads and the `alarm` table. The API and the UI only read it. A cause that arrives late adopts its alarms with `ALARM_UPDATED` events `via CORRELATION`, and a link that severity would break is removed the same way.
+* **Flood state:** `Board.flood` (`active`, `since`) is durable and changes only through `ALARM_FLOOD_STARTED` and `ALARM_FLOOD_ENDED`. `SUPERVISOR_STARTED` clears it. The window of recent raise times lives in `LiveBoard` only, is stored after a successful commit, and starts empty after a restart. The stream carries a committed flood event as `flood`.
+* **Configuration** (`supervisor` properties):
+
+| Property | Default | Meaning |
+|---|---|---|
+| `atm.alarms.flood.window` | `10m` | The window over which new alarms are counted. |
+| `atm.alarms.flood.start` | `10` | The flood starts when the window holds this many raises. |
+| `atm.alarms.flood.end` | `5` | The flood ends when the window holds fewer than this many. |
+
+The window must be positive, `start` at least 1, and `end` between 0 and `start`.
+
 ---
 
 ## 3. Persistence Schema (Liquibase changelog)
 
-The schema is created by the Liquibase changelog [`db.changelog-master.yaml`](../supervisor/src/main/resources/db/changelog/db.changelog-master.yaml), whose SQL changesets live in [`changes/`](../supervisor/src/main/resources/db/changelog/changes). Changeset `003` loads the demo accounts only in demo mode ([ADR-0009](adr/0009-postgresql-and-liquibase.md)).
+The schema is created by the Liquibase changelog [`db.changelog-master.yaml`](../supervisor/src/main/resources/db/changelog/db.changelog-master.yaml), whose SQL changesets live in [`changes/`](../supervisor/src/main/resources/db/changelog/changes). Changeset `003` loads the demo accounts only in demo mode ([ADR-0009](adr/0009-postgresql-and-liquibase.md)), and `004` adds the alarm correlation columns.
 
 | Table | Purpose | Key Columns & Constraints |
 |---|---|---|
-| `event_log` | Append-only log of all equipment, service, alarm, supervisor lifecycle, and 30 s `TELEMETRY_SAMPLED` events. | `id bigint generated always as identity`, `occurred_at` and `recorded_at` (`timestamptz(3)`), `type`, `entity_kind`, `entity_id`, `equipment_id`, `actor`, `payload jsonb` (full new entity state + `schemaVersion`; alarm events also record `via`). Indexed on `(occurred_at)`, `(equipment_id, occurred_at)` and `(type, occurred_at)`. |
-| `alarm` | Open and closed alarm records. | `id`, `equipment_id`, `code`, `instance`, `instance_name`, `severity`, `text`, `source`, `state`, `suppressed`, `raised_at`, `acked_at`, `acked_by`, `ack_comment`, `cleared_at`. The partial unique index `uk_alarm_open` on `(equipment_id, code, instance) where state <> 'CLOSED'` allows one open alarm per identity. |
+| `event_log` | Append-only log of all equipment, service, alarm, supervisor lifecycle, and 30 s `TELEMETRY_SAMPLED` events. | `id bigint generated always as identity`, `occurred_at` and `recorded_at` (`timestamptz(3)`), `type`, `entity_kind`, `entity_id`, `equipment_id`, `actor`, `payload jsonb` (full new entity state + `schemaVersion`; alarm events also record `via` and their `correlation`; `ALARM_FLOOD_STARTED` and `ALARM_FLOOD_ENDED` have entity kind `FLOOD`). Indexed on `(occurred_at)`, `(equipment_id, occurred_at)` and `(type, occurred_at)`. |
+| `alarm` | Open and closed alarm records. | `id`, `equipment_id`, `code`, `instance`, `instance_name`, `severity`, `text`, `source`, `state`, `suppressed`, `raised_at`, `acked_at`, `acked_by`, `ack_comment`, `cleared_at`, and the correlation: `cause_id`, `cause_equipment_id`, `cause_code` and `correlation_rule`, all null or all set, with no foreign key because retention may purge a cause. The partial unique index `uk_alarm_open` on `(equipment_id, code, instance) where state <> 'CLOSED'` allows one open alarm per identity. |
 | `role`, `app_user`, `user_role` | Roles (`VIEWER`, `SUPERVISOR`, `ADMIN`) and accounts. | Usernames are unique and lower case; passwords are stored as `{bcrypt}` hashes. In demo mode, `admin1`, `supervisor1` and `demo1` are created with one role each. |
 
 *(Planned for `v0.3`: `command`, `active_command(equipment_id PRIMARY KEY)` for crash-safe command exclusion, and `snapshot` for 5-minute replay checkpoints.)*
