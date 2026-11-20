@@ -1,5 +1,6 @@
 package io.github.selvitopu.atmsup.supervisor.history;
 
+import io.github.selvitopu.atmsup.inventory.Device;
 import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.supervisor.board.Board;
 import io.github.selvitopu.atmsup.supervisor.board.BoardReducer;
@@ -16,6 +17,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +42,7 @@ public class BoardHistory {
     private final EventCodec codec;
     private final InstantSource clock;
     private final GapRule gapRule;
+    private final Set<String> units;
 
     public BoardHistory(Inventory inventory, SnapshotStore snapshots, EventLogRepository events, EventCodec codec,
                         InstantSource clock,
@@ -49,6 +53,7 @@ public class BoardHistory {
         this.codec = codec;
         this.clock = clock;
         this.gapRule = new GapRule(heartbeatInterval.multipliedBy(3).dividedBy(2));
+        this.units = inventory.devices().stream().map(Device::id).collect(Collectors.toUnmodifiableSet());
     }
 
     /**
@@ -65,7 +70,11 @@ public class BoardHistory {
         return new ReplayBoard(t, foldAt(t), samplesAt(t), noData);
     }
 
-    /** The durable board only: equipment, services, open alarms, flood and the id of the last event folded. */
+    /**
+     * The durable board only: equipment, services, open alarms and flood. Its {@code lastEventId} is the id of the
+     * newest event at or before {@code at}, samples and commands included, so the events after it are exactly those
+     * after the instant.
+     */
     @Transactional(readOnly = true)
     public Board fold(Instant at) {
         return foldAt(notAfterNow(at));
@@ -75,19 +84,28 @@ public class BoardHistory {
         return gapRule;
     }
 
-    /** From the newest snapshot, or from the initial board when there is none (every unit UNKNOWN, no alarms). */
+    /**
+     * From the newest snapshot, or from the initial board when there is none (every unit UNKNOWN, no alarms). Only
+     * the units of the current inventory are kept, as the API looks every unit up there.
+     */
     private Board foldAt(Instant at) {
         Board board = snapshots.latestAtOrBefore(at).map(Snapshot::board).map(this::withEveryUnit)
                 .orElseGet(() -> Board.initial(inventory, List.of()));
         for (EventLogEntity row : events.findToFold(board.lastEventId(), at, NOT_FOLDED)) {
             board = BoardReducer.apply(board, new StoredEvent(row.getId(), codec.decode(row)));
         }
-        return board;
+        long newest = events.findFirstByOccurredAtLessThanEqualOrderByOccurredAtDescIdDesc(at)
+                .map(EventLogEntity::getId).orElse(0L);
+        Map<String, EquipmentState> equipment = new LinkedHashMap<>(board.equipment());
+        equipment.keySet().retainAll(units);
+        // never below the last event folded, should the clock have stepped back between two commits
+        return new Board(equipment, board.services(), board.openAlarms(), Math.max(board.lastEventId(), newest),
+                board.flood());
     }
 
     /**
      * A unit added to the inventory after the snapshot was taken starts as on the initial board, so the writer
-     * always has a state for every unit it polls.
+     * always has a state for every unit it polls; the units the inventory no longer has are dropped after the fold.
      */
     private Board withEveryUnit(Board snapshot) {
         Map<String, EquipmentState> initial = Board.initial(inventory, List.of()).equipment();

@@ -29,6 +29,9 @@ public interface EventLogRepository extends JpaRepository<EventLogEntity, Long> 
     Optional<EventLogEntity> findFirstByTypeNotAndOccurredAtLessThanEqualOrderByOccurredAtDescIdDesc(String type,
                                                                                                       Instant at);
 
+    /** The newest event at or before {@code at}, of any type: by occurrence time, then id. */
+    Optional<EventLogEntity> findFirstByOccurredAtLessThanEqualOrderByOccurredAtDescIdDesc(Instant at);
+
     /** The newest event of {@code type} at or before {@code at}: by occurrence time, then id. */
     Optional<EventLogEntity> findFirstByTypeAndOccurredAtLessThanEqualOrderByOccurredAtDescIdDesc(String type,
                                                                                                    Instant at);

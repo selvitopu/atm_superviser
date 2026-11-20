@@ -5,10 +5,10 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * Whether the supervisor was recording at an instant. There is no data when no event other than a telemetry sample
- * occurred at or before it, when the newest such event is older than the threshold before it, or when that event is
- * SUPERVISOR_STOPPING. The threshold is 1.5 heartbeat intervals, so a running supervisor always has a heartbeat
- * inside it. The board history, the timeline and the incident summary all use this one rule.
+ * Whether the supervisor was recording at an instant {@code at}. There is data only when an event other than a
+ * telemetry sample occurred in {@code (at − threshold, at]} and the newest such event is not SUPERVISOR_STOPPING; an
+ * event exactly the threshold old no longer counts. The threshold is 1.5 heartbeat intervals, so a running supervisor
+ * always has a heartbeat inside it. The board history, the timeline and the incident summary all use this one rule.
  */
 public final class GapRule {
 
@@ -30,7 +30,7 @@ public final class GapRule {
     public boolean noDataAt(Instant at, Instant newestNonSampleEventAt, String newestNonSampleEventType) {
         return newestNonSampleEventAt == null
                 || EventType.SUPERVISOR_STOPPING.name().equals(newestNonSampleEventType)
-                || newestNonSampleEventAt.isBefore(at.minus(threshold));
+                || !newestNonSampleEventAt.isAfter(at.minus(threshold));
     }
 
     public Duration threshold() {

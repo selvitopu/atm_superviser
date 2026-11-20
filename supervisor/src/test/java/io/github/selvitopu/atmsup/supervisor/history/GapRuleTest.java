@@ -26,6 +26,12 @@ class GapRuleTest {
     }
 
     @Test
+    void exactlyTheThresholdIsNoData() {
+        assertThat(rule.noDataAt(T0.plusSeconds(90), T0, HEARTBEAT)).as("data only in (at - 90 s, at]").isTrue();
+        assertThat(rule.noDataAt(T0.plusSeconds(90).minusMillis(1), T0, HEARTBEAT)).isFalse();
+    }
+
+    @Test
     void pastTheThresholdIsNoData() {
         assertThat(rule.noDataAt(T0.plusSeconds(91), T0, HEARTBEAT)).isTrue();
     }

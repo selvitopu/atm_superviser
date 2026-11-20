@@ -2,6 +2,7 @@ package io.github.selvitopu.atmsup.supervisor.history;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.selvitopu.atmsup.inventory.Device;
 import io.github.selvitopu.atmsup.mib.Role;
 import io.github.selvitopu.atmsup.mib.Severity;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
@@ -65,6 +66,8 @@ class BoardHistoryIT {
 
     private static final Instant T0 = Instant.parse("2026-01-01T14:00:00Z");
     private static final Instant NOW = Instant.parse("2026-01-01T16:00:00Z");
+    private static final List<String> UNITS =
+            HistoryTestBeans.INVENTORY.devices().stream().map(Device::id).toList();
 
     @TestConfiguration
     static class Clock {
@@ -142,8 +145,9 @@ class BoardHistoryIT {
     @Test
     void boardAtFoldsEventsUpToAt() {
         commit(supervisor(EventType.SUPERVISOR_STARTED, T0));
-        long operational = commit(equipment(EventType.EQUIPMENT_STATE_CHANGED, t(10), operational("RAD-N", t(10))));
-        commit(sample("RAD-N", t(12), 300), new CommandEvent(t(13), "RAD-N", "RESET", "supervisor1", "DONE"));
+        commit(equipment(EventType.EQUIPMENT_STATE_CHANGED, t(10), operational("RAD-N", t(10))));
+        long command = commit(sample("RAD-N", t(12), 300),
+                new CommandEvent(t(13), "RAD-N", "RESET", "supervisor1", "DONE"));
         commit(equipment(EventType.EQUIPMENT_STATE_CHANGED, t(20), state("RAD-N", Health.FAILED, Role.STANDALONE,
                 t(20), t(20))));
 
@@ -151,7 +155,8 @@ class BoardHistoryIT {
 
         assertThat(before.at()).isEqualTo(t(15));
         assertThat(before.board().equipment().get("RAD-N")).isEqualTo(operational("RAD-N", t(10)));
-        assertThat(before.board().lastEventId()).as("samples and commands are not folded").isEqualTo(operational);
+        assertThat(before.board().lastEventId()).as("the newest event at or before at, a command too")
+                .isEqualTo(command);
         assertThat(before.noData()).isFalse();
         assertThat(history.boardAt(t(20)).board().equipment().get("RAD-N").health()).isEqualTo(Health.FAILED);
         assertThat(history.fold(t(15))).isEqualTo(before.board());
@@ -206,7 +211,22 @@ class BoardHistoryIT {
     }
 
     @Test
-    void aUnitTheSnapshotLacksStartsAsInitial() {
+    void boardAtLastEventIdIsTheNewestEventAtOrBeforeAt() {
+        commit(supervisor(EventType.SUPERVISOR_STARTED, T0));
+        long state = commit(equipment(EventType.EQUIPMENT_STATE_CHANGED, t(10), operational("RAD-N", t(10))));
+        long sample = commit(sample("RAD-N", t(20), 300));
+        long failed = commit(equipment(EventType.EQUIPMENT_STATE_CHANGED, t(30), state("RAD-N", Health.FAILED,
+                Role.STANDALONE, t(30), t(30))));
+
+        assertThat(history.boardAt(t(25)).board().lastEventId()).as("a sample is the newest").isEqualTo(sample);
+        assertThat(history.fold(t(25)).lastEventId()).isEqualTo(sample);
+        assertThat(history.boardAt(t(15)).board().lastEventId()).isEqualTo(state);
+        assertThat(history.boardAt(t(30)).board().lastEventId()).isEqualTo(failed);
+        assertThat(history.boardAt(T0.minusSeconds(1)).board().lastEventId()).isZero();
+    }
+
+    @Test
+    void aUnitAddedToTheInventoryAppears() {
         commit(supervisor(EventType.SUPERVISOR_STARTED, T0),
                 equipment(EventType.EQUIPMENT_STATE_CHANGED, t(5), operational("RAD-N", t(5))));
         Board atTheSnapshot = history.fold(t(10));
@@ -219,6 +239,29 @@ class BoardHistoryIT {
 
         assertThat(folded.equipment().get("FDPS-B"))
                 .isEqualTo(Board.initial(HistoryTestBeans.INVENTORY, List.of()).equipment().get("FDPS-B"));
+        assertThat(folded.equipment().get("RAD-N")).isEqualTo(operational("RAD-N", t(5)));
+    }
+
+    /** OLD-1 and OLD-2 stand for units the log knows but the current inventory no longer has. */
+    @Test
+    void aUnitRemovedFromTheInventoryIsDropped() {
+        commit(supervisor(EventType.SUPERVISOR_STARTED, T0),
+                equipment(EventType.EQUIPMENT_STATE_CHANGED, t(5), operational("RAD-N", t(5))),
+                equipment(EventType.EQUIPMENT_STATE_CHANGED, t(5), operational("OLD-1", t(5))));
+        Board fromTheStart = history.fold(t(10));
+        assertThat(fromTheStart.equipment()).as("from the start").doesNotContainKey("OLD-1")
+                .containsOnlyKeys(UNITS);
+        Map<String, EquipmentState> withOld = new LinkedHashMap<>(fromTheStart.equipment());
+        withOld.put("OLD-1", operational("OLD-1", t(5)));
+        snapshots.save(new Board(withOld, fromTheStart.services(), fromTheStart.openAlarms(),
+                fromTheStart.lastEventId(), fromTheStart.flood()), t(10));
+        commit(equipment(EventType.EQUIPMENT_STATE_CHANGED, t(15), operational("OLD-2", t(15))));
+
+        Board folded = history.boardAt(t(20)).board();
+
+        assertThat(folded.equipment()).as("from a snapshot that has one, and after an event for another")
+                .doesNotContainKeys("OLD-1", "OLD-2")
+                .containsOnlyKeys(UNITS);
         assertThat(folded.equipment().get("RAD-N")).isEqualTo(operational("RAD-N", t(5)));
     }
 

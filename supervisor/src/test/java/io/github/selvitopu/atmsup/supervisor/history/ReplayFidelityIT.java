@@ -76,7 +76,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * Live equals replay: the real board writer, driven through {@code submit} with scripted traps, polls, an
  * acknowledgement and a lost contact, over the real stores. A restart is a new writer starting from the stored log
  * after the first one has shut down. Each comparison covers equipment, services, open alarms (with their
- * correlation), flood and the last event id; every script ends on an event the fold reads, so the ids must match.
+ * correlation), flood and the last event id, which for a fold is the newest stored event at or before the instant.
  */
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
