@@ -1,8 +1,10 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { AlarmDto, AlarmState, Severity } from '../../../core/api/models';
 import { BoardSource } from '../../../core/state/board-source';
 import { LiveBoardStore } from '../../../core/state/live-board-store';
 import { AuthService } from '../../../core/auth/auth.service';
+import { ruleNote } from '../../../shared/correlation';
 import { formatUtc } from '../../../shared/format';
 
 const SEVERITY: Record<Severity, { tag: string; rank: number }> = {
@@ -12,11 +14,17 @@ const SEVERITY: Record<Severity, { tag: string; rank: number }> = {
 const STATE: Record<AlarmState, string> = {
   ACTIVE_UNACK: 'UNACK', ACTIVE_ACK: 'ACK', CLEARED_UNACK: 'CLEARED-UNACK', CLOSED: 'CLOSED',
 };
+const bySeverityThenNewest = (a: AlarmDto, b: AlarmDto) =>
+  SEVERITY[a.severity].rank - SEVERITY[b.severity].rank || Date.parse(b.raisedAt) - Date.parse(a.raisedAt);
+const isActive = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'ACTIVE_ACK';
+/** A top-level row: an alarm and the alarms correlated to it (none unless it is an open, shown cause). */
+interface Row { alarm: AlarmDto; children: AlarmDto[] }
 const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CLEARED_UNACK';
 
 @Component({
   selector: 'app-alarm-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [NgTemplateOutlet],
   template: `
     <div class="bar">
       <h2>ALARMS  {{ unackedCount() }} unacknowledged</h2>
@@ -38,32 +46,48 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
         <thead>
           <tr>@if (canAck()) {<th></th>}<th>Sev</th><th>Time</th><th>Equipment</th><th>Alarm</th><th>State</th></tr>
         </thead>
-        <tbody>
-          @for (a of rows(); track a.id) {
-            <tr [class]="'sev-' + a.severity.toLowerCase()">
-              @if (canAck()) {
-                <td>
-                  <input type="checkbox" class="select" [attr.aria-label]="'Select alarm ' + a.id"
-                    [checked]="selected().has(a.id)" (change)="toggle(a.id)" />
-                </td>
-              }
-              <td class="sev">{{ sev(a).tag }}</td>
-              <td class="mono">{{ time(a.raisedAt) }}</td>
-              <td class="mono">{{ a.equipmentId }}</td>
-              <td>
-                {{ a.text }}@if (a.instanceName) { · {{ a.instanceName }}}
-                @if (unconfirmed(a)) {
-                  <span class="unconfirmed" title="unconfirmed" aria-label="unconfirmed">?</span>
+          @for (r of rows(); track r.alarm.id) {
+            <tbody [id]="'group-' + r.alarm.id">
+              <ng-container *ngTemplateOutlet="line; context: { a: r.alarm, row: r, child: false }" />
+              @if (r.children.length > 0 && isExpanded(r.alarm.id)) {
+                @for (c of r.children; track c.id) {
+                  <ng-container *ngTemplateOutlet="line; context: { a: c, row: r, child: true }" />
                 }
-              </td>
-              <td class="mono state">{{ state(a) }}</td>
-            </tr>
+              }
+            </tbody>
           } @empty {
+            <tbody>
             <tr><td [attr.colspan]="canAck() ? 6 : 5" class="empty">No alarms</td></tr>
+            </tbody>
           }
-        </tbody>
-      </table>
-    </div>
+        </table>
+      </div>
+      <ng-template #line let-a="a" let-row="row" let-child="child">
+        <tr [class]="'sev-' + a.severity.toLowerCase()">
+          @if (canAck()) {
+            <td>
+              <input type="checkbox" class="select" [attr.aria-label]="label(a, row, child)"
+                [checked]="selected().has(a.id)" (change)="toggle(a.id)" />
+            </td>
+          }
+          <td class="sev">{{ sev(a).tag }}</td>
+          <td class="mono">{{ time(a.raisedAt) }}</td>
+          <td class="mono">{{ a.equipmentId }}</td>
+          <td>
+            @if (child) { <span class="arrow" aria-hidden="true">↳</span> }
+            {{ a.text }}@if (a.instanceName) { · {{ a.instanceName }}}
+            @if (child && a.correlation) { <span class="note"> · {{ note(a.correlation) }}</span> }
+            @if (unconfirmed(a)) {
+              <span class="unconfirmed" title="unconfirmed" aria-label="unconfirmed">?</span>
+            }
+            @if (!child && row.children.length > 0) {
+              <button type="button" class="group-toggle" [attr.aria-expanded]="isExpanded(a.id)"
+                [attr.aria-controls]="'group-' + a.id" (click)="expand(a.id)">{{ groupLabel(row) }}</button>
+            }
+          </td>
+          <td class="mono state">{{ state(a) }}</td>
+        </tr>
+      </ng-template>
   `,
   styles: `
     :host { display: block; background: var(--panel); border-top: 1px solid var(--panel-2); }
@@ -86,6 +110,9 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
     .sev-minor .sev, .sev-warning .sev { color: var(--text); }
     .unconfirmed { margin-left: 6px; padding: 0 5px; border: 1px solid var(--unknown); border-radius: 3px;
       color: var(--unknown); font: 700 11px var(--font-mono); }
+    .arrow { margin-right: 4px; color: var(--muted); }
+    .note { color: var(--muted); }
+    .group-toggle { margin-left: 8px; padding: 0 8px; font: 600 11px var(--font-mono); }
     .empty { color: var(--muted); text-align: center; }
   `,
 })
@@ -113,24 +140,93 @@ export class AlarmList {
     (this.source.board()?.equipment ?? []).filter(e => e.health === 'UNKNOWN').map(e => e.id)));
   protected readonly unconfirmed = (a: AlarmDto) => this.unknownEquipment().has(a.equipmentId);
   protected readonly suppressedCount = computed(() => this.all().filter(a => a.suppressed).length);
-  protected readonly rows = computed(() =>
-    this.all()
-      .filter(a => this.showSuppressed() || !a.suppressed)
-      .sort((a, b) => SEVERITY[a.severity].rank - SEVERITY[b.severity].rank
-        || Date.parse(b.raisedAt) - Date.parse(a.raisedAt)));
-  /** The checked rows. Pruned whenever the rows change, so it never holds an alarm that is gone or hidden. */
-  protected readonly selected = linkedSignal<AlarmDto[], ReadonlySet<string>>({
-    source: this.rows,
-    computation: (rows, previous) => {
+  private readonly shown = computed(() => this.all().filter(a => this.showSuppressed() || !a.suppressed));
+  /**
+   * One row per cause with its correlated alarms. An alarm is grouped only under a shown, open cause that is itself
+   * top-level; everything else stands alone, so correlation never hides an alarm (spec §6).
+   */
+  protected readonly rows = computed<Row[]>(() => {
+    const shown = this.shown();
+    const openCauses = new Set(shown.filter(isActive).map(a => a.id));
+    const candidate = (a: AlarmDto) => !!a.correlation && openCauses.has(a.correlation.causeId);
+    const candidates = new Set(shown.filter(candidate).map(a => a.id));
+    const children = new Map<string, AlarmDto[]>();
+    const grouped = new Set<string>();
+    for (const a of shown) {
+      const causeId = a.correlation?.causeId;
+      if (causeId && candidates.has(a.id) && !candidates.has(causeId)) {
+        children.set(causeId, [...(children.get(causeId) ?? []), a]);
+        grouped.add(a.id);
+      }
+    }
+    const worst = (r: Row) => Math.min(...[r.alarm, ...r.children].map(a => SEVERITY[a.severity].rank));
+    return shown.filter(a => !grouped.has(a.id))
+      .map(a => ({ alarm: a, children: (children.get(a.id) ?? []).sort(bySeverityThenNewest) }))
+      .sort((x, y) => worst(x) - worst(y) || Date.parse(y.alarm.raisedAt) - Date.parse(x.alarm.raisedAt));
+  });
+  /** Every alarm of the rows, in row order: a cause, then its correlated alarms. */
+  private readonly flat = computed(() => this.rows().flatMap(r => [r.alarm, ...r.children]));
+  /** The cause ids whose group is open; kept only while the cause is shown. */
+  protected readonly expanded = linkedSignal<AlarmDto[], ReadonlySet<string>>({
+    source: this.shown,
+    computation: (shown, previous) => {
       const kept = previous?.value ?? new Set<string>();
-      const visible = new Set(rows.map(a => a.id));
+      const visible = new Set(shown.map(a => a.id));
       return [...kept].every(id => visible.has(id)) ? kept : new Set([...kept].filter(id => visible.has(id)));
     },
   });
-  /** The selected alarms among the visible rows, in row order: what "Ack selected" sends. */
-  protected readonly selectedIds = computed(() => this.rows().filter(a => this.selected().has(a.id)).map(a => a.id));
-  protected readonly unackedIds = computed(() => this.rows().filter(isUnacked).map(a => a.id));
+  protected readonly isExpanded = (id: string) => this.expanded().has(id);
+  /** The checked row ids. Pruned whenever the shown alarms change, so it never holds an alarm that is gone or hidden. */
+  protected readonly selected = linkedSignal<AlarmDto[], ReadonlySet<string>>({
+    source: this.shown,
+    computation: (shown, previous) => {
+      const kept = previous?.value ?? new Set<string>();
+      const visible = new Set(shown.map(a => a.id));
+      return [...kept].every(id => visible.has(id)) ? kept : new Set([...kept].filter(id => visible.has(id)));
+    },
+  });
+  /**
+   * The alarms the checked rows stand for, in row order and without duplicates: a collapsed cause stands for itself
+   * and its correlated alarms, every other row for itself.
+   */
+  protected readonly selectedIds = computed(() => {
+    const ids = new Set<string>();
+    for (const r of this.rows()) {
+      const open = this.expanded().has(r.alarm.id);
+      if (this.selected().has(r.alarm.id)) {
+        ids.add(r.alarm.id);
+        if (!open) {
+          r.children.forEach(c => ids.add(c.id));
+        }
+      }
+      if (open) {
+        r.children.filter(c => this.selected().has(c.id)).forEach(c => ids.add(c.id));
+      }
+    }
+    return [...ids];
+  });
+  protected readonly unackedIds = computed(() => this.flat().filter(isUnacked).map(a => a.id));
   protected readonly unackedCount = computed(() => this.unackedIds().length);
+
+  protected readonly note = ruleNote;
+  protected groupLabel(r: Row): string {
+    const unack = r.children.filter(isUnacked).length;
+    return `+${r.children.length} correlated` + (unack > 0 ? ` · ${unack} unack` : '');
+  }
+  protected label(a: AlarmDto, r: Row, child: boolean): string {
+    return !child && r.children.length > 0 && !this.expanded().has(a.id)
+      ? `Select alarm ${a.equipmentId} ${a.text} and its ${r.children.length} correlated alarms`
+      : 'Select alarm ' + a.id;
+  }
+  protected expand(id: string): void {
+    this.expanded.update(set => {
+      const next = new Set(set);
+      if (!next.delete(id)) {
+        next.add(id);
+      }
+      return next;
+    });
+  }
 
   protected toggle(id: string): void {
     this.selected.update(set => {

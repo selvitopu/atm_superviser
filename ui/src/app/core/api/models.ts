@@ -52,6 +52,13 @@ export interface ContactDto {
   pollIntervalMs: number;
 }
 
+export interface CorrelationDto {
+  causeId: string;
+  causeEquipmentId: string;
+  causeCode: number;
+  rule: 'SENSOR_INPUT' | 'SWITCHOVER' | 'SAME_UNIT';
+}
+
 export interface AlarmDto {
   id: string;
   equipmentId: string;
@@ -69,6 +76,7 @@ export interface AlarmDto {
   ackedBy: string | null;
   ackComment: string | null;
   clearedAt: string | null;
+  correlation: CorrelationDto | null;
 }
 
 export interface EquipmentDetailDto {

@@ -1,5 +1,5 @@
 import { applyMessage } from '../../../core/state/apply-message';
-import { alarm, board, eq } from '../../../core/state/test-fixtures';
+import { alarm, board, correlatedAlarm, eq } from '../../../core/state/test-fixtures';
 import { FakeAuth, FakeStore, authProvider, render, storeProviders } from '../../../testing/render';
 import { AlarmList } from './alarm-list';
 
@@ -144,5 +144,94 @@ describe('AlarmList', () => {
     expect(f.all('input.select')).toHaveLength(3);
     expect(f.text()).toContain('Ack selected');
     expect(f.text()).toContain('Ack all visible');
+  });
+
+  describe('correlation', () => {
+    const cause = (over = {}) => alarm('cause', { equipmentId: 'RAD-N', code: 101, severity: 'CRITICAL', text: 'Radar failed', ...over });
+    const four = (over = {}) => ['c1', 'c2', 'c3', 'c4'].map((id, i) =>
+      correlatedAlarm(id, 'cause', { severity: 'MAJOR', raisedAt: `2026-11-13T14:0${i}:00Z`, ...over }));
+    const button = (f: ReturnType<typeof setup>['f']) => f.all('button.group-toggle')[0] as HTMLButtonElement;
+    const expand = (f: ReturnType<typeof setup>['f']) => { button(f).click(); f.fixture.detectChanges(); };
+    const ackBtn = (f: ReturnType<typeof setup>['f'], label: string) =>
+      f.all('button').find(b => b.textContent?.includes(label)) as HTMLButtonElement;
+
+    it('groupsCorrelatedAlarmsUnderTheirActiveCause', () => {
+      const { f } = setup([cause(), ...four()]);
+      expect(f.all('tbody tr').length).toBe(1);
+      expect(button(f).textContent?.trim()).toBe('+4 correlated · 4 unack');
+      expect(button(f).getAttribute('aria-expanded')).toBe('false');
+      expect(f.el.querySelector('#' + button(f).getAttribute('aria-controls'))).not.toBeNull();
+    });
+
+    it('expandingShowsTheCorrelatedAlarmsWithTheirRule', () => {
+      const { f } = setup([cause(), ...four()]);
+      expand(f);
+      const rows = f.all('tbody tr');
+      expect(rows.length).toBe(5);
+      const children = rows.slice(1);
+      expect(children.every(r => r.textContent?.includes('↳'))).toBe(true);
+      expect(children.filter(r => r.textContent?.includes('input from RAD-N')).length).toBe(4);
+      expect(button(f).getAttribute('aria-expanded')).toBe('true');
+      expect(button(f).textContent).toContain('+4 correlated');
+    });
+
+    it('aCorrelatedAlarmOfAClearedCauseIsTopLevel', () => {
+      const { f } = setup([cause({ state: 'CLEARED_UNACK' }), ...four()]);
+      expect(f.all('tbody tr').length).toBe(5);
+      expect(f.all('button.group-toggle').length).toBe(0);
+    });
+
+    it('aCorrelatedAlarmOfAHiddenCauseIsTopLevel', () => {
+      const { f } = setup([cause({ suppressed: true }), ...four()]);
+      expect(f.all('tbody tr').length).toBe(4);
+      expect(f.all('button.group-toggle').length).toBe(0);
+      expect(f.text()).not.toContain('↳');
+    });
+
+    it('theCollapsedRowCountsUnacknowledgedCorrelatedAlarms', () => {
+      const { f } = setup([cause({ state: 'ACTIVE_ACK' }), ...four()]);
+      expect(button(f).textContent?.trim()).toBe('+4 correlated · 4 unack');
+      expect(f.el.querySelector('h2')?.textContent).toContain('4 unacknowledged');
+    });
+
+    it('theButtonOmitsTheUnackCountWhenAllAreAcknowledged', () => {
+      const { f } = setup([cause(), ...four({ state: 'ACTIVE_ACK' })]);
+      expect(button(f).textContent?.trim()).toBe('+4 correlated');
+    });
+
+    it('selectingACollapsedGroupAcknowledgesTheWholeGroup', () => {
+      const { store, f } = setup([cause(), ...four()]);
+      const box = f.el.querySelector<HTMLInputElement>('input.select')!;
+      expect(box.getAttribute('aria-label')).toBe('Select alarm RAD-N Radar failed and its 4 correlated alarms');
+      box.click();
+      f.fixture.detectChanges();
+      ackBtn(f, 'Ack selected').click();
+      expect(store.acked).toEqual([['cause', 'c4', 'c3', 'c2', 'c1']]);
+    });
+
+    it('anExpandedGroupSelectsOneAlarmEach', () => {
+      const { store, f } = setup([cause(), ...four()]);
+      expand(f);
+      f.all('input.select')[2].click(); // c3
+      f.fixture.detectChanges();
+      ackBtn(f, 'Ack selected').click();
+      expect(store.acked).toEqual([['c3']]);
+    });
+
+    it('ackAllVisibleIncludesCollapsedCorrelatedAlarms', () => {
+      const { store, f } = setup([cause({ state: 'ACTIVE_ACK' }), ...four()]);
+      ackBtn(f, 'Ack all visible').click();
+      expect(store.acked).toEqual([['c4', 'c3', 'c2', 'c1']]);
+    });
+
+    it('groupsSortByTheirWorstSeverity', () => {
+      const { f } = setup([
+        alarm('solo', { severity: 'MINOR', raisedAt: '2026-11-13T15:00:00Z', text: 'solo minor' }),
+        alarm('cause', { severity: 'MINOR', equipmentId: 'RAD-N', raisedAt: '2026-11-13T13:00:00Z', text: 'group cause' }),
+        correlatedAlarm('c1', 'cause', { severity: 'MAJOR' }),
+      ]);
+      // the group counts as MAJOR through its correlated alarm, so it sorts before the newer MINOR row
+      expect(f.all('tbody tr').map(r => r.textContent?.includes('group cause'))).toEqual([true, false]);
+    });
   });
 });

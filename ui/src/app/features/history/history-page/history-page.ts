@@ -4,6 +4,7 @@ import { Subscription } from 'rxjs';
 import { AlarmQuery, AlarmSearch } from '../../../core/api/alarm-search';
 import { BoardApi } from '../../../core/api/board-api';
 import { AlarmDto, PageDto } from '../../../core/api/models';
+import { correlatedCell } from '../../../shared/correlation';
 import { formatUtc } from '../../../shared/format';
 import { AppHeader } from '../../board/app-header/app-header';
 
@@ -61,7 +62,7 @@ function utc(local: string): string {
         <table>
           <thead>
             <tr><th>Raised</th><th>Sev</th><th>Equipment</th><th>Alarm</th><th>State</th><th>Acknowledged</th>
-              <th>Cleared</th></tr>
+              <th>Cleared</th><th>Correlated</th></tr>
           </thead>
           <tbody>
             @for (a of rows(); track a.id) {
@@ -73,9 +74,10 @@ function utc(local: string): string {
                 <td class="mono">{{ stateLabel(a) }}</td>
                 <td class="mono">@if (a.ackedBy) {{{ a.ackedBy }} {{ time(a.ackedAt) }}}</td>
                 <td class="mono">{{ time(a.clearedAt) }}</td>
+                <td class="mono correlated">@if (a.correlation; as c) {{{ cell(c) }}}</td>
               </tr>
             } @empty {
-              @if (result()) { <tr><td colspan="7" class="empty">No alarms match</td></tr> }
+              @if (result()) { <tr><td colspan="8" class="empty">No alarms match</td></tr> }
             }
           </tbody>
         </table>
@@ -118,6 +120,7 @@ export class HistoryPage {
   protected readonly severities = SEVERITIES;
   /** Date and time: the history spans days. */
   protected readonly time = (iso: string | null | undefined) => iso ? iso.slice(0, 10) + ' ' + formatUtc(iso) : '';
+  protected readonly cell = correlatedCell;
   protected readonly stateLabel = (a: AlarmDto) => STATES[a.state] ?? a.state;
 
   protected readonly state = signal<'all' | 'open'>('all');

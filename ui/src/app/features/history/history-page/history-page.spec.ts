@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { AlarmDto, PageDto } from '../../../core/api/models';
-import { alarm, board, eq, svc } from '../../../core/state/test-fixtures';
+import { alarm, board, correlatedAlarm, eq, svc } from '../../../core/state/test-fixtures';
 import { authProvider, clockProvider, FakeAuth, FakeStore, render, storeProviders } from '../../../testing/render';
 import { HistoryPage } from './history-page';
 
@@ -89,6 +89,15 @@ describe('HistoryPage', () => {
     expect(row).toContain('supervisor1 2026-11-16 08:02:00Z');
     expect(row).toContain('2026-11-16 08:05:00Z');
     expect(row).toContain('CLOSED');
+  });
+
+  it('showsTheCorrelation', () => {
+    const { f, search, refresh } = setup();
+    search().flush(page([correlatedAlarm('c', 'cause'), alarm('plain')]));
+    refresh();
+    expect(f.all('th').map(h => h.textContent)).toContain('Correlated');
+    const cells = f.all('tbody tr').map(r => r.querySelector('td.correlated')?.textContent?.trim());
+    expect(cells).toEqual(['↳ RAD-N 101 · input from RAD-N', '']);
   });
 
   it('saysSoWhenNothingMatches', () => {
