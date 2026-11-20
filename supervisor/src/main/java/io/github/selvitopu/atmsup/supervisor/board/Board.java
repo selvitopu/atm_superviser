@@ -12,12 +12,17 @@ import java.util.Map;
 
 /** The durable operational state: the fold of the event log. Immutable; maps keep their insertion order. */
 public record Board(Map<String, EquipmentState> equipment, Map<ServiceId, ServiceState> services,
-                    Map<AlarmKey, Alarm> openAlarms, long lastEventId) {
+                    Map<AlarmKey, Alarm> openAlarms, long lastEventId, AlarmFlood flood) {
 
     public Board {
         equipment = Collections.unmodifiableMap(new LinkedHashMap<>(equipment));
         services = Collections.unmodifiableMap(new LinkedHashMap<>(services));
         openAlarms = Collections.unmodifiableMap(new LinkedHashMap<>(openAlarms));
+    }
+
+    public Board(Map<String, EquipmentState> equipment, Map<ServiceId, ServiceState> services,
+                 Map<AlarmKey, Alarm> openAlarms, long lastEventId) {
+        this(equipment, services, openAlarms, lastEventId, AlarmFlood.NONE);
     }
 
     /** Every device UNKNOWN/NOT_YET_POLLED, not in maintenance, no services; the role comes from the inventory. */
@@ -41,6 +46,6 @@ public record Board(Map<String, EquipmentState> equipment, Map<ServiceId, Servic
         }
         Map<AlarmKey, Alarm> alarms = new LinkedHashMap<>();
         openAlarms.forEach(a -> alarms.put(a.key(), a));
-        return new Board(eq, Map.of(), alarms, 0);
+        return new Board(eq, Map.of(), alarms, 0, AlarmFlood.NONE);
     }
 }

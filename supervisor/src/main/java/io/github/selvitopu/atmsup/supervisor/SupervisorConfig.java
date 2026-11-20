@@ -10,6 +10,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.AlarmCorrelator;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
 import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationTopology;
 import io.github.selvitopu.atmsup.supervisor.alarms.IdGenerator;
+import io.github.selvitopu.atmsup.supervisor.board.AlarmFloodPolicy;
 import io.github.selvitopu.atmsup.supervisor.board.BoardDecider;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInputSink;
 import io.github.selvitopu.atmsup.supervisor.board.BoardStore;
@@ -197,10 +198,18 @@ public class SupervisorConfig {
     }
 
     @Bean
+    AlarmFloodPolicy alarmFloodPolicy(@Value("${atm.alarms.flood.window:10m}") Duration window,
+                                      @Value("${atm.alarms.flood.start:10}") int start,
+                                      @Value("${atm.alarms.flood.end:5}") int end) {
+        return new AlarmFloodPolicy(window, start, end);
+    }
+
+    @Bean
     BoardDecider boardDecider(Inventory inventory, StatusDeriver deriver, ServiceEvaluator evaluator,
                               AlarmEngine alarms, AlarmCorrelator correlator,
-                              @Value("${atm.supervisor.telemetry-sample-interval:30s}") Duration sampleInterval) {
-        return new BoardDecider(inventory, deriver, evaluator, alarms, correlator, sampleInterval);
+                              @Value("${atm.supervisor.telemetry-sample-interval:30s}") Duration sampleInterval,
+                              AlarmFloodPolicy floodPolicy) {
+        return new BoardDecider(inventory, deriver, evaluator, alarms, correlator, sampleInterval, floodPolicy);
     }
 
     /** Started and stopped by the context (see {@link BoardWriter#PHASE}); its store is the history module's. */

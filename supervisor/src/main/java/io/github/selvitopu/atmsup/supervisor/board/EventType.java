@@ -16,7 +16,9 @@ public enum EventType {
     SUPERVISOR_HEARTBEAT(EntityKind.SUPERVISOR),
     SUPERVISOR_STOPPING(EntityKind.SUPERVISOR),
     TELEMETRY_SAMPLED(EntityKind.TELEMETRY),
-    EQUIPMENT_COMMANDED(EntityKind.COMMAND);
+    EQUIPMENT_COMMANDED(EntityKind.COMMAND),
+    ALARM_FLOOD_STARTED(EntityKind.FLOOD),
+    ALARM_FLOOD_ENDED(EntityKind.FLOOD);
 
     private final EntityKind kind;
 

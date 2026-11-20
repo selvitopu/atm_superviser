@@ -2,6 +2,7 @@ package io.github.selvitopu.atmsup.supervisor.board;
 
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
@@ -18,7 +19,7 @@ public final class BoardReducer {
 
     public static Board apply(Board b, StoredEvent e) {
         Board next = apply(b, e.event());
-        return new Board(next.equipment(), next.services(), next.openAlarms(), e.id());
+        return new Board(next.equipment(), next.services(), next.openAlarms(), e.id(), next.flood());
     }
 
     public static Board apply(Board b, DomainEvent e) {
@@ -26,12 +27,12 @@ public final class BoardReducer {
             case EquipmentEvent ev -> {
                 var eq = new LinkedHashMap<>(b.equipment());
                 eq.put(ev.state().id(), ev.state());
-                yield new Board(eq, b.services(), b.openAlarms(), b.lastEventId());
+                yield new Board(eq, b.services(), b.openAlarms(), b.lastEventId(), b.flood());
             }
             case ServiceEvent ev -> {
                 var sv = new LinkedHashMap<>(b.services());
                 sv.put(ev.state().id(), ev.state());
-                yield new Board(b.equipment(), sv, b.openAlarms(), b.lastEventId());
+                yield new Board(b.equipment(), sv, b.openAlarms(), b.lastEventId(), b.flood());
             }
             case AlarmEvent ev -> {
                 var al = new LinkedHashMap<>(b.openAlarms());
@@ -40,11 +41,14 @@ public final class BoardReducer {
                 } else {
                     al.put(ev.alarm().key(), ev.alarm());
                 }
-                yield new Board(b.equipment(), b.services(), al, b.lastEventId());
+                yield new Board(b.equipment(), b.services(), al, b.lastEventId(), b.flood());
             }
             case SupervisorEvent ev -> ev.type() == EventType.SUPERVISOR_STARTED ? started(b, ev) : b;
             case TelemetrySampleEvent ev -> b;
             case CommandEvent ev -> b;
+            case AlarmFloodEvent ev -> new Board(b.equipment(), b.services(), b.openAlarms(), b.lastEventId(),
+                    ev.type() == EventType.ALARM_FLOOD_STARTED ? new AlarmFlood(true, ev.occurredAt())
+                            : AlarmFlood.NONE);
         };
     }
 
@@ -57,6 +61,6 @@ public final class BoardReducer {
             eq.put(id, new EquipmentState(id, Health.UNKNOWN, reason, s.maintenance(), s.role(), since,
                     new Contact(false, c.lastContactAt(), c.lostAt())));
         });
-        return new Board(eq, b.services(), b.openAlarms(), b.lastEventId());
+        return new Board(eq, b.services(), b.openAlarms(), b.lastEventId(), AlarmFlood.NONE);
     }
 }

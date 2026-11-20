@@ -298,6 +298,13 @@ class SupervisorEndToEndIT {
             await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(service("SURV")).isNotNull()
                     .extracting(ServiceDto::reasons).asInstanceOf(InstanceOfAssertFactories.LIST)
                     .contains("Fewer than 2 radars available"));
+            // RAD-E's five raises are the counted raises 6 to 10: the alarm flood starts
+            await().atMost(ofSeconds(10)).untilAsserted(() -> assertThat(board().flood())
+                    .isNotNull().satisfies(f -> {
+                        assertThat(f.active()).isTrue();
+                        assertThat(f.since()).isNotNull();
+                    }));
+            await().atMost(ofSeconds(5)).until(() -> sse.has("flood", m -> m.data().contains("\"active\":true")));
 
             AlarmDto acked = postAck(alarm("RAD-N", 101).id(), "seen");
             assertThat(acked.state()).isEqualTo("ACTIVE_ACK");

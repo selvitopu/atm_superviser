@@ -8,6 +8,7 @@ import io.github.selvitopu.atmsup.supervisor.api.Dtos.BoardDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ContactDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.CorrelationDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDto;
+import io.github.selvitopu.atmsup.supervisor.api.Dtos.FloodDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.TelemetryDto;
 import io.github.selvitopu.atmsup.supervisor.board.Board;
@@ -47,7 +48,8 @@ public class DtoMapper {
         List<EquipmentDto> equipment = inventory.devices().stream().map(d -> equipment(lb, d.id())).toList();
         List<AlarmDto> alarms = b.openAlarms().values().stream().sorted(MOST_SEVERE_THEN_NEWEST)
                 .map(a -> alarm(a, b)).toList();
-        return new BoardDto(centre, now, b.lastEventId(), services, equipment, alarms);
+        return new BoardDto(centre, now, b.lastEventId(), services, equipment, alarms,
+                new FloodDto(b.flood().active(), b.flood().since()));
     }
 
     /** @throws java.util.NoSuchElementException if the inventory has no such device */

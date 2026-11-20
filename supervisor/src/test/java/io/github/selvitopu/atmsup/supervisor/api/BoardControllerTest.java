@@ -25,6 +25,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.alarms.Correlation;
 import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationRule;
+import io.github.selvitopu.atmsup.supervisor.board.AlarmFlood;
 import io.github.selvitopu.atmsup.supervisor.board.Board;
 import io.github.selvitopu.atmsup.supervisor.board.BoardWriter;
 import io.github.selvitopu.atmsup.supervisor.board.Contact;
@@ -141,6 +142,22 @@ class BoardControllerTest {
                 .andExpect(jsonPath("$.equipment[0].values.plotsPerScan").value(300))
                 .andExpect(jsonPath("$.equipment[0].tables.sensors[0].index").value(1))
                 .andExpect(jsonPath("$.equipment[1].values").isEmpty());
+    }
+
+    @Test
+    void theBoardCarriesTheFlood() throws Exception {
+        board(allKnown(), List.of(), Map.of());
+
+        mvc.perform(get("/api/v1/board")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.flood.active").value(false))
+                .andExpect(jsonPath("$.flood.since").isEmpty());
+
+        given(writer.current()).willReturn(new LiveBoard(new Board(allKnown(), Map.of(), Map.of(), 17,
+                new AlarmFlood(true, T)), Map.of(), Map.of(), Map.of()));
+
+        mvc.perform(get("/api/v1/board")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.flood.active").value(true))
+                .andExpect(jsonPath("$.flood.since").value("2026-01-01T10:00:00Z"));
     }
 
     @Test

@@ -49,6 +49,7 @@ import io.github.selvitopu.atmsup.supervisor.board.BoardInput.Shutdown;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.Startup;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.TrapReceived;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
@@ -78,7 +79,7 @@ class BoardDeciderTest {
     private final AtomicInteger seq = new AtomicInteger();
     private final BoardDecider decider = new BoardDecider(inv, new StatusDeriver(), evaluator,
             new AlarmEngine(() -> "a" + seq.incrementAndGet()), new AlarmCorrelator(CorrelationTopology.from(inv)),
-            Duration.ofSeconds(30));
+            Duration.ofSeconds(30), AlarmFloodPolicy.DEFAULT);
 
     // ---- fixtures
 
@@ -140,7 +141,8 @@ class BoardDeciderTest {
         d.invalidated().forEach(id -> gens.merge(id, 1L, Long::sum));
         Map<String, Long> contact = new LinkedHashMap<>(lb.contactGenerations());
         d.contactInvalidated().forEach(id -> contact.merge(id, 1L, Long::sum));
-        return new LiveBoard(b, tel, gens, contact);
+        return new LiveBoard(b, tel, gens, contact,
+                d.recentRaises() != null ? d.recentRaises() : lb.recentRaises());
     }
 
     /** {@code id} after its third failed probe: LOST_CONTACT with 901 open and both generations 1. */
@@ -659,6 +661,151 @@ class BoardDeciderTest {
                 .containsExactly(tuple(id, AlarmState.ACTIVE_ACK, "seen"));
         assertThat(d.result().notFound()).containsExactly("missing");
         assertThat(d.invalidated()).isEmpty();
+    }
+
+    // ---- the alarm flood
+
+    private final BoardDecider floodDecider = new BoardDecider(inv, new StatusDeriver(), evaluator,
+            new AlarmEngine(() -> "f" + seq.incrementAndGet()), new AlarmCorrelator(CorrelationTopology.from(inv)),
+            Duration.ofSeconds(30), new AlarmFloodPolicy(Duration.ofMinutes(10), 3, 2));
+
+    private static Notification raisedAt(String id, int code, Instant at) {
+        return new AlarmRaisedNotification(id, at, code, 0, "", MINOR, "Fault " + code);
+    }
+
+    /** The trap decided at {@code at} and merged, as the writer does after a commit. */
+    private LiveBoard trapAt(LiveBoard lb, int code, Instant at) {
+        return merged(lb, floodDecider.decide(lb, new TrapReceived(raisedAt("RAD-N", code, at)), at));
+    }
+
+    private static List<EventType> floodTypes(Decision d) {
+        return d.events().stream().map(DomainEvent::type)
+                .filter(t -> t == EventType.ALARM_FLOOD_STARTED || t == EventType.ALARM_FLOOD_ENDED).toList();
+    }
+
+    /** Three raises at t0, t0+1s and t0+2s: the flood is active since t0+2s. */
+    private LiveBoard flooded() {
+        LiveBoard lb = allOperational();
+        for (int i = 0; i < 3; i++) {
+            lb = trapAt(lb, 201 + i, t0.plusSeconds(i));
+        }
+        return lb;
+    }
+
+    @Test
+    void theFloodStartsAtTheThresholdRaise() {
+        LiveBoard lb = allOperational();
+        Decision first = floodDecider.decide(lb, new TrapReceived(raisedAt("RAD-N", 201, t0)), t0);
+        assertThat(floodTypes(first)).isEmpty();
+        lb = merged(lb, first);
+        Decision second = floodDecider.decide(lb, new TrapReceived(raisedAt("RAD-N", 202, t0.plusSeconds(1))),
+                t0.plusSeconds(1));
+        assertThat(floodTypes(second)).isEmpty();
+        lb = merged(lb, second);
+
+        Instant t2 = t0.plusSeconds(2);
+        Decision third = floodDecider.decide(lb, new TrapReceived(raisedAt("RAD-N", 203, t2)), t2);
+
+        assertThat(third.events()).extracting(DomainEvent::type).containsExactly(ALARM_RAISED,
+                EventType.ALARM_FLOOD_STARTED);
+        assertThat(third.events().getLast()).isEqualTo(new AlarmFloodEvent(EventType.ALARM_FLOOD_STARTED, t2, 3));
+        assertThat(third.recentRaises()).containsExactly(t0, t0.plusSeconds(1), t2);
+        assertThat(merged(lb, third).board().flood()).isEqualTo(new AlarmFlood(true, t2));
+    }
+
+    @Test
+    void suppressedRaisesAreNotCounted() {
+        var inMaintenance = new Observation("RAD-N", t0, OPERATIONAL, Role.STANDALONE, true, Map.of(), Map.of(),
+                List.of());
+        LiveBoard lb = allOperational();
+        lb = merged(lb, floodDecider.decide(lb, new PollSucceeded(inMaintenance, 0), t0));
+        for (int i = 0; i < 4; i++) {
+            Decision d = floodDecider.decide(lb, new TrapReceived(raisedAt("RAD-N", 201 + i, t0)), t0);
+            assertThat(alarmEvent(d, 0).alarm().suppressed()).isTrue();
+            assertThat(floodTypes(d)).isEmpty();
+            lb = merged(lb, d);
+        }
+
+        assertThat(lb.recentRaises()).isEmpty();
+        assertThat(lb.board().flood()).isEqualTo(AlarmFlood.NONE);
+    }
+
+    @Test
+    void theFloodDoesNotFlapBetweenTheThresholds() {
+        LiveBoard lb = flooded();
+        // at t0+10m0.5s the raise at t0 has aged out, so the window is 2: not below the end threshold of 2
+        Instant later = t0.plus(Duration.ofMinutes(10)).plusMillis(500);
+
+        Decision d = floodDecider.decide(lb, new ProbeSucceeded(new ProbeObservation("RAD-N", later, 1000), 0),
+                later);
+
+        assertThat(floodTypes(d)).isEmpty();
+        assertThat(d.recentRaises()).containsExactly(t0.plusSeconds(1), t0.plusSeconds(2));
+        assertThat(merged(lb, d).board().flood().active()).isTrue();
+    }
+
+    @Test
+    void theFloodEndsBelowTheEndThreshold() {
+        LiveBoard lb = flooded();
+        Instant later = t0.plus(Duration.ofMinutes(10)).plusMillis(1500); // only the raise at t0+2s is left
+
+        Decision d = floodDecider.decide(lb, new HeartbeatTick(), later);
+
+        assertThat(d.events()).containsExactly(new SupervisorEvent(SUPERVISOR_HEARTBEAT, later, null),
+                new AlarmFloodEvent(EventType.ALARM_FLOOD_ENDED, later, 1));
+        assertThat(d.recentRaises()).containsExactly(t0.plusSeconds(2));
+        assertThat(merged(lb, d).board().flood()).isEqualTo(AlarmFlood.NONE);
+    }
+
+    @Test
+    void aDiscardedDecisionChangesNoWindow() {
+        LiveBoard lb = withGeneration(trapAt(allOperational(), 201, t0), "RAD-N", 5);
+
+        Decision d = floodDecider.decide(lb, new PollSucceeded(obs("RAD-N", OPERATIONAL), 0), t0.plusSeconds(1));
+
+        assertThat(d.stale()).isTrue();
+        assertThat(d.events()).isEmpty();
+        assertThat(d.recentRaises()).isNull();
+    }
+
+    @Test
+    void shutdownAddsNoFloodEvent() {
+        LiveBoard lb = flooded();
+        Instant later = t0.plus(Duration.ofHours(1)); // the flood would end on any other input
+
+        Decision d = floodDecider.decide(lb, new Shutdown(), later);
+
+        assertThat(d.events()).containsExactly(new SupervisorEvent(SUPERVISOR_STOPPING, later, null));
+        assertThat(d.recentRaises()).isNull();
+    }
+
+    @Test
+    void aRestartEndsTheFloodWithoutASecondEvent() {
+        LiveBoard lb = flooded();
+        Instant later = t0.plusSeconds(30);
+
+        Decision d = floodDecider.decide(new LiveBoard(lb.board(), lb.telemetry(), lb.generations(),
+                lb.contactGenerations()), new Startup(false), later);
+
+        assertThat(floodTypes(d)).isEmpty();
+        assertThat(merged(lb, d).board().flood()).isEqualTo(AlarmFlood.NONE);
+    }
+
+    @Test
+    void aReRaiseCountsAtItsDecisionTime() {
+        Instant old = t0.minus(Duration.ofHours(1));
+        LiveBoard lb = trapAt(allOperational(), 201, old);
+        lb = merged(lb, floodDecider.decide(lb,
+                new TrapReceived(new Notification.AlarmClearedNotification("RAD-N", old, 201, 0)), old));
+        AlarmKey key = new AlarmKey("RAD-N", 201, 0);
+        assertThat(lb.board().openAlarms().get(key).state()).isEqualTo(AlarmState.CLEARED_UNACK);
+        lb = new LiveBoard(lb.board(), lb.telemetry(), lb.generations(), lb.contactGenerations(),
+                List.of(t0.minusSeconds(2), t0.minusSeconds(1)));
+
+        Decision d = floodDecider.decide(lb, new TrapReceived(raisedAt("RAD-N", 201, t0)), t0);
+
+        assertThat(alarmEvent(d, 0).alarm().raisedAt()).isEqualTo(old);
+        assertThat(d.events().getLast()).isEqualTo(new AlarmFloodEvent(EventType.ALARM_FLOOD_STARTED, t0, 3));
     }
 
     // ---- supervisor lifecycle

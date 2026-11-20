@@ -11,6 +11,8 @@ import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
@@ -118,6 +120,46 @@ class BoardReducerTest {
         var ev = new TelemetrySampleEvent(NOW, "RAD-N", NOW, Map.of("rate", 1), Map.of());
         var b = BoardReducer.apply(initial, new StoredEvent(7, ev));
         assertThat(b).isEqualTo(new Board(initial.equipment(), initial.services(), initial.openAlarms(), 7));
+    }
+
+    private final Board flooded = new Board(initial.equipment(), initial.services(), initial.openAlarms(), 3,
+            new AlarmFlood(true, NOW));
+
+    @Test
+    void floodEventsSetAndClearTheFlood() {
+        var started = BoardReducer.apply(initial,
+                new AlarmFloodEvent(EventType.ALARM_FLOOD_STARTED, NOW, 10));
+        assertThat(started.flood()).isEqualTo(new AlarmFlood(true, NOW));
+        var ended = BoardReducer.apply(started,
+                new AlarmFloodEvent(EventType.ALARM_FLOOD_ENDED, NOW.plusSeconds(60), 4));
+        assertThat(ended.flood()).isEqualTo(AlarmFlood.NONE);
+        assertThat(initial.flood()).isEqualTo(AlarmFlood.NONE);
+    }
+
+    @Test
+    void supervisorStartedEndsTheFlood() {
+        var b = BoardReducer.apply(flooded, new SupervisorEvent(EventType.SUPERVISOR_STARTED, NOW.plusSeconds(60),
+                UnknownReason.SUPERVISOR_RESTARTED));
+        assertThat(b.flood()).isEqualTo(AlarmFlood.NONE);
+    }
+
+    @Test
+    void everyOtherEventKeepsTheFlood() {
+        var eq = new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, NOW,
+                BoardFixtures.known("RAD-N", Health.OPERATIONAL));
+        var sv = new ServiceEvent(NOW, new ServiceState(ServiceId.SURV, ServiceStatus.OK, null, false, false,
+                List.of(), NOW));
+        var raised = new AlarmEvent(EventType.ALARM_RAISED, NOW, alarm(AlarmState.ACTIVE_UNACK), Via.TRAP, null);
+        var closed = new AlarmEvent(EventType.ALARM_CLOSED, NOW, alarm(AlarmState.CLOSED), Via.TRAP, null);
+        var heartbeat = new SupervisorEvent(EventType.SUPERVISOR_HEARTBEAT, NOW, null);
+        var stopping = new SupervisorEvent(EventType.SUPERVISOR_STOPPING, NOW, null);
+        var sample = new TelemetrySampleEvent(NOW, "RAD-N", NOW, Map.of(), Map.of());
+        var command = new CommandEvent(NOW, "RAD-N", "MAINTENANCE_ON", "supervisor1", "DONE");
+        for (DomainEvent e : List.<DomainEvent>of(eq, sv, raised, closed, heartbeat, stopping, sample, command)) {
+            assertThat(BoardReducer.apply(flooded, e).flood()).as(e.type().name()).isEqualTo(flooded.flood());
+            assertThat(BoardReducer.apply(flooded, new StoredEvent(9, e)).flood()).as(e.type().name())
+                    .isEqualTo(flooded.flood());
+        }
     }
 
     @Test

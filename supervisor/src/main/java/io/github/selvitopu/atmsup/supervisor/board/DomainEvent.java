@@ -58,6 +58,13 @@ public sealed interface DomainEvent {
         }
     }
 
+    /** The start or end of an alarm flood; {@code raisedInWindow} is the counted raises in the window. */
+    record AlarmFloodEvent(EventType type, Instant occurredAt, int raisedInWindow) implements DomainEvent {
+        public AlarmFloodEvent {
+            requireKind(type, EntityKind.FLOOD);
+        }
+    }
+
     private static void requireKind(EventType type, EntityKind kind) {
         if (type == null || type.kind() != kind) {
             throw new IllegalArgumentException(type + " is not a " + kind + " event");

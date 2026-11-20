@@ -65,9 +65,13 @@ class BoardWriterTest {
     private BoardWriter writer;
 
     private BoardWriter writer(Duration heartbeat) {
+        return writer(heartbeat, AlarmFloodPolicy.DEFAULT);
+    }
+
+    private BoardWriter writer(Duration heartbeat, AlarmFloodPolicy floodPolicy) {
         var evaluator = new ServiceEvaluator(inv, List.of(new SurveillanceRule(), new FlightDataRule()));
         var decider = new BoardDecider(inv, new StatusDeriver(), evaluator, new AlarmEngine(IdGenerator.uuid()),
-                new AlarmCorrelator(CorrelationTopology.from(inv)), Duration.ofSeconds(30));
+                new AlarmCorrelator(CorrelationTopology.from(inv)), Duration.ofSeconds(30), floodPolicy);
         InstantSource clock = now::get;
         writer = new BoardWriter(inv, store, decider, clock, publisher, meters, heartbeat);
         return writer;
@@ -153,6 +157,54 @@ class BoardWriterTest {
         assertThat(publisher.all).isEmpty();
         assertThat(meters.counter("atmsup.board.stale.results", "kind", "poll").count()).isEqualTo(1.0);
         assertThat(meters.counter("atmsup.board.stale.results", "kind", "probe").count()).isZero();
+    }
+
+    private TrapReceived raise(int code) {
+        return new TrapReceived(new AlarmRaisedNotification("RAD-N", now.get(), code, 0, "", Severity.MINOR,
+                "Fault " + code));
+    }
+
+    @Test
+    void theWindowIsKeptAcrossDecisions() {
+        writer(NO_HEARTBEAT, new AlarmFloodPolicy(Duration.ofMinutes(10), 3, 2)).start();
+        assertThat(writer.current().recentRaises()).isEmpty();
+
+        writer.submit(raise(201)).join();
+        now.set(t0.plusSeconds(1));
+        writer.submit(raise(202)).join();
+        now.set(t0.plusSeconds(2));
+        writer.submit(new TrapReceived(statusChange("RAD-N"))).join(); // a decision without a raise keeps it
+        assertThat(writer.current().recentRaises()).containsExactly(t0, t0.plusSeconds(1));
+        assertThat(writer.current().board().flood().active()).isFalse();
+
+        writer.submit(raise(203)).join();
+
+        assertThat(writer.current().recentRaises()).containsExactly(t0, t0.plusSeconds(1), t0.plusSeconds(2));
+        assertThat(writer.current().board().flood()).isEqualTo(new AlarmFlood(true, t0.plusSeconds(2)));
+        assertThat(store.events).extracting(e -> e.event().type()).contains(EventType.ALARM_FLOOD_STARTED);
+    }
+
+    @Test
+    void aFailedCommitLeavesTheFloodWindowAsItWas() {
+        writer(NO_HEARTBEAT, new AlarmFloodPolicy(Duration.ofMinutes(10), 3, 2)).start();
+        writer.submit(raise(201)).join();
+        now.set(t0.plusSeconds(1));
+        writer.submit(raise(202)).join();
+        now.set(t0.plusSeconds(2));
+        store.failNextCommit();
+
+        try (CapturedLogs logs = new CapturedLogs(BoardWriter.class)) {
+            assertThat(writer.submit(raise(203)).join().committed()).isFalse();
+        }
+
+        assertThat(writer.current().board().flood().active()).isFalse();
+        assertThat(writer.current().recentRaises()).containsExactly(t0, t0.plusSeconds(1));
+        now.set(t0.plusSeconds(3));
+
+        assertThat(writer.submit(raise(203)).join().committed()).isTrue();
+
+        assertThat(writer.current().board().flood()).isEqualTo(new AlarmFlood(true, t0.plusSeconds(3)));
+        assertThat(writer.current().recentRaises()).containsExactly(t0, t0.plusSeconds(1), t0.plusSeconds(3));
     }
 
     @Test

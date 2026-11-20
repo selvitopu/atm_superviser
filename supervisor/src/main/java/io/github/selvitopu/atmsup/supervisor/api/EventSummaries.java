@@ -3,6 +3,8 @@ package io.github.selvitopu.atmsup.supervisor.api;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
+import io.github.selvitopu.atmsup.supervisor.board.EventType;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
@@ -26,6 +28,9 @@ public final class EventSummaries {
             case AlarmEvent e -> alarm(e);
             case SupervisorEvent e -> supervisor(e);
             case TelemetrySampleEvent e -> "Telemetry sampled";
+            case AlarmFloodEvent e -> e.type() == EventType.ALARM_FLOOD_STARTED
+                    ? "Alarm flood started (" + e.raisedInWindow() + " new alarms in the window)"
+                    : "Alarm flood ended";
             case CommandEvent e -> command(e);
         };
     }

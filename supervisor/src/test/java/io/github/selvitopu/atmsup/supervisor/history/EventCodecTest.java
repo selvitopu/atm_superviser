@@ -11,6 +11,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.Correlation;
 import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationRule;
 import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.EventType;
@@ -79,6 +80,22 @@ class EventCodecTest {
             assertThat(row.getActor()).isEqualTo("supervisor1");
             assertThat(codec.decode(row)).isEqualTo(event);
             assertThat(codec.decode(codec.encode(intent, T0))).isEqualTo(intent);
+        });
+    }
+
+    @Test
+    void floodEventsRoundTrip() {
+        var started = new AlarmFloodEvent(EventType.ALARM_FLOOD_STARTED, T0, 10);
+        var ended = new AlarmFloodEvent(EventType.ALARM_FLOOD_ENDED, T0, 4);
+
+        withCodec(codec -> {
+            EventLogEntity row = codec.encode(started, T0);
+            assertThat(row.getEntityKind()).isEqualTo("FLOOD");
+            assertThat(row.getEntityId()).isNull();
+            assertThat(row.getEquipmentId()).isNull();
+            assertThat(row.getPayload()).contains("\"raisedInWindow\":10");
+            assertThat(codec.decode(row)).isEqualTo(started);
+            assertThat(codec.decode(codec.encode(ended, T0))).isEqualTo(ended);
         });
     }
 

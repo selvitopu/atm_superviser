@@ -15,7 +15,11 @@ public final class Dtos {
     }
 
     public record BoardDto(String centre, Instant serverTime, long lastEventId, List<ServiceDto> services,
-                           List<EquipmentDto> equipment, List<AlarmDto> alarms) {
+                           List<EquipmentDto> equipment, List<AlarmDto> alarms, FloodDto flood) {
+    }
+
+    /** Whether an alarm flood is in progress; {@code since} is null when it is not. */
+    public record FloodDto(boolean active, Instant since) {
     }
 
     public record ServiceDto(String id, String name, String status, String bestCase, boolean redundancyLost,

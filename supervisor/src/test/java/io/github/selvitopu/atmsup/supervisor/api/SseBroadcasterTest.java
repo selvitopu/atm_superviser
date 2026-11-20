@@ -22,6 +22,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.AlarmDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDto;
+import io.github.selvitopu.atmsup.supervisor.api.Dtos.FloodDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.HeartbeatDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.SupervisorEventDto;
@@ -35,6 +36,7 @@ import io.github.selvitopu.atmsup.supervisor.board.BoardWriter;
 import io.github.selvitopu.atmsup.supervisor.board.Contact;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
@@ -261,6 +263,18 @@ class SseBroadcasterTest {
                     assertThat(s.data()).isEqualTo(new TelemetryDto("RAD-N", T0.minusSeconds(1), 2,
                             Map.of("plotsPerScan", 300L), Map.of("sensors", List.of(Map.of("index", 1L))), T0));
                 }));
+    }
+
+    @Test
+    void aFloodEventIsSentAsFlood() {
+        broadcaster.onCommitted(committed(
+                stored(1101, new AlarmFloodEvent(EventType.ALARM_FLOOD_STARTED, T0, 10)),
+                stored(1102, new AlarmFloodEvent(EventType.ALARM_FLOOD_ENDED, T0.plusSeconds(60), 4))));
+
+        List<Sent> sent = sent(client);
+        assertThat(sent).extracting(Sent::name, Sent::id, Sent::data).containsExactly(
+                tuple("flood", 1101L, new FloodDto(true, T0)),
+                tuple("flood", 1102L, new FloodDto(false, null)));
     }
 
     @Test

@@ -221,7 +221,7 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             Map<String, Telemetry> counters = countersOnly(before.telemetry(), d.telemetry());
             live = new LiveBoard(before.board(), merged(before.telemetry(), counters),
                     bumped(before.generations(), d.invalidated()),
-                    bumped(before.contactGenerations(), d.contactInvalidated()));
+                    bumped(before.contactGenerations(), d.contactInvalidated()), before.recentRaises());
             publishTelemetry(counters, now);
             d.repoll().forEach(this::publish);
             return BoardResult.failed(e.getMessage());
@@ -233,7 +233,8 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
         }
         LiveBoard after = new LiveBoard(board, merged(before.telemetry(), d.telemetry()),
                 bumped(before.generations(), d.invalidated()),
-                bumped(before.contactGenerations(), d.contactInvalidated()));
+                bumped(before.contactGenerations(), d.contactInvalidated()),
+                d.recentRaises() != null ? d.recentRaises() : before.recentRaises());
         live = after;
         if (!stored.isEmpty()) {
             publish(new BoardCommitted(stored, after));

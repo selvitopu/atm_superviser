@@ -46,3 +46,11 @@ springdoc:
     path: /api/v1/openapi.json
   swagger-ui:
     path: /api/v1/docs
+
+atm:
+  alarms:
+    flood:
+      # an alarm flood starts at <start> new alarms within <window> and ends when fewer than <end> remain
+      window: 10m
+      start: 10
+      end: 5

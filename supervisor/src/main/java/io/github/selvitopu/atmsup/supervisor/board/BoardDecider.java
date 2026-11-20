@@ -29,6 +29,7 @@ import io.github.selvitopu.atmsup.supervisor.board.BoardInput.Shutdown;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.Startup;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.TrapReceived;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
@@ -57,18 +58,54 @@ public final class BoardDecider {
     private final AlarmEngine alarms;
     private final AlarmCorrelator correlator;
     private final Duration sampleInterval;
+    private final AlarmFloodPolicy floodPolicy;
 
     public BoardDecider(Inventory inv, StatusDeriver deriver, ServiceEvaluator evaluator, AlarmEngine alarms,
-                        AlarmCorrelator correlator, Duration telemetrySampleInterval) {
+                        AlarmCorrelator correlator, Duration telemetrySampleInterval,
+                        AlarmFloodPolicy floodPolicy) {
         this.inv = inv;
         this.deriver = deriver;
         this.evaluator = evaluator;
         this.alarms = alarms;
         this.correlator = correlator;
         this.sampleInterval = telemetrySampleInterval;
+        this.floodPolicy = floodPolicy;
     }
 
     public Decision decide(LiveBoard live, BoardInput in, Instant now) {
+        Decision d = decideInput(live, in, now);
+        return d.stale() || in instanceof Shutdown ? d : withFloodStep(live, d, now);
+    }
+
+    /**
+     * The flood step (spec §5): the window is the earlier counted raises still inside the policy window, plus one
+     * instant for each unsuppressed ALARM_RAISED of this decision. The flood starts at {@code start} and ends below
+     * {@code end}; in between nothing changes, so it does not flap. A SUPERVISOR_STARTED in the decision has already
+     * ended the flood, as the reducer does.
+     */
+    private Decision withFloodStep(LiveBoard live, Decision d, Instant now) {
+        Instant cutoff = now.minus(floodPolicy.window());
+        List<Instant> window = new ArrayList<>();
+        live.recentRaises().stream().filter(t -> t.isAfter(cutoff)).forEach(window::add);
+        boolean active = live.board().flood().active();
+        for (DomainEvent e : d.events()) {
+            if (e instanceof AlarmEvent a && a.type() == EventType.ALARM_RAISED && !a.alarm().suppressed()) {
+                window.add(now);
+            } else if (e.type() == SUPERVISOR_STARTED) {
+                active = false;
+            }
+        }
+        List<DomainEvent> events = new ArrayList<>(d.events());
+        if (!active && window.size() >= floodPolicy.start()) {
+            events.add(new AlarmFloodEvent(EventType.ALARM_FLOOD_STARTED, now, window.size()));
+        } else if (active && window.size() < floodPolicy.end()) {
+            events.add(new AlarmFloodEvent(EventType.ALARM_FLOOD_ENDED, now, window.size()));
+        }
+        return new Decision(events, d.telemetry(), d.repoll(), d.invalidated(), d.contactInvalidated(), false,
+                d.result(), window);
+    }
+
+    private Decision decideInput(LiveBoard live, BoardInput in, Instant now) {
         return switch (in) {
             case ProbeSucceeded p -> deviceResult(live, in, p.probe().equipmentId(), p.generation(), now,
                     (cur, tel) -> deriver.probeSucceeded(cur, tel, p.probe(),

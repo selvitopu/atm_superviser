@@ -3,6 +3,7 @@ package io.github.selvitopu.atmsup.supervisor.history;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmFloodEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
@@ -50,6 +51,8 @@ public class EventCodec {
                     new SupervisorPayload(SCHEMA_VERSION, ev.reason()));
             case TelemetrySampleEvent ev -> row(ev, recordedAt, ev.equipmentId(), ev.equipmentId(), null,
                     new TelemetryPayload(SCHEMA_VERSION, ev.equipmentId(), ev.observedAt(), ev.values(), ev.tables()));
+            case AlarmFloodEvent ev -> row(ev, recordedAt, null, null, null,
+                    new FloodPayload(SCHEMA_VERSION, ev.raisedInWindow()));
             case CommandEvent ev -> row(ev, recordedAt, ev.equipmentId(), ev.equipmentId(), ev.actor(),
                     new CommandPayload(SCHEMA_VERSION, ev.command(), ev.outcome()));
         };
@@ -71,6 +74,7 @@ public class EventCodec {
                 TelemetryPayload p = read(row, TelemetryPayload.class);
                 yield new TelemetrySampleEvent(at, p.equipmentId(), p.observedAt(), p.values(), p.tables());
             }
+            case FLOOD -> new AlarmFloodEvent(type, at, read(row, FloodPayload.class).raisedInWindow());
             case COMMAND -> {
                 CommandPayload p = read(row, CommandPayload.class);
                 yield new CommandEvent(at, row.getEquipmentId(), p.command(), row.getActor(), p.outcome());
@@ -126,6 +130,9 @@ public class EventCodec {
     }
 
     private record SupervisorPayload(int schemaVersion, UnknownReason reason) implements Payload {
+    }
+
+    private record FloodPayload(int schemaVersion, int raisedInWindow) implements Payload {
     }
 
     private record CommandPayload(int schemaVersion, String command, String outcome) implements Payload {
