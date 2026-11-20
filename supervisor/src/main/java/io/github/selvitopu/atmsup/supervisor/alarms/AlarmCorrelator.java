@@ -58,12 +58,7 @@ public final class AlarmCorrelator {
                 }
             }
             if (isFailure(carried)) {
-                for (Alarm o : sorted(open)) {
-                    if (o.correlation() != null && o.correlation().causeId().equals(carried.id())
-                            && o.severity().moreSevereThan(carried.severity())) {
-                        out.add(followUp(o.withCorrelation(null)));
-                    }
-                }
+                detachMoreSevere(open, carried).forEach(o -> out.add(followUp(o)));
             }
         }
         out.add(0, new AlarmChange(change.type(), carried, change.via(), change.actor()));
@@ -75,6 +70,7 @@ public final class AlarmCorrelator {
         var out = new ArrayList<AlarmChange>();
         out.add(new AlarmChange(change.type(), linked, change.via(), change.actor()));
         if (isFailure(a) && active(a)) {
+            var followUps = new ArrayList<Alarm>(detachMoreSevere(open, a));
             for (Alarm o : sorted(open)) {
                 if (o.key().equals(a.key()) || o.source() != AlarmSource.DEVICE || !active(o)) {
                     continue;
@@ -88,11 +84,25 @@ public final class AlarmCorrelator {
                 if (old != null && (old.causeId().equals(a.id()) || isActiveFailure(byId(open, old.causeId())))) {
                     continue;
                 }
-                out.add(followUp(o.withCorrelation(new Correlation(a.id(), a.key().equipmentId(), FAILURE,
-                        shape.rule()))));
+                followUps.add(o.withCorrelation(new Correlation(a.id(), a.key().equipmentId(), FAILURE,
+                        shape.rule())));
             }
+            followUps.sort(BY_KEY);
+            followUps.forEach(o -> out.add(followUp(o)));
         }
         return out;
+    }
+
+    /** The open alarms correlated to {@code cause} that are more severe than it, detached, in key order. */
+    private static List<Alarm> detachMoreSevere(Map<AlarmKey, Alarm> open, Alarm cause) {
+        var detached = new ArrayList<Alarm>();
+        for (Alarm o : sorted(open)) {
+            if (o.correlation() != null && o.correlation().causeId().equals(cause.id())
+                    && o.severity().moreSevereThan(cause.severity())) {
+                detached.add(o.withCorrelation(null));
+            }
+        }
+        return detached;
     }
 
     private Correlation linkFor(Map<AlarmKey, Alarm> open, Alarm a) {

@@ -197,6 +197,20 @@ class AlarmCorrelatorTest {
     }
 
     @Test
+    void aReRaisedCauseAtLowerSeverityDetachesTheMoreSevere() {
+        var cause = alarm("c1", "RAD-N", 101, 0, "", CRITICAL, CLEARED_UNACK);
+        var a201 = alarm("a1", "RAD-N", 201, 0, "", MAJOR, ACTIVE_UNACK)
+                .withCorrelation(link("c1", "RAD-N", SAME_UNIT));
+        var a401 = input("a2", "SDPS-A", "RAD-N").withCorrelation(link("c1", "RAD-N", SENSOR_INPUT));
+        var open = open(cause, a201, a401);
+        var out = correlator.apply(open, raised(alarm("c1", "RAD-N", 101, 0, "", MINOR, ACTIVE_UNACK)));
+        assertThat(out).extracting(c -> c.type(), c -> c.via(), c -> c.actor(), c -> c.alarm().id(),
+                        c -> c.alarm().correlation())
+                .containsExactly(tuple(RAISED, Via.TRAP, null, "c1", null),
+                        tuple(UPDATED, Via.CORRELATION, null, "a1", null));
+    }
+
+    @Test
     void aReRaiseIsDecidedAfresh() {
         var old = alarm("a1", "SDPS-A", 401, 1, "RAD-N", MINOR, CLEARED_UNACK)
                 .withCorrelation(link("closed", "RAD-N", SENSOR_INPUT));
