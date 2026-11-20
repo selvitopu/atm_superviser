@@ -118,6 +118,8 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
     .arrow { margin-right: 4px; color: var(--muted); }
     .note { color: var(--muted); }
     .group-toggle { margin-left: 8px; padding: 0 8px; font: 600 11px var(--font-mono); }
+    .group-toggle::before { content: "▸" / ""; margin-right: 4px; }
+    .group-toggle[aria-expanded='true']::before { content: "▾" / ""; }
     .empty { color: var(--muted); text-align: center; }
   `,
 })
@@ -225,7 +227,7 @@ export class AlarmList {
   }
   protected label(a: AlarmDto, r: Row, child: boolean): string {
     return !child && r.children.length > 0 && !this.expanded().has(a.id)
-      ? `Select alarm ${a.equipmentId} ${a.text} and its ${r.children.length} correlated alarms`
+      ? `Select alarm ${a.equipmentId} ${a.text} and its ${r.children.length} correlated alarm${r.children.length === 1 ? '' : 's'}`
       : 'Select alarm ' + a.id;
   }
   protected expand(id: string): void {

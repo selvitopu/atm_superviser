@@ -164,12 +164,31 @@ class AlarmCorrelatorTest {
 
     @Test
     void adoptionSkipsAlarmsLinkedToAnotherActiveCause() {
-        var linked = input("a1", "SDPS-A", "RAD-N").withCorrelation(link("c0", "RAD-N", SENSOR_INPUT));
-        var otherCause = alarm("c0", "RAD-N", 101, 5, "", CRITICAL, ACTIVE_UNACK);
-        var open = open(linked, otherCause);
-        // the cause of another instance is the active DEVICE 101 the link names
-        var out = correlator.apply(open, raised(failure("c1", "RAD-N", CRITICAL)));
+        // after an inventory change: the SDPS-A input for RAD-N is linked to SDPS-A's own active failure
+        var otherCause = failure("c0", "SDPS-A", CRITICAL);
+        var linked = input("a1", "SDPS-A", "RAD-N").withCorrelation(link("c0", "SDPS-A", SENSOR_INPUT));
+        var out = correlator.apply(open(linked, otherCause), raised(failure("c1", "RAD-N", CRITICAL)));
         assertThat(out).hasSize(1);
+    }
+
+    @Test
+    void aFailureAtANonZeroInstanceIsNoCause() {
+        var stray = alarm("c3", "RAD-N", 101, 3, "", CRITICAL, ACTIVE_UNACK);
+        var open401 = input("a1", "SDPS-A", "RAD-N");
+        assertThat(correlator.apply(open(), raised(input("a2", "SDPS-A", "RAD-N"))).get(0).alarm().correlation())
+                .isNull();
+        assertThat(correlator.apply(open(open401), raised(stray))).hasSize(1);
+        var withStray = open(stray);
+        assertThat(correlator.apply(withStray, raised(input("a2", "SDPS-A", "RAD-N"))).get(0).alarm().correlation())
+                .isNull();
+    }
+
+    @Test
+    void aNullInstanceNameIsNotASensorInput() {
+        var cause = failure("c1", "SDPS-A", CRITICAL);
+        var nameless = alarm("a1", "SDPS-A", 401, 1, null, MINOR, ACTIVE_UNACK);
+        var out = correlator.apply(open(cause), raised(nameless));
+        assertThat(out.get(0).alarm().correlation()).isEqualTo(link("c1", "SDPS-A", SAME_UNIT));
     }
 
     @Test

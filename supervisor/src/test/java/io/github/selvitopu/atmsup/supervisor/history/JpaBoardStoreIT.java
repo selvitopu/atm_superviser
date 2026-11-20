@@ -263,6 +263,30 @@ class JpaBoardStoreIT {
     }
 
     @Test
+    void anAdoptionAndADetachmentUpdateTheStoredLink() {
+        Alarm raised = alarm("a2", new AlarmKey("SDPS-A", 401, 0), AlarmState.ACTIVE_UNACK);
+        Alarm adopted = raised.withCorrelation(new Correlation("a1", "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
+
+        store.commit(List.of(event(EventType.ALARM_RAISED, raised, Via.TRAP, null)));
+        em.flush();
+        em.clear();
+        assertThat(store.loadOpenAlarms()).containsExactly(raised);
+
+        store.commit(List.of(event(EventType.ALARM_UPDATED, adopted, Via.CORRELATION, null)));
+        em.flush();
+        em.clear();
+        assertThat(store.loadOpenAlarms()).containsExactly(adopted);
+        assertThat(store.loadOpenAlarms().getFirst().correlation())
+                .isEqualTo(new Correlation("a1", "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
+
+        store.commit(List.of(event(EventType.ALARM_UPDATED, raised, Via.CORRELATION, null)));
+        em.flush();
+        em.clear();
+        assertThat(store.loadOpenAlarms()).containsExactly(raised);
+        assertThat(store.loadOpenAlarms().getFirst().correlation()).isNull();
+    }
+
+    @Test
     void aPartialCorrelationIsRejected() {
         try (CapturedLogs logs = new CapturedLogs("org.hibernate.orm.jdbc.error")) {
             assertThatThrownBy(() -> em.getEntityManager().createNativeQuery(

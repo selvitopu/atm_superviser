@@ -187,6 +187,22 @@ describe('AlarmList', () => {
       expect(button(f).textContent).toContain('+4 correlated');
     });
 
+    it('theGroupButtonFlipsAriaExpandedAndBackWhenToggled', () => {
+      const { f } = setup([cause(), ...four()]);
+      expect(button(f).getAttribute('aria-expanded')).toBe('false');
+      expand(f);
+      expect(button(f).getAttribute('aria-expanded')).toBe('true');
+      expand(f);
+      expect(button(f).getAttribute('aria-expanded')).toBe('false');
+      expect(button(f).textContent?.trim()).toBe('+4 correlated · 4 unack');
+    });
+
+    it('theGroupLabelIsSingularForOneCorrelatedAlarm', () => {
+      const { f } = setup([cause(), ...four().slice(0, 1)]);
+      const box = f.el.querySelector<HTMLInputElement>('input.select')!;
+      expect(box.getAttribute('aria-label')).toBe('Select alarm RAD-N Radar failed and its 1 correlated alarm');
+    });
+
     it('aCorrelatedAlarmOfAClearedCauseIsTopLevel', () => {
       const { f } = setup([cause({ state: 'CLEARED_UNACK' }), ...four()]);
       expect(f.all('tbody tr').length).toBe(5);

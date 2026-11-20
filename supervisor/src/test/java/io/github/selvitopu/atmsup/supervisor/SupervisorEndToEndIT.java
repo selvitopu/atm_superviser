@@ -102,6 +102,9 @@ class SupervisorEndToEndIT {
     @TempDir
     static Path dataDir;
 
+    /** The last event id before the first scenario's flood started. */
+    private static long floodResumeFrom;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         TestInventories.asProperties(INVENTORY).forEach((k, v) -> registry.add(k, () -> v));
@@ -111,6 +114,7 @@ class SupervisorEndToEndIT {
         registry.add("atm.snmp.operator.auth-password", () -> creds.operator().authPassword());
         registry.add("atm.snmp.operator.priv-password", () -> creds.operator().privPassword());
         registry.add("atm.supervisor.trap-port", () -> TRAP_PORT);
+        registry.add("atm.alarms.flood.window", () -> "30s");
         registry.add("atm.supervisor.data-dir", () -> dataDir.resolve("supervisor").toString());
     }
 
@@ -225,6 +229,7 @@ class SupervisorEndToEndIT {
     private void assertCorrelatedTo101(String equipmentId, int code) {
         assertThat(alarm(equipmentId, code)).isNotNull().extracting(AlarmDto::correlation).isNotNull()
                 .extracting(c -> c.causeEquipmentId() + "/" + c.causeCode()).isEqualTo("RAD-N/101");
+        assertThat(alarm(equipmentId, code).correlation().causeId()).isEqualTo(alarm("RAD-N", 101).id());
     }
 
     /** An alarm whose condition is still active. */
@@ -278,6 +283,7 @@ class SupervisorEndToEndIT {
     void superviseFailAckAndLoseContact() {
         await().atMost(ofSeconds(20)).until(this::allOperational);
         long resumeFrom = board().lastEventId();
+        floodResumeFrom = resumeFrom;
         try (SseRecorder sse = SseRecorder.open(baseUrl() + "/api/v1/stream?lastEventId=" + resumeFrom)) {
             fixture.centre().applyFault("RAD-N", new FaultRequest(FAIL, null));
             // null-safe assertions: an alarm that is not raised yet must fail the attempt, not the await
@@ -343,6 +349,18 @@ class SupervisorEndToEndIT {
                 await().atMost(ofSeconds(5)).until(() -> again.ids().size() >= ids.size());
                 assertThat(again.ids()).startsWith(ids.toArray(Long[]::new));
             }
+        }
+    }
+
+    @Test
+    @Order(8)
+    void theFloodEndsOnceItsWindowEmpties() {
+        try (SseRecorder sse = SseRecorder.open(baseUrl() + "/api/v1/stream", floodResumeFrom)) {
+            await().atMost(ofSeconds(90)).untilAsserted(() -> assertThat(board().flood()).isNotNull().satisfies(f -> {
+                assertThat(f.active()).isFalse();
+                assertThat(f.since()).isNull();
+            }));
+            await().atMost(ofSeconds(10)).until(() -> sse.has("flood", m -> m.data().contains("\"active\":false")));
         }
     }
 

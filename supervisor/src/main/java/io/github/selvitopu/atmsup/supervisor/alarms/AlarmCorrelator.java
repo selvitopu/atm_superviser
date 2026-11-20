@@ -124,7 +124,7 @@ public final class AlarmCorrelator {
         }
         int code = a.key().code();
         String unit = a.key().equipmentId();
-        if (code == SENSOR_INPUT_CODE && topology.sensors().contains(a.instanceName())) {
+        if (code == SENSOR_INPUT_CODE && a.instanceName() != null && topology.sensors().contains(a.instanceName())) {
             return new Shape(CorrelationRule.SENSOR_INPUT, a.instanceName());
         }
         if (code == SWITCHOVER_CODE && topology.partners().containsKey(unit)) {
@@ -137,7 +137,8 @@ public final class AlarmCorrelator {
     }
 
     private static boolean isFailure(Alarm a) {
-        return a.source() == AlarmSource.DEVICE && a.key().code() == FAILURE;
+        return a.source() == AlarmSource.DEVICE && a.key().code() == FAILURE
+                && a.key().instance() == 0;
     }
 
     private static boolean active(Alarm a) {
