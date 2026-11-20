@@ -44,7 +44,7 @@ Click it: 201 and 202 read "on the failed unit", and the two 401 alarms read "in
 
 Talking point: the service rule is about what is still available, not about any single failure
 (§5.2). Alarm 401 shows that the SDPS notices the lost sensor input by itself. The grouping comes from three
-fixed rules over the inventory, recorded with each alarm when it is raised, so replay will show the same list.
+fixed rules over the inventory, recorded when each link is made, so replay rebuilds the same list.
 
 ## 3. RAD-E fails, then acknowledge
 

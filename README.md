@@ -59,7 +59,7 @@ The [design](docs/design/2026-11-13-atm-supervisor-design.md) describes the full
 | SNMPv3 traps and informs | Implemented |
 | Alarm-table reconciliation on every full poll | Implemented |
 | Alarms with acknowledgement, escalation and maintenance suppression | Implemented |
-| Root-cause alarm correlation: three topology rules group an incident's alarms under its cause, recorded when raised | Implemented |
+| Root-cause alarm correlation: three topology rules group an incident's alarms under its cause, recorded when the link is made | Implemented |
 | `ALARM FLOOD` indicator: 10 new alarms in 10 minutes, ending below 5 | Implemented |
 | Event log and telemetry sampled every 30 s, in PostgreSQL | Implemented |
 | Live Angular board over SSE, with resume after a lost connection | Implemented |

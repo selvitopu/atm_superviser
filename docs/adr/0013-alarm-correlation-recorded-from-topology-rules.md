@@ -78,7 +78,7 @@ Chosen option: **Option 1.**
 
 ### Consequences
 
-* **Good:** replay, history and the live list read the same stored fact, and the correlator is a pure class, tested
+* **Good:** replay, history and the live list read the same stored events, and the correlator is a pure class, tested
   without Spring.
 * **Good:** an operator can see why an alarm is grouped: the rule's note names the cause unit.
 * **Trade-off:** the `Alarm` record gains a component, which touches every constructor call. The payload change is
@@ -92,7 +92,7 @@ Chosen option: **Option 1.**
 ### Why not the others
 
 * **Read-time correlation:** replay would apply today's rules to yesterday's alarms, and the history page could show
-  a grouping the live list never did.
+  a grouping that was never stored.
 * **A separate table:** it is a second source of truth beside the event log. Replay would need another fold, and the
   event log would no longer be the whole story. One nullable component on the alarm says the same thing.
 

@@ -195,7 +195,7 @@ explains the three rules.
   have, so it does not flicker around one threshold. The banner is words as well as colour. Read the cause rows
   first, and expect more alarms.
 * **History:** On **Alarm history**, the `Correlated` column shows the stored link, for example
-  `↳ RAD-N 101 · input from RAD-N`. It is what the live list showed when the alarm was raised.
+  `↳ RAD-N 101 · input from RAD-N`. It is the last link recorded on the alarm: an alarm adopted later by a new cause shows that link, and a detached alarm shows none. Every link and unlink is a stored event, so replay can rebuild the grouping at any moment.
 
 ![The board during an alarm flood with RAD-N and RAD-E failed: the header shows the ALARM FLOOD chip, the alarm bar says ALARM FLOOD since 10:22:38Z, each radar's Equipment failed alarm is one row with +4 correlated · 4 unack, and the RAD-N group is expanded to show its two channel alarms and the two SDPS sensor input alarms](images/alarm-flood.png)
 

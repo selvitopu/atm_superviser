@@ -337,8 +337,8 @@ the features exist:
     alarm bar includes every alarm. Selecting a collapsed group, or **Ack all visible**, acknowledges every alarm in
     it, each on its own as before.
   - Service alarms (`903`, `904`) and lost contact (`901`) are never correlated and never causes.
-  - The link is recorded when it is made, with the cause's equipment and code, so history and replay show what the
-    live list showed. Nothing recomputes it at read time.
+  - The link is recorded when it is made, with the cause's equipment and code, so history shows the last link recorded on
+    the alarm and replay can rebuild the grouping at any moment from the stored events. Nothing recomputes it at read time.
 - **Verified by:** [AlarmCorrelatorTest] (`theShapeAloneChoosesTheRule`, `aMoreSevereAlarmIsNotCorrelated`,
   `escalationAboveTheCauseDetaches`, `aCauseThatDeEscalatesDetachesTheMoreSevere`,
   `aReRaisedCauseAtLowerSeverityDetachesTheMoreSevere`, `supervisorAlarmsAreNeverCorrelatedOrCauses`,

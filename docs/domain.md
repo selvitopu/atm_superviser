@@ -191,8 +191,8 @@ does that grouping with three fixed rules. An alarm that a known failure explain
   cause, or the cause de-escalates below it, the link is removed.
 - **Grouped, never hidden.** A correlated alarm is still raised, counted, stored and acknowledgeable. The alarm list
   shows it under its cause only while the cause is active and shown, and on its own otherwise.
-- **Recorded, not recomputed.** The link is stored with the alarm when it is made, so history and replay show the
-  grouping that was on screen at the time, whatever the rules say later.
+- **Recorded, not recomputed.** The link is stored with the alarm when it is made, and each change is a stored event, so
+  replay can rebuild the grouping at any moment, whatever the rules say later.
 
 **Service and contact alarms are never correlated.** The service alarms `903` and `904` are the operational impact,
 not a symptom: the System Controller passes them on to the operational supervisor, so they always stay top-level
