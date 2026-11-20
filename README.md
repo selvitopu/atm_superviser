@@ -211,6 +211,8 @@ and what a planned maintenance leaves, and administrators manage accounts on **U
 
 ![The Impact screen with FDPS-B planned for maintenance on a healthy board: the plan reads REDUCED MARGIN because flight data drops from OK to DEGRADED with only one FDPS unit available, FDPS-A becomes a SERVICE LOSS single point of failure, and a note says that maintenance switches the pair over to FDPS-A](docs/images/impact-plan.png)
 
+![The board during an alarm flood with RAD-N and RAD-E failed: the header shows the ALARM FLOOD chip, the alarm bar says ALARM FLOOD since 10:22:38Z, each radar's Equipment failed alarm is one row with +4 correlated · 4 unack, and the RAD-N group is expanded to show its two channel alarms and the two SDPS sensor input alarms](docs/images/alarm-flood.png)
+
 Stop the stack with `docker compose -f deploy/docker-compose.yml down` (add `-v` to drop the data volumes).
 
 ### Signing in

@@ -197,6 +197,8 @@ explains the three rules.
 * **History:** On **Alarm history**, the `Correlated` column shows the stored link, for example
   `↳ RAD-N 101 · input from RAD-N`. It is what the live list showed when the alarm was raised.
 
+![The board during an alarm flood with RAD-N and RAD-E failed: the header shows the ALARM FLOOD chip, the alarm bar says ALARM FLOOD since 10:22:38Z, each radar's Equipment failed alarm is one row with +4 correlated · 4 unack, and the RAD-N group is expanded to show its two channel alarms and the two SDPS sensor input alarms](images/alarm-flood.png)
+
 ---
 
 ### 2.7 Alarm History
