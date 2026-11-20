@@ -54,7 +54,7 @@ public class EventCodec {
             case AlarmFloodEvent ev -> row(ev, recordedAt, null, null, null,
                     new FloodPayload(SCHEMA_VERSION, ev.raisedInWindow()));
             case CommandEvent ev -> row(ev, recordedAt, ev.equipmentId(), ev.equipmentId(), ev.actor(),
-                    new CommandPayload(SCHEMA_VERSION, ev.command(), ev.outcome()));
+                    new CommandPayload(SCHEMA_VERSION, ev.command(), ev.outcome(), ev.commandId()));
         };
     }
 
@@ -77,7 +77,8 @@ public class EventCodec {
             case FLOOD -> new AlarmFloodEvent(type, at, read(row, FloodPayload.class).raisedInWindow());
             case COMMAND -> {
                 CommandPayload p = read(row, CommandPayload.class);
-                yield new CommandEvent(at, row.getEquipmentId(), p.command(), row.getActor(), p.outcome());
+                yield new CommandEvent(at, row.getEquipmentId(), p.command(), row.getActor(), p.outcome(),
+                        p.commandId());
             }
         };
     }
@@ -135,7 +136,9 @@ public class EventCodec {
     private record FloodPayload(int schemaVersion, int raisedInWindow) implements Payload {
     }
 
-    private record CommandPayload(int schemaVersion, String command, String outcome) implements Payload {
+    /** {@code commandId} is absent from payloads stored before commands had ids, and then decodes as null. */
+    private record CommandPayload(int schemaVersion, String command, String outcome, String commandId)
+            implements Payload {
     }
 
     private record TelemetryPayload(int schemaVersion, String equipmentId, Instant observedAt,

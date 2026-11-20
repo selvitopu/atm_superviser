@@ -105,7 +105,13 @@ class EquipmentControlTest {
     }
 
     private static RecordCommand record(String command, String outcome) {
-        return new RecordCommand("FDPS-B", command, "supervisor1", outcome);
+        return new RecordCommand("FDPS-B", command, "supervisor1", outcome, null);
+    }
+
+    /** The records as submitted, with their command ids blanked, to compare what was recorded apart from the id. */
+    private List<RecordCommand> unidentified() {
+        return recorded.stream()
+                .map(r -> new RecordCommand(r.equipmentId(), r.command(), r.actor(), r.outcome(), null)).toList();
     }
 
     private CommandResult refusedWith(int errorStatus, EquipmentCommand command) {
@@ -128,7 +134,7 @@ class EquipmentControlTest {
         control.command("FDPS-B", EquipmentCommand.MAINTENANCE_OFF, "supervisor1");
 
         assertThat(sets).containsExactly(binding(EQ_MAINTENANCE_MODE, 1), binding(EQ_MAINTENANCE_MODE, 2));
-        assertThat(recorded).containsExactly(
+        assertThat(unidentified()).containsExactly(
                 record("MAINTENANCE_ON", "ISSUED"), record("MAINTENANCE_ON", "DONE"),
                 record("MAINTENANCE_OFF", "ISSUED"), record("MAINTENANCE_OFF", "DONE"));
     }
@@ -169,7 +175,7 @@ class EquipmentControlTest {
                 CommandOutcome.REFUSED, "The equipment refused the command: it does not fit the unit's current state"));
         assertThat(refusedWith(PDU.inconsistentValue, EquipmentCommand.MAINTENANCE_OFF).reason())
                 .isEqualTo("The equipment refused the command: it does not fit the unit's current state");
-        assertThat(recorded).contains(record("RESTART", "REFUSED"));
+        assertThat(unidentified()).contains(record("RESTART", "REFUSED"));
     }
 
     @Test
@@ -185,7 +191,7 @@ class EquipmentControlTest {
                 .isEqualTo(CommandOutcome.FAILED);
         assertThat(refusedWith(PDU.authorizationError, EquipmentCommand.MAINTENANCE_OFF).outcome())
                 .isEqualTo(CommandOutcome.FAILED);
-        assertThat(recorded).contains(record("RESTART", "FAILED")).doesNotContain(record("RESTART", "REFUSED"));
+        assertThat(unidentified()).contains(record("RESTART", "FAILED")).doesNotContain(record("RESTART", "REFUSED"));
     }
 
     @Test
@@ -195,7 +201,7 @@ class EquipmentControlTest {
         assertThat(control.command("FDPS-B", EquipmentCommand.MAINTENANCE_ON, "supervisor1"))
                 .isEqualTo(new CommandResult(CommandOutcome.NO_ANSWER, "No answer from the equipment: the command may"
                         + " or may not have been applied. Check the unit before you send it again"));
-        assertThat(recorded).containsExactly(record("MAINTENANCE_ON", "ISSUED"), record("MAINTENANCE_ON", "NO_ANSWER"));
+        assertThat(unidentified()).containsExactly(record("MAINTENANCE_ON", "ISSUED"), record("MAINTENANCE_ON", "NO_ANSWER"));
     }
 
     @Test
@@ -214,6 +220,29 @@ class EquipmentControlTest {
         assertThat(control.command("FDPS-B", EquipmentCommand.MAINTENANCE_ON, "supervisor1"))
                 .isEqualTo(new CommandResult(CommandOutcome.FAILED,
                         "The command was not sent: cannot resolve host fdps-b.example"));
+    }
+
+    @Test
+    void theIntentAndItsOutcomeShareOneCommandId() {
+        control.command("FDPS-B", EquipmentCommand.MAINTENANCE_ON, "supervisor1");
+        control.command("FDPS-B", EquipmentCommand.MAINTENANCE_OFF, "supervisor1");
+
+        assertThat(recorded).hasSize(4);
+        assertThat(recorded.get(0).commandId()).isNotBlank().isEqualTo(recorded.get(1).commandId());
+        assertThat(recorded.get(2).commandId()).isNotBlank().isEqualTo(recorded.get(3).commandId());
+        assertThat(recorded.get(2).commandId()).isNotEqualTo(recorded.get(0).commandId());
+    }
+
+    @Test
+    void aNotSentCommandCarriesTheIdOfItsIntent() {
+        answers.put("ISSUED", CompletableFuture.completedFuture(BoardResult.failed("connection refused")));
+
+        try (CapturedLogs logs = new CapturedLogs(EquipmentControl.class)) {
+            control.command("FDPS-B", EquipmentCommand.MAKE_ACTIVE, "supervisor1");
+        }
+
+        assertThat(recorded).extracting(RecordCommand::outcome).containsExactly("ISSUED", "NOT_SENT");
+        assertThat(recorded.get(0).commandId()).isNotBlank().isEqualTo(recorded.get(1).commandId());
     }
 
     // --- fail closed: an intent that is not recorded is never sent ---------------------------------------------
@@ -258,7 +287,7 @@ class EquipmentControlTest {
         assertThat(sets).isEmpty();
         // should the intent commit late, the writer stores NOT_SENT after it: the log never shows an unsent command
         // as merely issued
-        assertThat(recorded).containsExactly(record("MAINTENANCE_ON", "ISSUED"), record("MAINTENANCE_ON", "NOT_SENT"));
+        assertThat(unidentified()).containsExactly(record("MAINTENANCE_ON", "ISSUED"), record("MAINTENANCE_ON", "NOT_SENT"));
     }
 
     // --- an outcome that is not recorded is still answered -----------------------------------------------------

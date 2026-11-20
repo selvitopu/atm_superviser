@@ -35,7 +35,8 @@ public sealed interface BoardInput {
      * A command a user sent to a unit: its intent before the SET, or what came of it. Recorded in the event log, it
      * changes no state.
      */
-    record RecordCommand(String equipmentId, String command, String actor, String outcome) implements BoardInput {
+    record RecordCommand(String equipmentId, String command, String actor, String outcome, String commandId)
+            implements BoardInput {
     }
 
     /** {@code firstStart} is true when the event log is empty. */

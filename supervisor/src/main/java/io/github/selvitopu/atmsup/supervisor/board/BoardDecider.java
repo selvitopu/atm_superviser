@@ -119,7 +119,7 @@ public final class BoardDecider {
             case TrapReceived t -> trap(live, t, now);
             case AcknowledgeAlarms a -> acknowledge(live, a, now);
             case RecordCommand c -> new Decision(List.of(new CommandEvent(now, c.equipmentId(), c.command(), c.actor(),
-                    c.outcome())), Map.of(), List.of(), Set.of(), Set.of(), false, BoardResult.ok());
+                    c.outcome(), c.commandId())), Map.of(), List.of(), Set.of(), Set.of(), false, BoardResult.ok());
             case Startup s -> startup(live, s, now);
             case HeartbeatTick h -> supervisorOnly(new SupervisorEvent(SUPERVISOR_HEARTBEAT, now, null));
             case Shutdown s -> supervisorOnly(new SupervisorEvent(SUPERVISOR_STOPPING, now, null));

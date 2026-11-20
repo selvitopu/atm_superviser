@@ -147,7 +147,7 @@ class BoardHistoryIT {
         commit(supervisor(EventType.SUPERVISOR_STARTED, T0));
         commit(equipment(EventType.EQUIPMENT_STATE_CHANGED, t(10), operational("RAD-N", t(10))));
         long command = commit(sample("RAD-N", t(12), 300),
-                new CommandEvent(t(13), "RAD-N", "RESET", "supervisor1", "DONE"));
+                new CommandEvent(t(13), "RAD-N", "RESET", "supervisor1", "DONE", "c-1"));
         commit(equipment(EventType.EQUIPMENT_STATE_CHANGED, t(20), state("RAD-N", Health.FAILED, Role.STANDALONE,
                 t(20), t(20))));
 
@@ -192,7 +192,7 @@ class BoardHistoryIT {
                 alarmEvent(EventType.ALARM_RAISED, t(70), lost, Via.SUPERVISOR));
         commit(alarmEvent(EventType.ALARM_CLOSED, t(80), withState(closedLater, AlarmState.CLOSED, t(80)),
                 Via.OPERATOR));
-        commit(new CommandEvent(t(90), "SDPS-A", "SWITCHOVER", "supervisor1", "DONE"),
+        commit(new CommandEvent(t(90), "SDPS-A", "SWITCHOVER", "supervisor1", "DONE", "c-1"),
                 supervisor(EventType.SUPERVISOR_HEARTBEAT, t(95)));
         Board fromTheStart = history.fold(t(100));
         Board atTheSnapshot = history.fold(t(50));

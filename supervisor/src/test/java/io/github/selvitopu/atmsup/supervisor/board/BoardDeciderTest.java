@@ -844,9 +844,11 @@ class BoardDeciderTest {
     void aCommandIsRecordedAsAnEventAndChangesNothingElse() {
         LiveBoard lb = allOperational();
 
-        Decision d = decider.decide(lb, new RecordCommand("FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE"), t0);
+        Decision d = decider.decide(lb,
+                new RecordCommand("FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE", "c-1"), t0);
 
-        assertThat(d.events()).containsExactly(new CommandEvent(t0, "FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE"));
+        assertThat(d.events()).containsExactly(
+                new CommandEvent(t0, "FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE", "c-1"));
         assertThat(d.telemetry()).isEmpty();
         assertThat(BoardReducer.apply(lb.board(), d.events().get(0))).isEqualTo(lb.board());
     }

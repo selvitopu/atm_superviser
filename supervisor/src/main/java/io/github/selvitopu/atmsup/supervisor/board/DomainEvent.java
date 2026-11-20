@@ -40,9 +40,13 @@ public sealed interface DomainEvent {
         }
     }
 
-    /** A user's command to a unit and its outcome (DONE, REFUSED, NO_ANSWER or FAILED); the audit trail. */
-    record CommandEvent(Instant occurredAt, String equipmentId, String command, String actor, String outcome)
-            implements DomainEvent {
+    /**
+     * A user's command to a unit, as its intent (ISSUED) or its outcome (DONE, REFUSED, NO_ANSWER, FAILED or
+     * NOT_SENT); the audit trail. The intent and the outcome of one command share its {@code commandId}, which is null
+     * only for events written before commands had ids.
+     */
+    record CommandEvent(Instant occurredAt, String equipmentId, String command, String actor, String outcome,
+                        String commandId) implements DomainEvent {
         @Override
         public EventType type() {
             return EventType.EQUIPMENT_COMMANDED;

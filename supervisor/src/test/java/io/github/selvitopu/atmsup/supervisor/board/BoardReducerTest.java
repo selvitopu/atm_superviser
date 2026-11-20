@@ -154,7 +154,7 @@ class BoardReducerTest {
         var heartbeat = new SupervisorEvent(EventType.SUPERVISOR_HEARTBEAT, NOW, null);
         var stopping = new SupervisorEvent(EventType.SUPERVISOR_STOPPING, NOW, null);
         var sample = new TelemetrySampleEvent(NOW, "RAD-N", NOW, Map.of(), Map.of());
-        var command = new CommandEvent(NOW, "RAD-N", "MAINTENANCE_ON", "supervisor1", "DONE");
+        var command = new CommandEvent(NOW, "RAD-N", "MAINTENANCE_ON", "supervisor1", "DONE", "c-1");
         for (DomainEvent e : List.<DomainEvent>of(eq, sv, raised, closed, heartbeat, stopping, sample, command)) {
             assertThat(BoardReducer.apply(flooded, e).flood()).as(e.type().name()).isEqualTo(flooded.flood());
             assertThat(BoardReducer.apply(flooded, new StoredEvent(9, e)).flood()).as(e.type().name())

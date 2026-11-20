@@ -9,6 +9,7 @@ import io.github.selvitopu.atmsup.supervisor.snmp.SnmpClient;
 import io.github.selvitopu.atmsup.supervisor.snmp.SnmpRequestException;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,15 +61,17 @@ public class EquipmentControl {
      */
     public CommandResult command(String equipmentId, EquipmentCommand command, String actor) {
         Device device = inventory.device(equipmentId);
-        BoardResult intent = record(equipmentId, command, actor, CommandOutcome.ISSUED);
+        String commandId = UUID.randomUUID().toString();
+        BoardResult intent = record(equipmentId, command, actor, CommandOutcome.ISSUED, commandId);
         if (!intent.committed()) {
             log.error("{} by {} to {} was not sent: its intent could not be recorded ({})", command, actor,
                     equipmentId, intent.error());
-            board.submit(new RecordCommand(equipmentId, command.name(), actor, CommandOutcome.NOT_SENT.name()));
+            board.submit(new RecordCommand(equipmentId, command.name(), actor, CommandOutcome.NOT_SENT.name(),
+                    commandId));
             return new CommandResult(CommandOutcome.NOT_SENT, "The command was not sent: it could not be recorded");
         }
         CommandResult result = send(device, command, actor);
-        BoardResult recorded = record(equipmentId, command, actor, result.outcome());
+        BoardResult recorded = record(equipmentId, command, actor, result.outcome(), commandId);
         if (!recorded.committed()) {
             log.error("{} by {} to {} ({}) could not be recorded: {}", command, actor, equipmentId, result.outcome(),
                     recorded.error());
@@ -77,8 +80,9 @@ public class EquipmentControl {
     }
 
     /** Waits at most the record timeout; the sink's future never completes exceptionally. */
-    private BoardResult record(String equipmentId, EquipmentCommand command, String actor, CommandOutcome outcome) {
-        return board.submit(new RecordCommand(equipmentId, command.name(), actor, outcome.name()))
+    private BoardResult record(String equipmentId, EquipmentCommand command, String actor, CommandOutcome outcome,
+                               String commandId) {
+        return board.submit(new RecordCommand(equipmentId, command.name(), actor, outcome.name(), commandId))
                 .completeOnTimeout(BoardResult.failed("not recorded within " + recordTimeout.toMillis() + " ms"),
                         recordTimeout.toMillis(), TimeUnit.MILLISECONDS)
                 .join();

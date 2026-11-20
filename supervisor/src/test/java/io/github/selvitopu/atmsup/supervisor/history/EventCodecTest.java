@@ -71,8 +71,8 @@ class EventCodecTest {
 
     @Test
     void aCommandEventRoundTripsWithItsActorAndEquipment() {
-        var event = new CommandEvent(T0, "FDPS-B", "RESTART", "supervisor1", "REFUSED");
-        var intent = new CommandEvent(T0, "FDPS-B", "RESTART", "supervisor1", "ISSUED");
+        var event = new CommandEvent(T0, "FDPS-B", "RESTART", "supervisor1", "REFUSED", "c-1");
+        var intent = new CommandEvent(T0, "FDPS-B", "RESTART", "supervisor1", "ISSUED", "c-1");
 
         withCodec(codec -> {
             EventLogEntity row = codec.encode(event, T0);
@@ -81,6 +81,29 @@ class EventCodecTest {
             assertThat(codec.decode(row)).isEqualTo(event);
             assertThat(codec.decode(codec.encode(intent, T0))).isEqualTo(intent);
         });
+    }
+
+    @Test
+    void aCommandRoundTripsWithItsId() {
+        var event = new CommandEvent(T0, "FDPS-B", "RESTART", "supervisor1", "DONE", "7d1c-id");
+
+        withCodec(codec -> {
+            EventLogEntity row = codec.encode(event, T0);
+            assertThat(row.getPayload()).contains("\"commandId\":\"7d1c-id\"");
+            assertThat(codec.decode(row)).isEqualTo(event);
+        });
+    }
+
+    @Test
+    void aCommandPayloadWithoutAnIdDecodesWithNull() {
+        // the shape stored before commands carried an id
+        String stored = """
+                {"schemaVersion":1,"command":"RESTART","outcome":"DONE"}""";
+        var row = new EventLogEntity(T0, T0, EventType.EQUIPMENT_COMMANDED.name(), "EQUIPMENT", "FDPS-B", "FDPS-B",
+                "supervisor1", stored);
+
+        withCodec(codec -> assertThat(codec.decode(row))
+                .isEqualTo(new CommandEvent(T0, "FDPS-B", "RESTART", "supervisor1", "DONE", null)));
     }
 
     @Test

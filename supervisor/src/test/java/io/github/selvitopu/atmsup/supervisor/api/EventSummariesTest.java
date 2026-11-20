@@ -125,8 +125,8 @@ class EventSummariesTest {
 
     @Test
     void commandsNameTheActorAndTheOutcome() {
-        var done = new CommandEvent(T, "FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE");
-        var refused = new CommandEvent(T, "FDPS-B", "RESTART", "supervisor1", "REFUSED");
+        var done = new CommandEvent(T, "FDPS-B", "MAINTENANCE_ON", "supervisor1", "DONE", "c-1");
+        var refused = new CommandEvent(T, "FDPS-B", "RESTART", "supervisor1", "REFUSED", "c-2");
 
         assertThat(EventSummaries.describe(stored(done))).isEqualTo("Maintenance on by supervisor1: done");
         assertThat(EventSummaries.describe(stored(refused))).isEqualTo("Restart by supervisor1: refused");
@@ -134,8 +134,8 @@ class EventSummariesTest {
 
     @Test
     void aCommandIsIssuedBeforeItIsSentAndCanEndUnsent() {
-        var issued = new CommandEvent(T, "FDPS-B", "MAKE_ACTIVE", "supervisor1", "ISSUED");
-        var notSent = new CommandEvent(T, "FDPS-B", "MAKE_ACTIVE", "supervisor1", "NOT_SENT");
+        var issued = new CommandEvent(T, "FDPS-B", "MAKE_ACTIVE", "supervisor1", "ISSUED", "c-3");
+        var notSent = new CommandEvent(T, "FDPS-B", "MAKE_ACTIVE", "supervisor1", "NOT_SENT", "c-3");
 
         assertThat(EventSummaries.describe(stored(issued))).isEqualTo("Make active by supervisor1: issued");
         assertThat(EventSummaries.describe(stored(notSent))).isEqualTo("Make active by supervisor1: not sent");
