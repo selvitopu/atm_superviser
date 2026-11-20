@@ -1,8 +1,6 @@
 package io.github.selvitopu.atmsup.supervisor.board;
 
-import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import java.util.List;
-import java.util.Map;
 
 /** Durable storage of the event log and the alarm table, implemented by the history module. */
 public interface BoardStore {
@@ -14,15 +12,13 @@ public interface BoardStore {
      */
     List<StoredEvent> commit(List<DomainEvent> events);
 
-    /** Every alarm that is not CLOSED. */
-    List<Alarm> loadOpenAlarms();
-
     /** False only before the very first commit. */
     boolean hasEvents();
 
     /**
-     * The state carried by the newest EQUIPMENT_STATE_CHANGED, CONTACT_LOST or CONTACT_RESTORED event of each
-     * equipment id; devices without such an event are absent.
+     * The durable board now, rebuilt from the stored log: the newest snapshot plus a fold of every later event, or a
+     * fold of the whole log when there is no snapshot. The writer starts from it, so the live board stays the fold of
+     * the log across restarts (ADR-0004).
      */
-    Map<String, EquipmentState> loadLastEquipmentStates();
+    Board foldedBoard();
 }

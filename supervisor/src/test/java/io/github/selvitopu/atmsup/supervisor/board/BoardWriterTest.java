@@ -21,6 +21,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
 import io.github.selvitopu.atmsup.supervisor.alarms.IdGenerator;
+import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.BoardCommitted;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.BoardReady;
 import io.github.selvitopu.atmsup.supervisor.board.BoardEvents.RepollRequested;
@@ -32,6 +33,8 @@ import io.github.selvitopu.atmsup.supervisor.board.BoardInput.PollSucceeded;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.ProbeFailed;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.ProbeSucceeded;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.TrapReceived;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.SupervisorEvent;
 import io.github.selvitopu.atmsup.supervisor.CapturedLogs;
 import io.github.selvitopu.atmsup.supervisor.snmp.Notification;
@@ -58,7 +61,7 @@ class BoardWriterTest {
     private static final Duration NO_HEARTBEAT = Duration.ofHours(1);
 
     private final Inventory inv = BoardFixtures.inventory(false);
-    private final FakeStore store = new FakeStore();
+    private final FakeStore store = new FakeStore(inv);
     private final RecordingPublisher publisher = new RecordingPublisher();
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     private final AtomicReference<Instant> now = new AtomicReference<>(t0);
@@ -443,10 +446,10 @@ class BoardWriterTest {
 
     @Test
     void restartLoadsOpenAlarmsAndMarksSupervisorRestarted() {
-        store.preload(new SupervisorEvent(EventType.SUPERVISOR_HEARTBEAT, t0.minusSeconds(60), null));
         Alarm lost = new Alarm("a1", new AlarmKey("RAD-N", 901, 0), "", Severity.MAJOR, "Lost contact",
                 AlarmSource.SUPERVISOR, AlarmState.ACTIVE_UNACK, false, t0.minusSeconds(120), null, null, null, null);
-        store.openAlarms.add(lost);
+        store.preload(new AlarmEvent(EventType.ALARM_RAISED, t0.minusSeconds(120), lost, Via.SUPERVISOR, null));
+        store.preload(new SupervisorEvent(EventType.SUPERVISOR_HEARTBEAT, t0.minusSeconds(60), null));
 
         started();
 
@@ -454,18 +457,20 @@ class BoardWriterTest {
         assertThat(writer.current().board().equipment().values())
                 .extracting(EquipmentState::health, EquipmentState::unknownReason)
                 .containsOnly(tuple(Health.UNKNOWN, UnknownReason.SUPERVISOR_RESTARTED));
-        assertThat(((SupervisorEvent) store.events.get(1).event()).reason())
+        assertThat(((SupervisorEvent) store.events.get(2).event()).reason())
                 .isEqualTo(UnknownReason.SUPERVISOR_RESTARTED);
         assertThat(writer.current().board().lastEventId()).isEqualTo(store.events.getLast().id());
     }
 
     @Test
     void restartKeepsLastKnownMaintenanceAndRole() {
+        store.preload(new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, t0.minusSeconds(120),
+                new EquipmentState("FDPS-A", Health.OPERATIONAL, null, true, Role.STANDBY, t0.minusSeconds(120),
+                        new Contact(true, t0.minusSeconds(120), null))));
+        store.preload(new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, t0.minusSeconds(120),
+                new EquipmentState("FDPS-B", Health.OPERATIONAL, null, false, Role.ACTIVE, t0.minusSeconds(120),
+                        new Contact(true, t0.minusSeconds(120), null))));
         store.preload(new SupervisorEvent(EventType.SUPERVISOR_HEARTBEAT, t0.minusSeconds(60), null));
-        store.lastStates.put("FDPS-A", new EquipmentState("FDPS-A", Health.OPERATIONAL, null, true, Role.STANDBY, null,
-                new Contact(true, null, null)));
-        store.lastStates.put("FDPS-B", new EquipmentState("FDPS-B", Health.OPERATIONAL, null, false, Role.ACTIVE, null,
-                new Contact(true, null, null)));
 
         started();
 
@@ -482,16 +487,26 @@ class BoardWriterTest {
     }
 
     @Test
-    void restartIgnoresStoredStateForUnknownIdsAndDefaultsTheRest() {
-        store.preload(new SupervisorEvent(EventType.SUPERVISOR_HEARTBEAT, t0.minusSeconds(60), null));
-        store.lastStates.put("OLD-1", new EquipmentState("OLD-1", Health.OPERATIONAL, null, true, Role.STANDBY, null,
-                new Contact(true, null, null)));
+    void startUsesTheFoldedBoard() {
+        Instant lastPoll = t0.minusSeconds(70);
+        store.preload(new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, t0.minusSeconds(600),
+                new EquipmentState("RAD-N", Health.OPERATIONAL, null, false, Role.STANDALONE, t0.minusSeconds(600),
+                        new Contact(true, lastPoll, null))));
+        EquipmentState lost = new EquipmentState("RAD-E", Health.UNKNOWN, UnknownReason.LOST_CONTACT, false,
+                Role.STANDALONE, t0.minusSeconds(60), new Contact(false, t0.minusSeconds(75), t0.minusSeconds(60)));
+        store.preload(new EquipmentEvent(EventType.CONTACT_LOST, t0.minusSeconds(60), lost));
+        store.preload(new SupervisorEvent(EventType.SUPERVISOR_STOPPING, t0.minusSeconds(30), null));
 
         started();
 
-        assertThat(writer.current().board().equipment()).doesNotContainKey("OLD-1");
-        assertThat(writer.current().board().equipment().get("RAD-N")).extracting(EquipmentState::maintenance,
-                EquipmentState::role).containsExactly(false, Role.STANDALONE);
+        Map<String, EquipmentState> eq = writer.current().board().equipment();
+        assertThat(eq.get("RAD-N")).as("UNKNOWN since the restart, last contact kept").isEqualTo(new EquipmentState(
+                "RAD-N", Health.UNKNOWN, UnknownReason.SUPERVISOR_RESTARTED, false, Role.STANDALONE, t0,
+                new Contact(false, lastPoll, null)));
+        assertThat(eq.get("RAD-E")).as("already UNKNOWN: its since and contact are kept").isEqualTo(
+                new EquipmentState("RAD-E", Health.UNKNOWN, UnknownReason.SUPERVISOR_RESTARTED, false,
+                        Role.STANDALONE, t0.minusSeconds(60), lost.contact()));
+        assertThat(writer.current().board()).isEqualTo(store.foldedBoard());
     }
 
     @Test
@@ -609,12 +624,15 @@ class BoardWriterTest {
 
     static final class FakeStore implements BoardStore {
 
+        private final Inventory inv;
         final List<StoredEvent> events = new CopyOnWriteArrayList<>();
-        final List<Alarm> openAlarms = new CopyOnWriteArrayList<>();
         final List<String> commitThreads = new CopyOnWriteArrayList<>();
-        final Map<String, EquipmentState> lastStates = new java.util.concurrent.ConcurrentHashMap<>();
         private volatile boolean failNext;
         private long nextId = 1;
+
+        FakeStore(Inventory inv) {
+            this.inv = inv;
+        }
 
         void failNextCommit() {
             failNext = true;
@@ -640,18 +658,18 @@ class BoardWriterTest {
         }
 
         @Override
-        public List<Alarm> loadOpenAlarms() {
-            return List.copyOf(openAlarms);
-        }
-
-        @Override
-        public Map<String, EquipmentState> loadLastEquipmentStates() {
-            return Map.copyOf(lastStates);
-        }
-
-        @Override
         public boolean hasEvents() {
             return !events.isEmpty();
+        }
+
+        /** Every stored event folded from the initial board, as the history module rebuilds it. */
+        @Override
+        public Board foldedBoard() {
+            Board board = Board.initial(inv, List.of());
+            for (StoredEvent e : events) {
+                board = BoardReducer.apply(board, e);
+            }
+            return board;
         }
     }
 

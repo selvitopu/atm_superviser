@@ -143,7 +143,9 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
     }
 
     /**
-     * Loads the open alarms, commits the start-up events, publishes {@link BoardReady} and schedules the heartbeat.
+     * Starts from the board folded from the stored log ({@link BoardStore#foldedBoard}), so a restart keeps the open
+     * alarms and each unit's maintenance, role, "since" and last contact; then commits the start-up events, publishes
+     * {@link BoardReady} and schedules the heartbeat.
      */
     @Override
     public synchronized void start() {
@@ -151,9 +153,7 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
             return;
         }
         boolean firstStart = !store.hasEvents();
-        live = new LiveBoard(Board.initial(inv, store.loadOpenAlarms(),
-                firstStart ? Map.of() : store.loadLastEquipmentStates()), Map.of(), zeroGenerations(inv),
-                zeroGenerations(inv));
+        live = new LiveBoard(store.foldedBoard(), Map.of(), zeroGenerations(inv), zeroGenerations(inv));
         shutDown = false;
         ScheduledExecutorService ex = Executors.newSingleThreadScheduledExecutor(
                 Thread.ofPlatform().name(THREAD_NAME).daemon().factory());

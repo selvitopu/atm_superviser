@@ -56,7 +56,7 @@ import tools.jackson.databind.json.JsonMapper;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Testcontainers
 @ImportAutoConfiguration(JacksonAutoConfiguration.class)
-@Import({EventCodec.class, JpaBoardStore.class, JpaBoardStoreIT.FixedClock.class})
+@Import({HistoryTestBeans.class, JpaBoardStoreIT.FixedClock.class})
 class JpaBoardStoreIT {
 
     @Container
@@ -103,6 +103,12 @@ class JpaBoardStoreIT {
 
     private static AlarmEvent event(EventType type, Alarm a, Via via, String actor) {
         return new AlarmEvent(type, t0, a, via, actor);
+    }
+
+    /** The alarm table's rows that are not CLOSED: the projection the alarm history reads. */
+    private List<Alarm> openAlarms() {
+        return alarms.findAll().stream().map(AlarmEntity::toAlarm).filter(a -> a.state() != AlarmState.CLOSED)
+                .toList();
     }
 
     private List<EventLogEntity> rowsFromDatabase() {
@@ -157,29 +163,9 @@ class JpaBoardStoreIT {
                         tuple("SUPERVISOR_HEARTBEAT", "SUPERVISOR", null, null, null));
         assertThat(rows).extracting(EventLogEntity::getOccurredAt, EventLogEntity::getRecordedAt)
                 .containsOnly(tuple(t0, RECORDED));
-        assertThat(store.loadOpenAlarms()).containsExactlyInAnyOrder(acknowledged(raised, AlarmState.ACTIVE_ACK),
+        assertThat(openAlarms()).containsExactlyInAnyOrder(acknowledged(raised, AlarmState.ACTIVE_ACK),
                 failed);
         assertThat(store.hasEvents()).isTrue();
-    }
-
-    @Test
-    void lastEquipmentStatesAreTheNewestEquipmentEventPerDevice() {
-        EquipmentState first = new EquipmentState("RAD-N", Health.OPERATIONAL, null, false, Role.STANDALONE, t0,
-                new Contact(true, t0, null));
-        EquipmentState lost = new EquipmentState("RAD-N", Health.UNKNOWN, UnknownReason.LOST_CONTACT, true,
-                Role.STANDALONE, null, new Contact(false, t0, t0.plusSeconds(15)));
-        store.commit(List.of(
-                new EquipmentEvent(EventType.EQUIPMENT_STATE_CHANGED, t0, first),
-                new EquipmentEvent(EventType.CONTACT_LOST, t0.plusSeconds(15), lost),
-                event(EventType.ALARM_RAISED, deviceAlarm("a1", AlarmState.ACTIVE_UNACK), Via.TRAP, null)));
-        store.commit(List.of(
-                new ServiceEvent(t0, new ServiceState(ServiceId.FD, ServiceStatus.OK, null, false, false, List.of(),
-                        t0)),
-                new TelemetrySampleEvent(t0, "SDPS-A", t0, Map.of("trackCount", 1L), Map.of())));
-        em.flush();
-        em.clear();
-
-        assertThat(store.loadLastEquipmentStates()).containsOnlyKeys("RAD-N").containsEntry("RAD-N", lost);
     }
 
     @Test
@@ -241,7 +227,7 @@ class JpaBoardStoreIT {
         em.flush();
         em.clear();
 
-        assertThat(store.loadOpenAlarms()).containsExactly(a2);
+        assertThat(openAlarms()).containsExactly(a2);
         assertThat(alarms.findById("a1")).get().extracting(AlarmEntity::toAlarm)
                 .isEqualTo(acknowledged(a1, AlarmState.CLOSED));
     }
@@ -257,7 +243,7 @@ class JpaBoardStoreIT {
         em.flush();
         em.clear();
 
-        assertThat(store.loadOpenAlarms()).containsExactlyInAnyOrder(cause, correlated);
+        assertThat(openAlarms()).containsExactlyInAnyOrder(cause, correlated);
         assertThat(alarms.findById("a2")).get().extracting(a -> a.toAlarm().correlation())
                 .isEqualTo(new Correlation("a1", "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
     }
@@ -270,20 +256,20 @@ class JpaBoardStoreIT {
         store.commit(List.of(event(EventType.ALARM_RAISED, raised, Via.TRAP, null)));
         em.flush();
         em.clear();
-        assertThat(store.loadOpenAlarms()).containsExactly(raised);
+        assertThat(openAlarms()).containsExactly(raised);
 
         store.commit(List.of(event(EventType.ALARM_UPDATED, adopted, Via.CORRELATION, null)));
         em.flush();
         em.clear();
-        assertThat(store.loadOpenAlarms()).containsExactly(adopted);
-        assertThat(store.loadOpenAlarms().getFirst().correlation())
+        assertThat(openAlarms()).containsExactly(adopted);
+        assertThat(openAlarms().getFirst().correlation())
                 .isEqualTo(new Correlation("a1", "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
 
         store.commit(List.of(event(EventType.ALARM_UPDATED, raised, Via.CORRELATION, null)));
         em.flush();
         em.clear();
-        assertThat(store.loadOpenAlarms()).containsExactly(raised);
-        assertThat(store.loadOpenAlarms().getFirst().correlation()).isNull();
+        assertThat(openAlarms()).containsExactly(raised);
+        assertThat(openAlarms().getFirst().correlation()).isNull();
     }
 
     @Test

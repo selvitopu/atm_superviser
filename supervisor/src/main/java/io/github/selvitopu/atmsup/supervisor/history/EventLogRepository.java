@@ -17,19 +17,6 @@ public interface EventLogRepository extends JpaRepository<EventLogEntity, Long> 
     /** The page's sort decides the order; the type is an {@code EventType} name. */
     List<EventLogEntity> findByEquipmentIdAndTypeNot(String equipmentId, String type, Pageable page);
 
-    /**
-     * The newest row per equipment id among the given event types. The inner query groups by {@code equipment_id}
-     * and selects only {@code max(id)}. {@code type} is not in {@code ix_event_log_equipment} (equipment_id,
-     * occurred_at, and the primary key id the index carries), so the inner query needs row lookups to check the type,
-     * and its cost grows with the log until retention or a covering index exists (v0.3). The outer query then fetches
-     * one row per device by primary key.
-     */
-    @Query("""
-            select e from EventLogEntity e where e.id in (
-                select max(x.id) from EventLogEntity x
-                where x.equipmentId is not null and x.type in :types group by x.equipmentId)""")
-    List<EventLogEntity> findNewestPerEquipment(@Param("types") List<String> types);
-
     /** The events after {@code afterId} that occurred at or before {@code at}, except the given types, in id order. */
     @Query("""
             select e from EventLogEntity e
@@ -48,8 +35,10 @@ public interface EventLogRepository extends JpaRepository<EventLogEntity, Long> 
 
     /**
      * The newest row of {@code type} per equipment id with an id above {@code afterId} that occurred in
-     * [{@code from}, {@code at}], in id order. The time range keeps the inner query on {@code ix_event_log_type}
-     * (type, occurred_at); like {@link #findNewestPerEquipment}, its cost grows with the rows in that range.
+     * [{@code from}, {@code at}], in id order. The inner query groups by {@code equipment_id} and selects only
+     * {@code max(id)}; the time range keeps it on {@code ix_event_log_type} (type, occurred_at), but it still reads
+     * every such row in the range, so its cost grows with the range until retention exists. The outer query then
+     * fetches one row per device by primary key.
      */
     @Query("""
             select e from EventLogEntity e where e.id in (

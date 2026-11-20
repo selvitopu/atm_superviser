@@ -48,8 +48,8 @@ Chosen option: **Option 1.**
 
 ## Verification
 
-* [`BoardWriterTest`] — Verifies `restartLoadsOpenAlarmsAndMarksSupervisorRestarted`, `restartKeepsLastKnownMaintenanceAndRole`, `restartIgnoresStoredStateForUnknownIdsAndDefaultsTheRest`, and `heartbeatTicksAreCommitted`.
-* [`JpaBoardStoreIT`] — Verifies `lastEquipmentStatesAreTheNewestEquipmentEventPerDevice`.
+* [`BoardWriterTest`] — Verifies `restartLoadsOpenAlarmsAndMarksSupervisorRestarted`, `restartKeepsLastKnownMaintenanceAndRole`, and `heartbeatTicksAreCommitted`.
+* [`ReplayFidelityIT`] — Verifies `aRestartRebuildsTheSameBoardFromTheLog` and `aStartWithoutSnapshotsFoldsTheWholeLog`.
 
 [BoardWriter]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java
 [BoardWriter.start]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java
@@ -60,7 +60,7 @@ Chosen option: **Option 1.**
 [JpaBoardStore.loadLastEquipmentStates]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [EventLogRepository]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/EventLogRepository.java
 [BoardWriterTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriterTest.java
-[JpaBoardStoreIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStoreIT.java
+[ReplayFidelityIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/ReplayFidelityIT.java
 [`Board.initial`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/Board.java
 [`BoardWriter.start`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java
 [`BoardWriterTest`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriterTest.java
@@ -68,6 +68,6 @@ Chosen option: **Option 1.**
 [`EventLogRepository`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/EventLogRepository.java
 [`JpaBoardStore.loadLastEquipmentStates`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [`JpaBoardStore.loadOpenAlarms`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
-[`JpaBoardStoreIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStoreIT.java
 [`JpaBoardStore`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [`PollScheduler`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/PollScheduler.java
+[`ReplayFidelityIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/ReplayFidelityIT.java

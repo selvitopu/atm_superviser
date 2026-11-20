@@ -46,11 +46,16 @@ Chosen option: **Option 1.**
 * **Good:** On supervisor restart (`v0.1.1`), [`JpaBoardStore.loadLastEquipmentStates`] decodes the newest equipment event per device so [`Board.initial`] preserves each device's last-known `maintenance` flag and `role` while setting health to `UNKNOWN (SUPERVISOR_RESTARTED)`.
 * **Bad / Trade-off:** Replay values (`v0.3`) have $\le 30\text{ s}$ granularity rather than 5 s poll granularity; the replay UI explicitly labels sample timestamps and ages rather than interpolating.
 
+### Amendment: The Start-Up Board Is the Fold of the Log
+
+Since replay was added (after `v0.1.1`), [`BoardWriter`] no longer builds its start-up board from [`Board.initial`] with the open alarm rows and each device's newest equipment event. It starts from [`BoardStore.foldedBoard`], which [`BoardHistory`] computes as the newest board snapshot plus a fold of every later event, or as a fold of the whole log when no snapshot exists yet (the first start after the upgrade); replay rebuilds the board at any instant with the same fold. `SUPERVISOR_STARTED` then marks every device `UNKNOWN (SUPERVISOR_RESTARTED)` as before, but a restarted device now keeps its "since" (the restart, or the earlier time it became `UNKNOWN`) and its last contact time, which the old start-up path left empty. The live board therefore stays the fold of `event_log` across restarts, and its open alarms come from the log, of which the `alarm` table is a projection.
+
 ## Verification
 
 * [`BoardReducerTest`] & [`EventCodecTest`] — Verify pure entity upsert folding and JSON round-trip serialisation of every [`DomainEvent`] variant.
 * [`BoardDeciderTest`] — Verifies 30 s `TELEMETRY_SAMPLED` emission (including stable values without deadband) and no sample on failed polls.
-* [`BoardWriterTest`] & [`JpaBoardStoreIT`] — Verify single-transaction commit, retry without losing pending telemetry samples (`commitFailureDoesNotLoseTheTelemetrySample`), and `lastEquipmentStatesAreTheNewestEquipmentEventPerDevice`.
+* [`BoardWriterTest`] & [`JpaBoardStoreIT`] — Verify single-transaction commit, retry without losing pending telemetry samples (`commitFailureDoesNotLoseTheTelemetrySample`), and a start-up board taken from the folded log (`startUsesTheFoldedBoard`).
+* [`ReplayFidelityIT`] — Verifies that the live board equals the board rebuilt for now and the fold of the whole log, and that a restarted writer rebuilds the same board from the log (`theLiveBoardEqualsBoardAtNowAndTheFoldFromTheStart`, `aRestartRebuildsTheSameBoardFromTheLog`, `aStartWithoutSnapshotsFoldsTheWholeLog`).
 
 [Board]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/Board.java
 [Board.initial]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/Board.java
@@ -71,6 +76,8 @@ Chosen option: **Option 1.**
 [`AlarmEngine`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java
 [`Board.initial`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/Board.java
 [`BoardDeciderTest`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardDeciderTest.java
+[`BoardHistory`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/BoardHistory.java
+[`BoardStore.foldedBoard`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardStore.java
 [`BoardDecider`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardDecider.java
 [`BoardReducer.apply`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardReducer.java
 [`BoardReducerTest`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardReducerTest.java
@@ -84,3 +91,4 @@ Chosen option: **Option 1.**
 [`JpaBoardStore.loadLastEquipmentStates`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [`JpaBoardStoreIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStoreIT.java
 [`ServiceEvaluator`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluator.java
+[`ReplayFidelityIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/ReplayFidelityIT.java

@@ -147,8 +147,8 @@ Status values:
     ([BoardWriter]). That poll reconciles the alarms.
   - A heartbeat event every 60 s and a stop event on graceful shutdown record when supervision ran.
 - **Verified by:** [BoardWriterTest] (`restartLoadsOpenAlarmsAndMarksSupervisorRestarted`,
-  `restartKeepsLastKnownMaintenanceAndRole`, `heartbeatTicksAreCommitted`), [JpaBoardStoreIT]
-  (`lastEquipmentStatesAreTheNewestEquipmentEventPerDevice`).
+  `restartKeepsLastKnownMaintenanceAndRole`, `heartbeatTicksAreCommitted`), [ReplayFidelityIT]
+  (`aRestartRebuildsTheSameBoardFromTheLog`).
 - **Status:** mitigated. There is one supervisor instance; while it is down, nothing is supervised.
 
 ## H8 Database or writer overload
@@ -382,6 +382,7 @@ the features exist:
 [ObservationMapperTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/snmp/ObservationMapperTest.java
 [PollDispatcherTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/polling/PollDispatcherTest.java
 [PollSchedulerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/polling/PollSchedulerTest.java
+[ReplayFidelityIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/ReplayFidelityIT.java
 [ServiceEvaluatorTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluatorTest.java
 [SseBroadcasterTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/api/SseBroadcasterTest.java
 [SseClientTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/api/SseClientTest.java

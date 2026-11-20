@@ -1,20 +1,15 @@
 package io.github.selvitopu.atmsup.supervisor.history;
 
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
-import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
+import io.github.selvitopu.atmsup.supervisor.board.Board;
 import io.github.selvitopu.atmsup.supervisor.board.BoardStore;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
-import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.EquipmentEvent;
-import io.github.selvitopu.atmsup.supervisor.board.EquipmentState;
-import io.github.selvitopu.atmsup.supervisor.board.EventType;
 import io.github.selvitopu.atmsup.supervisor.board.StoredEvent;
 import java.time.Instant;
 import java.time.InstantSource;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,12 +21,15 @@ public class JpaBoardStore implements BoardStore {
     private final AlarmRepository alarms;
     private final EventCodec codec;
     private final InstantSource clock;
+    private final BoardHistory history;
 
-    public JpaBoardStore(EventLogRepository events, AlarmRepository alarms, EventCodec codec, InstantSource clock) {
+    public JpaBoardStore(EventLogRepository events, AlarmRepository alarms, EventCodec codec, InstantSource clock,
+                         BoardHistory history) {
         this.events = events;
         this.alarms = alarms;
         this.codec = codec;
         this.clock = clock;
+        this.history = history;
     }
 
     @Override
@@ -60,27 +58,13 @@ public class JpaBoardStore implements BoardStore {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Alarm> loadOpenAlarms() {
-        return alarms.findByStateNotOrderByRaisedAtAscIdAsc(AlarmState.CLOSED).stream().map(AlarmEntity::toAlarm)
-                .toList();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public boolean hasEvents() {
         return events.existsByIdIsNotNull();
     }
 
+    /** {@link BoardHistory#fold} for now. */
     @Override
-    @Transactional(readOnly = true)
-    public Map<String, EquipmentState> loadLastEquipmentStates() {
-        List<String> types = List.of(EventType.EQUIPMENT_STATE_CHANGED.name(), EventType.CONTACT_LOST.name(),
-                EventType.CONTACT_RESTORED.name());
-        Map<String, EquipmentState> last = new LinkedHashMap<>();
-        for (EventLogEntity row : events.findNewestPerEquipment(types)) {
-            EquipmentState state = ((EquipmentEvent) codec.decode(row)).state();
-            last.put(state.id(), state);
-        }
-        return last;
+    public Board foldedBoard() {
+        return history.fold(clock.instant());
     }
 }

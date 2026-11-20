@@ -41,7 +41,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Testcontainers
 @ImportAutoConfiguration(JacksonAutoConfiguration.class)
-@Import({EventCodec.class, JpaBoardStore.class, EventQueries.class, EventQueriesIT.Clock.class})
+@Import({HistoryTestBeans.class, EventQueries.class, EventQueriesIT.Clock.class})
 class EventQueriesIT {
 
     @Container
