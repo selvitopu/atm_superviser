@@ -1,6 +1,7 @@
 import { Router, provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { authProvider, clockProvider, FakeAuth, FakeStore, render, storeProviders } from '../../../testing/render';
+import { board } from '../../../core/state/test-fixtures';
 import { AppHeader } from './app-header';
 
 describe('AppHeader', () => {
@@ -47,6 +48,24 @@ describe('AppHeader', () => {
     expect(f.el.querySelector('.connection')).toBeNull();
     expect(f.el.querySelector('.clock')).toBeNull();
     expect(f.text()).toContain('Supervisor One');
+  });
+
+  it('showsTheFloodChipOnTheLiveBoard', () => {
+    const store = new FakeStore();
+    store.board.set(board({ flood: { active: true, since: '2026-11-13T14:07:30Z' } }));
+    const f = render(AppHeader, { live: true }, [...storeProviders(store), clockProvider('2026-11-13T14:05:09Z'),
+      authProvider(new FakeAuth()), provideRouter([])]);
+    const chip = f.el.querySelector('.flood') as HTMLElement;
+    expect(chip.textContent?.trim()).toBe('ALARM FLOOD');
+    expect(chip.getAttribute('aria-label')).toBe('Alarm flood since 14:07:30Z');
+  });
+
+  it('showsNoFloodChipOffTheBoard', () => {
+    const store = new FakeStore();
+    store.board.set(board({ flood: { active: true, since: '2026-11-13T14:07:30Z' } }));
+    const f = render(AppHeader, { live: false }, [...storeProviders(store), clockProvider('2026-11-13T14:05:09Z'),
+      authProvider(new FakeAuth()), provideRouter([])]);
+    expect(f.el.querySelector('.flood')).toBeNull();
   });
 
   it('aViewerSeesImpact', () => {

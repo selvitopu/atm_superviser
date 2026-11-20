@@ -51,6 +51,8 @@ function applyContent(board: BoardDto, msg: StreamMessage): BoardDto {
       const alarms = msg.data.state === 'CLOSED' ? rest : [...rest, msg.data].sort(compareAlarms);
       return { ...board, alarms };
     }
+    case 'flood':
+      return { ...board, flood: msg.data };
     default:
       return board;
   }

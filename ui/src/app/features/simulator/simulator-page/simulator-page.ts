@@ -27,7 +27,7 @@ const FAULTS: Record<string, string[]> = {
     <main>
       <div class="bar">
         <h2>SIMULATOR</h2>
-        <p class="note">Training faults go to the simulated equipment of the demo centre only.</p>
+        <p class="note">Training faults go to the simulated equipment of the demo centre only. An alarm flood shows on the board.</p>
         <button type="button" [disabled]="busy()" (click)="confirmReset.set(true)">Reset all</button>
       </div>
       @if (confirmReset()) {

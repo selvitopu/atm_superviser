@@ -25,6 +25,9 @@ const CONNECTION = {
       </nav>
       @if (live()) {
         <span class="connection" [class]="'connection ' + connection().cls">{{ connection().label }}</span>
+        @if (flood(); as since) {
+          <span class="flood" role="status" [attr.aria-label]="'Alarm flood since ' + since">ALARM FLOOD</span>
+        }
         <time class="clock">{{ clock() }}</time>
       }
       @if (user(); as u) {
@@ -44,6 +47,8 @@ const CONNECTION = {
     nav a.active { color: var(--text); border-color: var(--panel-2); background: var(--panel-2); }
     nav a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .connection, .clock { font: 600 13px var(--font-mono); }
+    .flood { padding: 1px 8px; font: 700 12px var(--font-mono); letter-spacing: 0.06em; color: var(--degraded);
+      border: 1px solid var(--degraded); border-radius: 3px; }
     .user { font: 600 12px var(--font-mono); color: var(--muted); letter-spacing: 0.04em; }
     .sign-out { padding: 3px 10px; font: 600 12px var(--font-mono); color: var(--text); background: var(--panel-2);
       border: 1px solid var(--muted); border-radius: 3px; cursor: pointer; }
@@ -88,6 +93,10 @@ export class AppHeader {
   protected readonly role = computed(() => topRole(this.user()?.roles ?? []));
 
   protected readonly connection = computed(() => CONNECTION[this.store.connection()]);
+  protected readonly flood = computed(() => {
+    const f = this.store.board()?.flood;
+    return f?.active && f.since ? formatUtc(f.since) : null;
+  });
   protected readonly clock = computed(() => formatUtc(this.time.serverNow()));
 
   protected signOut(): void {

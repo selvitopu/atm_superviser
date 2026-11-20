@@ -45,6 +45,14 @@ describe('LiveStream', () => {
     ] as unknown as StreamMessage[]);
   });
 
+  it('maps a flood event as a durable message with its id', () => {
+    stream.connect(1).subscribe(m => received.push(m));
+    FakeEventSource.last.fire('flood', '{"active":true,"since":"2026-11-13T14:00:00Z"}', '90');
+    expect(received).toEqual([
+      { kind: 'flood', id: 90, data: { active: true, since: '2026-11-13T14:00:00Z' } },
+    ] as unknown as StreamMessage[]);
+  });
+
   it('maps volatile events without an id', () => {
     stream.connect(1).subscribe(m => received.push(m));
     FakeEventSource.last.fire('heartbeat', '{"serverTime":"2026-11-13T14:00:00Z"}');

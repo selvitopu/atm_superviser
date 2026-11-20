@@ -41,6 +41,6 @@ export function correlatedAlarm(id: string, causeId: string, over: Partial<Alarm
 export function board(over: Partial<BoardDto> = {}): BoardDto {
   return {
     centre: 'Demo ACC', serverTime: '2026-11-13T14:00:00Z', lastEventId: 0,
-    services: [], equipment: [], alarms: [], ...over,
+    services: [], equipment: [], alarms: [], flood: { active: false, since: null }, ...over,
   };
 }

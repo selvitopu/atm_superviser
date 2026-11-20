@@ -15,6 +15,12 @@ export interface BoardDto {
   services: ServiceDto[];
   equipment: EquipmentDto[];
   alarms: AlarmDto[];
+  flood: FloodDto;
+}
+
+export interface FloodDto {
+  active: boolean;
+  since: string | null;
 }
 
 export interface ServiceDto {
@@ -131,6 +137,7 @@ export type StreamMessage =
   | { kind: 'service'; id: number; data: ServiceDto }
   | { kind: 'alarm'; id: number; data: AlarmDto }
   | { kind: 'supervisor'; id: number; data: SupervisorEventDto }
+  | { kind: 'flood'; id: number; data: FloodDto }
   | { kind: 'telemetry'; data: TelemetryDto }
   | { kind: 'heartbeat'; data: { serverTime: string } }
   | { kind: 'resync' }

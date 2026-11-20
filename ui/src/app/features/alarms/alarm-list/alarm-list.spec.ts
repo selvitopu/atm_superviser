@@ -86,6 +86,18 @@ describe('AlarmList', () => {
     expect(f.all('input[type=checkbox].select').map(b => (b as HTMLInputElement).checked)).toEqual([false, false, false]);
   });
 
+  it('showsTheFloodBannerWhileTheFloodIsActive', () => {
+    const { store, f } = setup();
+    expect(f.el.querySelector('[role=status]')).toBeNull();
+    store.board.update(b => ({ ...b!, flood: { active: true, since: '2026-11-13T14:07:30Z' } }));
+    f.fixture.detectChanges();
+    expect(f.el.querySelector('[role=status]')?.textContent?.replace(/\s+/g, ' ').trim())
+      .toBe('ALARM FLOOD since 14:07:30Z · correlated alarms are grouped under their cause');
+    store.board.update(b => ({ ...b!, flood: { active: false, since: null } }));
+    f.fixture.detectChanges();
+    expect(f.el.querySelector('[role=status]')).toBeNull();
+  });
+
   it('hides suppressed alarms until the toggle is on', () => {
     const { f } = setup([alarm('a'), alarm('s', { suppressed: true })]);
     expect(f.all('tbody tr').length).toBe(1);

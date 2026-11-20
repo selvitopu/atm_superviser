@@ -41,6 +41,9 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
         <span class="error" role="alert">Acknowledge failed</span>
       }
     </div>
+    @if (flood(); as since) {
+      <p class="flood" role="status">ALARM FLOOD since {{ since }} · correlated alarms are grouped under their cause</p>
+    }
     <div class="scroll">
       <table>
         <thead>
@@ -98,6 +101,8 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
       border-radius: 3px; font: 12px var(--font-ui); cursor: pointer; }
     button:disabled { opacity: 0.4; cursor: default; }
     button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+    .flood { margin: 0; padding: 4px 16px; font: 600 12px var(--font-mono); color: var(--degraded);
+      border-top: 1px solid var(--degraded); border-bottom: 1px solid var(--degraded); }
     .error { color: var(--failed); font-size: 12px; }
     .scroll { max-height: 220px; overflow-y: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -127,6 +132,11 @@ export class AlarmList {
   protected readonly failed = signal(false);
 
   protected readonly time = formatUtc;
+  /** The UTC time the flood began while one is active, otherwise null. */
+  protected readonly flood = computed(() => {
+    const f = this.source.board()?.flood;
+    return f?.active && f.since ? formatUtc(f.since) : null;
+  });
   protected readonly sev = (a: AlarmDto) => SEVERITY[a.severity];
   protected readonly state = (a: AlarmDto) => STATE[a.state];
 

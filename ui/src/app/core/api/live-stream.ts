@@ -7,7 +7,7 @@ export const EVENT_SOURCE_FACTORY = new InjectionToken<(url: string) => EventSou
   factory: () => (url: string) => new EventSource(url),
 });
 
-const DURABLE = ['equipment', 'service', 'alarm', 'supervisor'] as const;
+const DURABLE = ['equipment', 'service', 'alarm', 'supervisor', 'flood'] as const;
 const VOLATILE = ['telemetry', 'heartbeat'] as const;
 const INVALID = Symbol('invalid');
 

@@ -75,6 +75,21 @@ describe('applyMessage', () => {
     expect(out.lastEventId).toBe(9);
   });
 
+  it('aFloodMessageSetsTheFlood', () => {
+    const start = applyMessage(board({ lastEventId: 1 }), {
+      kind: 'flood', id: 5, data: { active: true, since: '2026-11-13T14:00:00Z' },
+    });
+    expect(start.flood).toEqual({ active: true, since: '2026-11-13T14:00:00Z' });
+    expect(start.lastEventId).toBe(5);
+    const end = applyMessage(start, { kind: 'flood', id: 6, data: { active: false, since: null } });
+    expect(end.flood).toEqual({ active: false, since: null });
+  });
+
+  it('ignores a flood message at or below lastEventId', () => {
+    const b = board({ lastEventId: 5 });
+    expect(applyMessage(b, { kind: 'flood', id: 5, data: { active: true, since: '2026-11-13T14:00:00Z' } })).toBe(b);
+  });
+
   it('does not change the board for open, error, resync and heartbeat', () => {
     const b = board({ lastEventId: 3 });
     expect(applyMessage(b, { kind: 'open' })).toBe(b);

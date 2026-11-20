@@ -39,6 +39,11 @@ describe('SimulatorPage', () => {
     return { f, http, refresh, row, buttons, click };
   }
 
+  it('notesThatAFloodShowsOnTheBoard', () => {
+    const { f } = setup();
+    expect(f.text()).toContain('An alarm flood shows on the board.');
+  });
+
   it('listsTheDevicesWithTheirStateAndFaults', () => {
     const { row } = setup();
     expect(row('SDPS-A').textContent).toContain('FAILED');
