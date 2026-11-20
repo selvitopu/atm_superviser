@@ -62,6 +62,7 @@ class BoardWriterTest {
     private final RecordingPublisher publisher = new RecordingPublisher();
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     private final AtomicReference<Instant> now = new AtomicReference<>(t0);
+    private final FakeSnapshots snapshots = new FakeSnapshots();
     private BoardWriter writer;
 
     private BoardWriter writer(Duration heartbeat) {
@@ -73,7 +74,8 @@ class BoardWriterTest {
         var decider = new BoardDecider(inv, new StatusDeriver(), evaluator, new AlarmEngine(IdGenerator.uuid()),
                 new AlarmCorrelator(CorrelationTopology.from(inv)), Duration.ofSeconds(30), floodPolicy);
         InstantSource clock = now::get;
-        writer = new BoardWriter(inv, store, decider, clock, publisher, meters, heartbeat);
+        writer = new BoardWriter(inv, store, decider, clock, publisher, meters, heartbeat,
+                snapshots, Duration.ofMinutes(5));
         return writer;
     }
 
@@ -532,7 +534,79 @@ class BoardWriterTest {
         assertThat(publisher.events(TelemetryUpdated.class)).hasSize(2);
     }
 
+    @Test
+    void aSnapshotIsTakenAfterStartup() {
+        started();
+
+        assertThat(snapshots.saved).singleElement().satisfies(s -> {
+            assertThat(s.takenAt()).isEqualTo(t0);
+            assertThat(s.board()).isEqualTo(writer.current().board());
+            assertThat(s.board().lastEventId()).isEqualTo(store.events.getLast().id());
+        });
+        assertThat(snapshots.threads).containsOnly("board-writer");
+    }
+
+    @Test
+    void aSnapshotIsTakenOnceTheIntervalHasPassed() {
+        started();
+        assertThat(snapshots.saved).hasSize(1);
+
+        now.set(t0.plus(Duration.ofMinutes(4)));
+        writer.submit(new HeartbeatTick()).join();
+        assertThat(snapshots.saved).hasSize(1);
+
+        now.set(t0.plus(Duration.ofMinutes(5)));
+        writer.submit(new HeartbeatTick()).join();
+        assertThat(snapshots.saved).hasSize(2);
+        assertThat(snapshots.saved.getLast().takenAt()).isEqualTo(t0.plus(Duration.ofMinutes(5)));
+        assertThat(snapshots.saved.getLast().board()).isEqualTo(writer.current().board());
+
+        now.set(t0.plus(Duration.ofMinutes(9)));
+        writer.submit(pollSucceeded("RAD-N", OPERATIONAL)).join();
+        assertThat(snapshots.saved).hasSize(2);
+    }
+
+    @Test
+    void aFailingSnapshotDoesNotFailTheCommit() {
+        started();
+        snapshots.failing = true;
+        now.set(t0.plus(Duration.ofMinutes(5)));
+
+        try (CapturedLogs logs = new CapturedLogs(BoardWriter.class)) {
+            BoardResult r = writer.submit(pollSucceeded("RAD-N", OPERATIONAL)).join();
+
+            assertThat(r.committed()).isTrue();
+            assertThat(logs.warnings()).singleElement().asString().contains("snapshot");
+        }
+
+        assertThat(health("RAD-N")).isEqualTo(Health.OPERATIONAL);
+        assertThat(snapshots.saved).hasSize(1);
+        assertThat(meters.counter("atm.snapshot.failures").count()).isEqualTo(1.0);
+    }
+
     /** In-memory store assigning ids 1, 2, 3, ...; it records the committing thread and can fail one commit. */
+    static final class FakeSnapshots implements SnapshotStore {
+
+        final List<Snapshot> saved = new CopyOnWriteArrayList<>();
+        final List<String> threads = new CopyOnWriteArrayList<>();
+        volatile boolean failing;
+
+        @Override
+        public void save(Board board, Instant takenAt) {
+            threads.add(Thread.currentThread().getName());
+            if (failing) {
+                throw new IllegalStateException("database unavailable");
+            }
+            saved.add(new Snapshot(takenAt, board));
+        }
+
+        @Override
+        public java.util.Optional<Snapshot> latestAtOrBefore(Instant at) {
+            return saved.stream().filter(s -> !s.takenAt().isAfter(at))
+                    .max(java.util.Comparator.comparing(Snapshot::takenAt));
+        }
+    }
+
     static final class FakeStore implements BoardStore {
 
         final List<StoredEvent> events = new CopyOnWriteArrayList<>();

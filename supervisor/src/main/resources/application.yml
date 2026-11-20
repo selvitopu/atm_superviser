@@ -54,3 +54,6 @@ atm:
       window: 10m
       start: 10
       end: 5
+  history:
+    # the board is stored this often (and at start-up) so an incident can be replayed from the nearest snapshot
+    snapshot-interval: 5m

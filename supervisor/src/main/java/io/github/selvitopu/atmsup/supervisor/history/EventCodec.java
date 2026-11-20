@@ -111,7 +111,7 @@ public class EventCodec {
      * A service state as stored. Payloads written before {@code redundancyUnconfirmed} existed lack it, and Jackson 3
      * refuses to map a missing value to a primitive, so it is read as a {@link Boolean}: absent means false.
      */
-    private record StoredServiceState(ServiceId id, ServiceStatus status, ServiceStatus bestCase,
+    record StoredServiceState(ServiceId id, ServiceStatus status, ServiceStatus bestCase,
                                       boolean redundancyLost, Boolean redundancyUnconfirmed, List<String> reasons,
                                       Instant since) {
 

@@ -14,6 +14,7 @@ import io.github.selvitopu.atmsup.supervisor.board.AlarmFloodPolicy;
 import io.github.selvitopu.atmsup.supervisor.board.BoardDecider;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInputSink;
 import io.github.selvitopu.atmsup.supervisor.board.BoardStore;
+import io.github.selvitopu.atmsup.supervisor.board.SnapshotStore;
 import io.github.selvitopu.atmsup.supervisor.board.BoardWriter;
 import io.github.selvitopu.atmsup.supervisor.board.FlightDataRule;
 import io.github.selvitopu.atmsup.supervisor.board.GenerationSource;
@@ -216,8 +217,11 @@ public class SupervisorConfig {
     @Bean
     BoardWriter boardWriter(Inventory inventory, BoardStore store, BoardDecider decider, InstantSource clock,
                             ApplicationEventPublisher events, MeterRegistry meters,
-                            @Value("${atm.supervisor.heartbeat-interval:60s}") Duration heartbeatInterval) {
-        return new BoardWriter(inventory, store, decider, clock, events, meters, heartbeatInterval);
+                            @Value("${atm.supervisor.heartbeat-interval:60s}") Duration heartbeatInterval,
+                            SnapshotStore snapshots,
+                            @Value("${atm.history.snapshot-interval:5m}") Duration snapshotInterval) {
+        return new BoardWriter(inventory, store, decider, clock, events, meters, heartbeatInterval, snapshots,
+                snapshotInterval);
     }
 
     @Bean

@@ -235,7 +235,7 @@ class EquipmentControlTest {
     @Test
     void aStoppedWriterMeansNothingIsSent() {
         BoardWriter stopped = new BoardWriter(inv, null, null, InstantSource.system(), event -> { },
-                new SimpleMeterRegistry(), Duration.ofMinutes(1));
+                new SimpleMeterRegistry(), Duration.ofMinutes(1), null, Duration.ofMinutes(5));
         EquipmentControl control = new EquipmentControl(inv, snmp, stopped, WAIT);
 
         try (CapturedLogs logs = new CapturedLogs(EquipmentControl.class)) {

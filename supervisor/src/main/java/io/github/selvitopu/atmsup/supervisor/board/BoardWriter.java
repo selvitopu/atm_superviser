@@ -53,6 +53,7 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
     public static final int PHASE = SmartLifecycle.DEFAULT_PHASE - 4096;
 
     static final String THREAD_NAME = "board-writer";
+    static final String SNAPSHOT_FAILURES = "atm.snapshot.failures";
     static final String STALE_RESULTS = "atmsup.board.stale.results";
 
     private static final Logger log = LoggerFactory.getLogger(BoardWriter.class);
@@ -67,21 +68,31 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
     private final Counter staleProbes;
     private final Counter stalePolls;
     private final Duration heartbeatInterval;
+    private final SnapshotStore snapshots;
+    private final Duration snapshotInterval;
+    private final Counter snapshotFailures;
 
     private volatile LiveBoard live;
     private volatile ScheduledExecutorService executor;
     private volatile boolean running;
     /** Set on the writer thread once Shutdown is processed: SUPERVISOR_STOPPING stays the last event. */
     private volatile boolean shutDown;
+    /** The time of the last snapshot attempt of this process; touched on the writer thread only. */
+    private Instant lastSnapshotAt;
 
     public BoardWriter(Inventory inv, BoardStore store, BoardDecider decider, InstantSource clock,
-                       ApplicationEventPublisher publisher, MeterRegistry meters, Duration heartbeatInterval) {
+                       ApplicationEventPublisher publisher, MeterRegistry meters, Duration heartbeatInterval,
+                       SnapshotStore snapshots, Duration snapshotInterval) {
         this.inv = inv;
         this.store = store;
         this.decider = decider;
         this.clock = clock;
         this.publisher = publisher;
         this.heartbeatInterval = heartbeatInterval;
+        this.snapshots = snapshots;
+        this.snapshotInterval = snapshotInterval;
+        this.snapshotFailures = Counter.builder(SNAPSHOT_FAILURES)
+                .description("A board snapshot that could not be stored").register(meters);
         this.staleProbes = staleCounter(meters, "probe");
         this.stalePolls = staleCounter(meters, "poll");
         this.live = new LiveBoard(Board.initial(inv, List.of()), Map.of(), zeroGenerations(inv),
@@ -236,12 +247,33 @@ public final class BoardWriter implements BoardInputSink, GenerationSource, Smar
                 bumped(before.contactGenerations(), d.contactInvalidated()),
                 d.recentRaises() != null ? d.recentRaises() : before.recentRaises());
         live = after;
+        if (in instanceof Startup || in instanceof HeartbeatTick || !stored.isEmpty()) {
+            snapshotIfDue(board, now, in instanceof Startup);
+        }
         if (!stored.isEmpty()) {
             publish(new BoardCommitted(stored, after));
         }
         publishTelemetry(d.telemetry(), now);
         d.repoll().forEach(this::publish);
         return d.result();
+    }
+
+    /**
+     * Stores the board just applied after the start-up commit and then whenever the interval has passed since the
+     * last attempt. A failure is logged and counted; it never reaches the input or the live board. The attempt time
+     * moves on even then, so a database outage does not log on every input.
+     */
+    private void snapshotIfDue(Board board, Instant now, boolean startup) {
+        if (!startup && lastSnapshotAt != null && now.isBefore(lastSnapshotAt.plus(snapshotInterval))) {
+            return;
+        }
+        lastSnapshotAt = now;
+        try {
+            snapshots.save(board, now);
+        } catch (RuntimeException e) {
+            snapshotFailures.increment();
+            log.warn("Cannot store a board snapshot; the board is unaffected", e);
+        }
     }
 
     private static Map<String, Telemetry> merged(Map<String, Telemetry> current, Map<String, Telemetry> updates) {
