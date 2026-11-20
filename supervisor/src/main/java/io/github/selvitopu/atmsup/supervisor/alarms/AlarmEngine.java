@@ -74,7 +74,7 @@ public final class AlarmEngine {
             if (a.key().equipmentId().equals(equipmentId) && a.suppressed() != maintenance) {
                 var updated = new Alarm(a.id(), a.key(), a.instanceName(), a.severity(), a.text(), a.source(),
                         a.state(), maintenance, a.raisedAt(), a.ackedAt(), a.ackedBy(), a.ackComment(),
-                        a.clearedAt());
+                        a.clearedAt(), a.correlation());
                 changes.add(new AlarmChange(AlarmEventType.UPDATED, updated, Via.SUPERVISOR, null));
             }
         }
@@ -171,7 +171,7 @@ public final class AlarmEngine {
 
     private static Alarm withAck(Alarm a, AlarmState state, Instant now, String actor, String comment) {
         return new Alarm(a.id(), a.key(), a.instanceName(), a.severity(), a.text(), a.source(), state,
-                a.suppressed(), a.raisedAt(), now, actor, comment, a.clearedAt());
+                a.suppressed(), a.raisedAt(), now, actor, comment, a.clearedAt(), a.correlation());
     }
 
     /** {@code raisedAt} is the raise time of a new alarm; a re-raised CLEARED_UNACK alarm keeps its own. */
@@ -180,7 +180,7 @@ public final class AlarmEngine {
         Alarm old = open.get(key);
         if (old == null) {
             var created = new Alarm(ids.next(), key, instanceName, severity, text, source, AlarmState.ACTIVE_UNACK,
-                    maintenance, raisedAt, null, null, null, null);
+                    maintenance, raisedAt, null, null, null, null, null);
             return List.of(new AlarmChange(AlarmEventType.RAISED, created, via, null));
         }
         if (old.state() == AlarmState.CLEARED_UNACK) {
@@ -192,9 +192,10 @@ public final class AlarmEngine {
         boolean reUnack = severity.moreSevereThan(old.severity()) && old.state() == AlarmState.ACTIVE_ACK;
         var updated = reUnack
                 ? new Alarm(old.id(), key, instanceName, severity, text, old.source(), AlarmState.ACTIVE_UNACK,
-                        old.suppressed(), old.raisedAt(), null, null, null, null)
+                        old.suppressed(), old.raisedAt(), null, null, null, null, old.correlation())
                 : new Alarm(old.id(), key, instanceName, severity, text, old.source(), old.state(),
-                        old.suppressed(), old.raisedAt(), old.ackedAt(), old.ackedBy(), old.ackComment(), null);
+                        old.suppressed(), old.raisedAt(), old.ackedAt(), old.ackedBy(), old.ackComment(), null,
+                        old.correlation());
         return List.of(new AlarmChange(AlarmEventType.UPDATED, updated, via, null));
     }
 
@@ -202,7 +203,7 @@ public final class AlarmEngine {
     private static AlarmChange reRaised(Alarm old, String instanceName, Severity severity, String text,
                                         AlarmSource source, Via via, boolean maintenance, Instant raisedAt) {
         var alarm = new Alarm(old.id(), old.key(), instanceName, severity, text, source, AlarmState.ACTIVE_UNACK,
-                maintenance, raisedAt, null, null, null, null);
+                maintenance, raisedAt, null, null, null, null, old.correlation());
         return new AlarmChange(AlarmEventType.RAISED, alarm, via, null);
     }
 
@@ -222,6 +223,6 @@ public final class AlarmEngine {
 
     private static Alarm withClear(Alarm a, AlarmState state, Instant now) {
         return new Alarm(a.id(), a.key(), a.instanceName(), a.severity(), a.text(), a.source(), state,
-                a.suppressed(), a.raisedAt(), a.ackedAt(), a.ackedBy(), a.ackComment(), now);
+                a.suppressed(), a.raisedAt(), a.ackedAt(), a.ackedBy(), a.ackComment(), now, a.correlation());
     }
 }

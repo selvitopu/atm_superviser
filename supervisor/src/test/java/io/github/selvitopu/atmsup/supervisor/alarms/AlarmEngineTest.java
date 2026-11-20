@@ -481,4 +481,25 @@ class AlarmEngineTest {
                         tuple(401, 1, RAISED, Via.RESYNC), tuple(401, 2, CLEARED, Via.RESYNC),
                         tuple(401, 3, RAISED, Via.RESYNC));
     }
+
+    @Test
+    void everyCopyKeepsTheCorrelation() {
+        var link = new Correlation("c1", "RAD-N", 101, CorrelationRule.SAME_UNIT);
+        var a = alarm("a1", "RAD-N", 201, 0, MAJOR, ACTIVE_UNACK).withCorrelation(link);
+        var open = open(a);
+
+        var acked = engine.acknowledge(open, List.of("a1"), "u", "c", T1).changes().get(0).alarm();
+        assertThat(acked.correlation()).isEqualTo(link);
+        var cleared = engine.onNotification(open, cleared("RAD-N", 201, 0), false, T1).get(0).alarm();
+        assertThat(cleared.correlation()).isEqualTo(link);
+        var escalated = engine.onNotification(open, raised("RAD-N", 201, 0, CRITICAL), false, T1).get(0).alarm();
+        assertThat(escalated.correlation()).isEqualTo(link);
+        var maintained = engine.onMaintenance(open, "RAD-N", true).get(0).alarm();
+        assertThat(maintained.correlation()).isEqualTo(link);
+
+        var gone = alarm("a1", "RAD-N", 201, 0, MAJOR, CLEARED_UNACK).withCorrelation(link);
+        var reRaised = engine.onNotification(open(gone), raised("RAD-N", 201, 0, MAJOR), false, T1).get(0);
+        assertThat(reRaised.type()).isEqualTo(RAISED);
+        assertThat(reRaised.alarm().correlation()).isEqualTo(link);
+    }
 }
