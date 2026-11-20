@@ -6,7 +6,9 @@ import io.github.selvitopu.atmsup.inventory.Inventory;
 import io.github.selvitopu.atmsup.inventory.InventoryProperties;
 import io.github.selvitopu.atmsup.inventory.SnmpProperties;
 import io.github.selvitopu.atmsup.inventory.UserCredentials;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmCorrelator;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
+import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationTopology;
 import io.github.selvitopu.atmsup.supervisor.alarms.IdGenerator;
 import io.github.selvitopu.atmsup.supervisor.board.BoardDecider;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInputSink;
@@ -190,10 +192,15 @@ public class SupervisorConfig {
     }
 
     @Bean
+    AlarmCorrelator alarmCorrelator(Inventory inventory) {
+        return new AlarmCorrelator(CorrelationTopology.from(inventory));
+    }
+
+    @Bean
     BoardDecider boardDecider(Inventory inventory, StatusDeriver deriver, ServiceEvaluator evaluator,
-                              AlarmEngine alarms,
+                              AlarmEngine alarms, AlarmCorrelator correlator,
                               @Value("${atm.supervisor.telemetry-sample-interval:30s}") Duration sampleInterval) {
-        return new BoardDecider(inventory, deriver, evaluator, alarms, sampleInterval);
+        return new BoardDecider(inventory, deriver, evaluator, alarms, correlator, sampleInterval);
     }
 
     /** Started and stopped by the context (see {@link BoardWriter#PHASE}); its store is the history module's. */

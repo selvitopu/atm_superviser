@@ -5,3 +5,5 @@ databaseChangeLog:
       file: db/changelog/changes/002-users-and-roles.sql
   - include:
       file: db/changelog/changes/003-demo-users.sql
+  - include:
+      file: db/changelog/changes/004-alarm-correlation.sql

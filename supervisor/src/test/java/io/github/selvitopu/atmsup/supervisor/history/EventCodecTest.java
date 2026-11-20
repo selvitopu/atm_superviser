@@ -2,6 +2,15 @@ package io.github.selvitopu.atmsup.supervisor.history;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.selvitopu.atmsup.mib.Severity;
+import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
+import io.github.selvitopu.atmsup.supervisor.alarms.Correlation;
+import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationRule;
+import io.github.selvitopu.atmsup.supervisor.alarms.Via;
+import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.AlarmEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.CommandEvent;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent.ServiceEvent;
 import io.github.selvitopu.atmsup.supervisor.board.EventType;
@@ -70,6 +79,37 @@ class EventCodecTest {
             assertThat(row.getActor()).isEqualTo("supervisor1");
             assertThat(codec.decode(row)).isEqualTo(event);
             assertThat(codec.decode(codec.encode(intent, T0))).isEqualTo(intent);
+        });
+    }
+
+    @Test
+    void aCorrelatedAlarmRoundTrips() {
+        var alarm = new Alarm("a2", new AlarmKey("SDPS-A", 401, 0), "RAD-N", Severity.MINOR, "Sensor input lost",
+                AlarmSource.DEVICE, AlarmState.ACTIVE_UNACK, false, T0, null, null, null, null,
+                new Correlation("a1", "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
+        var event = new AlarmEvent(EventType.ALARM_UPDATED, T0, alarm, Via.CORRELATION, null);
+
+        withCodec(codec -> {
+            EventLogEntity row = codec.encode(event, T0);
+            assertThat(row.getPayload()).contains("\"correlation\"").contains("\"SENSOR_INPUT\"");
+            assertThat(codec.decode(row)).isEqualTo(event);
+        });
+    }
+
+    @Test
+    void anAlarmPayloadWithoutCorrelationDecodesAsUncorrelated() {
+        // the shape stored before correlations existed
+        String stored = """
+                {"schemaVersion":1,"via":"TRAP","alarm":{"id":"a1","key":{"equipmentId":"RAD-N","code":101,\
+                "instance":0},"instanceName":"","severity":"CRITICAL","text":"Transmitter fault","source":"DEVICE",\
+                "state":"ACTIVE_UNACK","suppressed":false,"raisedAt":"2026-01-01T10:00:00.123Z","ackedAt":null,\
+                "ackedBy":null,"ackComment":null,"clearedAt":null}}""";
+        var row = new EventLogEntity(T0, T0, EventType.ALARM_RAISED.name(), "ALARM", "a1", "RAD-N", null, stored);
+
+        withCodec(codec -> {
+            var event = (AlarmEvent) codec.decode(row);
+            assertThat(event.alarm().correlation()).isNull();
+            assertThat(event.alarm().id()).isEqualTo("a1");
         });
     }
 }

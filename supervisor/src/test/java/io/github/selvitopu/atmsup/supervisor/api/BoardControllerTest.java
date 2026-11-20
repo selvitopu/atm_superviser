@@ -23,6 +23,8 @@ import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
+import io.github.selvitopu.atmsup.supervisor.alarms.Correlation;
+import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationRule;
 import io.github.selvitopu.atmsup.supervisor.board.Board;
 import io.github.selvitopu.atmsup.supervisor.board.BoardWriter;
 import io.github.selvitopu.atmsup.supervisor.board.Contact;
@@ -158,6 +160,22 @@ class BoardControllerTest {
                 .andExpect(jsonPath("$.alarms[3].equipmentId").value("RAD-N"))
                 .andExpect(jsonPath("$.alarms[3].code").value(401))
                 .andExpect(jsonPath("$.alarms[3].state").value("ACTIVE_UNACK"));
+    }
+
+    @Test
+    void anAlarmCarriesItsCorrelation() throws Exception {
+        Alarm plain = alarm("a1", "RAD-N", 101, Severity.CRITICAL, T);
+        Alarm linked = alarm("a2", "SDPS-A", 401, Severity.MINOR, T.minusSeconds(5))
+                .withCorrelation(new Correlation("a1", "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
+        board(allKnown(), List.of(plain, linked), Map.of());
+
+        mvc.perform(get("/api/v1/board")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.alarms[0].id").value("a1"))
+                .andExpect(jsonPath("$.alarms[0].correlation").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.alarms[1].correlation.causeId").value("a1"))
+                .andExpect(jsonPath("$.alarms[1].correlation.causeEquipmentId").value("RAD-N"))
+                .andExpect(jsonPath("$.alarms[1].correlation.causeCode").value(101))
+                .andExpect(jsonPath("$.alarms[1].correlation.rule").value("SENSOR_INPUT"));
     }
 
     @Test

@@ -14,7 +14,9 @@ import io.github.selvitopu.atmsup.mib.EquipmentStatus;
 import io.github.selvitopu.atmsup.mib.Role;
 import io.github.selvitopu.atmsup.mib.Severity;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmCorrelator;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
+import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationTopology;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
@@ -65,7 +67,7 @@ class BoardWriterTest {
     private BoardWriter writer(Duration heartbeat) {
         var evaluator = new ServiceEvaluator(inv, List.of(new SurveillanceRule(), new FlightDataRule()));
         var decider = new BoardDecider(inv, new StatusDeriver(), evaluator, new AlarmEngine(IdGenerator.uuid()),
-                Duration.ofSeconds(30));
+                new AlarmCorrelator(CorrelationTopology.from(inv)), Duration.ofSeconds(30));
         InstantSource clock = now::get;
         writer = new BoardWriter(inv, store, decider, clock, publisher, meters, heartbeat);
         return writer;

@@ -11,6 +11,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.AckResult;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmCatalogue;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmChange;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmCorrelator;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
@@ -54,14 +55,16 @@ public final class BoardDecider {
     private final StatusDeriver deriver;
     private final ServiceEvaluator evaluator;
     private final AlarmEngine alarms;
+    private final AlarmCorrelator correlator;
     private final Duration sampleInterval;
 
     public BoardDecider(Inventory inv, StatusDeriver deriver, ServiceEvaluator evaluator, AlarmEngine alarms,
-                        Duration telemetrySampleInterval) {
+                        AlarmCorrelator correlator, Duration telemetrySampleInterval) {
         this.inv = inv;
         this.deriver = deriver;
         this.evaluator = evaluator;
         this.alarms = alarms;
+        this.correlator = correlator;
         this.sampleInterval = telemetrySampleInterval;
     }
 
@@ -113,7 +116,7 @@ public final class BoardDecider {
         Telemetry tel = live.telemetry().getOrDefault(id, Telemetry.EMPTY);
         StatusDeriver.Derived derived = derive.apply(cur, tel);
 
-        Working w = new Working(live.board());
+        Working w = new Working(live.board(), correlator);
         boolean contactChanged = false;
         boolean maintenance = cur.maintenance();
         if (derived.event().isPresent()) {
@@ -205,7 +208,7 @@ public final class BoardDecider {
     private Decision trap(LiveBoard live, TrapReceived t, Instant now) {
         String id = t.n().equipmentId();
         EquipmentState s = live.board().equipment().get(id);
-        Working w = new Working(live.board());
+        Working w = new Working(live.board(), correlator);
         w.addAlarms(alarms.onNotification(w.open(), t.n(), s != null && s.maintenance(), now), now);
         return new Decision(w.events, Map.of(), List.of(new RepollRequested(id, Reason.TRAP)), Set.of(id), Set.of(),
                 false, BoardResult.ok());
@@ -213,7 +216,7 @@ public final class BoardDecider {
 
     private Decision acknowledge(LiveBoard live, AcknowledgeAlarms a, Instant now) {
         AckResult ack = alarms.acknowledge(live.board().openAlarms(), a.alarmIds(), a.actor(), a.comment(), now);
-        Working w = new Working(live.board());
+        Working w = new Working(live.board(), correlator);
         w.addAlarms(ack.changes(), now);
         return new Decision(w.events, Map.of(), List.of(), Set.of(), Set.of(), false,
                 new BoardResult(true, ack.acknowledged(), ack.notFound(), null));
@@ -221,7 +224,7 @@ public final class BoardDecider {
 
     /** SUPERVISOR_STARTED, then the state of every service on the resulting all-UNKNOWN board. */
     private Decision startup(LiveBoard live, Startup s, Instant now) {
-        Working w = new Working(live.board());
+        Working w = new Working(live.board(), correlator);
         w.add(new SupervisorEvent(SUPERVISOR_STARTED, now,
                 s.firstStart() ? UnknownReason.NOT_YET_POLLED : UnknownReason.SUPERVISOR_RESTARTED));
         Map<ServiceId, ServiceState> services = new EnumMap<>(ServiceId.class);
@@ -238,10 +241,12 @@ public final class BoardDecider {
     private static final class Working {
 
         private final List<DomainEvent> events = new ArrayList<>();
+        private final AlarmCorrelator correlator;
         private Board board;
 
-        Working(Board board) {
+        Working(Board board, AlarmCorrelator correlator) {
             this.board = board;
+            this.correlator = correlator;
         }
 
         void add(DomainEvent e) {
@@ -250,8 +255,11 @@ public final class BoardDecider {
         }
 
         void addAlarms(List<AlarmChange> changes, Instant now) {
-            for (AlarmChange c : changes) {
-                add(new AlarmEvent(EventType.ofAlarm(c.type()), now, c.alarm(), c.via(), c.actor()));
+            for (AlarmChange change : changes) {
+                // each change meets the board as the earlier ones left it, so links made in this decision count
+                for (AlarmChange c : correlator.apply(open(), change)) {
+                    add(new AlarmEvent(EventType.ofAlarm(c.type()), now, c.alarm(), c.via(), c.actor()));
+                }
             }
         }
 

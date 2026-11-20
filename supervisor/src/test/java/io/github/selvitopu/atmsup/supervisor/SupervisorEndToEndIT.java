@@ -222,6 +222,11 @@ class SupervisorEndToEndIT {
                 .findFirst().orElse(null);
     }
 
+    private void assertCorrelatedTo101(String equipmentId, int code) {
+        assertThat(alarm(equipmentId, code)).isNotNull().extracting(AlarmDto::correlation).isNotNull()
+                .extracting(c -> c.causeEquipmentId() + "/" + c.causeCode()).isEqualTo("RAD-N/101");
+    }
+
     /** An alarm whose condition is still active. */
     private AlarmDto openAlarm(String equipmentId, int code) {
         return board().alarms().stream().filter(a -> a.equipmentId().equals(equipmentId) && a.code() == code)
@@ -281,6 +286,10 @@ class SupervisorEndToEndIT {
                 assertThat(alarm("RAD-N", 101)).isNotNull().extracting(AlarmDto::severity).isEqualTo("CRITICAL");
                 assertThat(alarm("SDPS-A", 401)).isNotNull().extracting(AlarmDto::instanceName).isEqualTo("RAD-N");
                 assertThat(service("SURV")).isNotNull().extracting(ServiceDto::status).isEqualTo("OK");
+                assertCorrelatedTo101("SDPS-A", 401);
+                assertCorrelatedTo101("SDPS-B", 401);
+                assertCorrelatedTo101("RAD-N", 201);
+                assertCorrelatedTo101("RAD-N", 202);
             });
             await().atMost(ofSeconds(5)).until(() -> sse.has("equipment",
                     m -> m.data().contains("\"id\":\"RAD-N\"") && m.data().contains("\"health\":\"FAILED\"")));

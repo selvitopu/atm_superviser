@@ -10,6 +10,8 @@ import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
+import io.github.selvitopu.atmsup.supervisor.alarms.Correlation;
+import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationRule;
 import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.Contact;
 import io.github.selvitopu.atmsup.supervisor.board.DomainEvent;
@@ -242,5 +244,33 @@ class JpaBoardStoreIT {
         assertThat(store.loadOpenAlarms()).containsExactly(a2);
         assertThat(alarms.findById("a1")).get().extracting(AlarmEntity::toAlarm)
                 .isEqualTo(acknowledged(a1, AlarmState.CLOSED));
+    }
+
+    @Test
+    void openAlarmsLoadWithTheirCorrelation() {
+        Alarm cause = deviceAlarm("a1", AlarmState.ACTIVE_UNACK);
+        Alarm correlated = alarm("a2", new AlarmKey("SDPS-A", 401, 0), AlarmState.ACTIVE_UNACK)
+                .withCorrelation(new Correlation("a1", "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
+
+        store.commit(List.of(event(EventType.ALARM_RAISED, cause, Via.TRAP, null),
+                event(EventType.ALARM_RAISED, correlated, Via.TRAP, null)));
+        em.flush();
+        em.clear();
+
+        assertThat(store.loadOpenAlarms()).containsExactlyInAnyOrder(cause, correlated);
+        assertThat(alarms.findById("a2")).get().extracting(a -> a.toAlarm().correlation())
+                .isEqualTo(new Correlation("a1", "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
+    }
+
+    @Test
+    void aPartialCorrelationIsRejected() {
+        try (CapturedLogs logs = new CapturedLogs("org.hibernate.orm.jdbc.error")) {
+            assertThatThrownBy(() -> em.getEntityManager().createNativeQuery(
+                    "insert into alarm (id, equipment_id, code, instance, severity, text, source, state, suppressed,"
+                            + " raised_at, cause_id, cause_equipment_id, cause_code, correlation_rule)"
+                            + " values ('p1', 'SDPS-A', 401, 0, 'MINOR', 'x', 'DEVICE', 'ACTIVE_UNACK', false, now(),"
+                            + " 'a1', 'RAD-N', 101, null)").executeUpdate())
+                    .hasMessageContaining("ck_alarm_correlation");
+        }
     }
 }

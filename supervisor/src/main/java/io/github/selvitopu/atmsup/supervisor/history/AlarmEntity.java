@@ -5,6 +5,8 @@ import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmSource;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
+import io.github.selvitopu.atmsup.supervisor.alarms.Correlation;
+import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationRule;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -76,6 +78,20 @@ public class AlarmEntity {
     @Column(name = "cleared_at")
     private Instant clearedAt;
 
+    @Column(name = "cause_id", length = 36)
+    private String causeId;
+
+    @Column(name = "cause_equipment_id", length = 16)
+    private String causeEquipmentId;
+
+    @Column(name = "cause_code")
+    private Integer causeCode;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "correlation_rule", length = 16)
+    private CorrelationRule correlationRule;
+
     protected AlarmEntity() {
     }
 
@@ -103,10 +119,16 @@ public class AlarmEntity {
         ackedBy = a.ackedBy();
         ackComment = a.ackComment();
         clearedAt = a.clearedAt();
+        Correlation c = a.correlation();
+        causeId = c == null ? null : c.causeId();
+        causeEquipmentId = c == null ? null : c.causeEquipmentId();
+        causeCode = c == null ? null : c.causeCode();
+        correlationRule = c == null ? null : c.rule();
     }
 
     public Alarm toAlarm() {
         return new Alarm(id, new AlarmKey(equipmentId, code, instance), instanceName, severity, text, source, state,
-                suppressed, raisedAt, ackedAt, ackedBy, ackComment, clearedAt);
+                suppressed, raisedAt, ackedAt, ackedBy, ackComment, clearedAt,
+                causeId == null ? null : new Correlation(causeId, causeEquipmentId, causeCode, correlationRule));
     }
 }

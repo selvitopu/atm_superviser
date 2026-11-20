@@ -27,9 +27,13 @@ import io.github.selvitopu.atmsup.mib.EquipmentStatus;
 import io.github.selvitopu.atmsup.mib.Role;
 import io.github.selvitopu.atmsup.mib.Severity;
 import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
+import io.github.selvitopu.atmsup.supervisor.alarms.AlarmCorrelator;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmEngine;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmKey;
 import io.github.selvitopu.atmsup.supervisor.alarms.AlarmState;
+import io.github.selvitopu.atmsup.supervisor.alarms.Correlation;
+import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationRule;
+import io.github.selvitopu.atmsup.supervisor.alarms.CorrelationTopology;
 import io.github.selvitopu.atmsup.supervisor.alarms.Via;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.AcknowledgeAlarms;
 import io.github.selvitopu.atmsup.supervisor.board.BoardInput.RecordCommand;
@@ -73,7 +77,8 @@ class BoardDeciderTest {
             new ServiceEvaluator(inv, List.of(new SurveillanceRule(), new FlightDataRule()));
     private final AtomicInteger seq = new AtomicInteger();
     private final BoardDecider decider = new BoardDecider(inv, new StatusDeriver(), evaluator,
-            new AlarmEngine(() -> "a" + seq.incrementAndGet()), Duration.ofSeconds(30));
+            new AlarmEngine(() -> "a" + seq.incrementAndGet()), new AlarmCorrelator(CorrelationTopology.from(inv)),
+            Duration.ofSeconds(30));
 
     // ---- fixtures
 
@@ -456,6 +461,7 @@ class BoardDeciderTest {
         assertThat(d.events()).filteredOn(AlarmEvent.class::isInstance).map(AlarmEvent.class::cast)
                 .extracting(AlarmEvent::type, e -> e.alarm().key(), AlarmEvent::via)
                 .containsExactly(tuple(ALARM_RAISED, new AlarmKey("RAD-N", 101, 0), Via.RESYNC),
+                        tuple(ALARM_UPDATED, new AlarmKey("RAD-N", 201, 0), Via.CORRELATION),
                         tuple(ALARM_CLEARED, new AlarmKey("RAD-N", 201, 0), Via.RESYNC));
         Map<AlarmKey, Alarm> after = merged(lb, d).board().openAlarms();
         assertThat(after.get(new AlarmKey("RAD-N", 101, 0)))
@@ -525,6 +531,75 @@ class BoardDeciderTest {
             assertThat(d.events()).extracting(DomainEvent::type).doesNotContain(TELEMETRY_SAMPLED);
             assertThat(d.telemetry().get("RAD-N").lastSampleAt()).isEqualTo(t0);
         }
+    }
+
+    // ---- correlation
+
+    private static Notification sensorN(Severity severity) {
+        return new AlarmRaisedNotification("SDPS-A", t0, 401, 0, "RAD-N", severity, "Sensor input lost");
+    }
+
+    @Test
+    void aCauseFirstAndACorrelatedFirstGiveTheSameLinks() {
+        LiveBoard lb = allOperational();
+        lb = merged(lb, decider.decide(lb, new TrapReceived(raisedN("RAD-N", 101, CRITICAL)), t0));
+        lb = merged(lb, decider.decide(lb, new TrapReceived(sensorN(MINOR)), t0));
+        Alarm cause = lb.board().openAlarms().get(new AlarmKey("RAD-N", 101, 0));
+        Correlation link = new Correlation(cause.id(), "RAD-N", 101, CorrelationRule.SENSOR_INPUT);
+        assertThat(lb.board().openAlarms().get(new AlarmKey("SDPS-A", 401, 0)).correlation()).isEqualTo(link);
+
+        LiveBoard rev = allOperational();
+        rev = merged(rev, decider.decide(rev, new TrapReceived(sensorN(MINOR)), t0));
+        assertThat(rev.board().openAlarms().get(new AlarmKey("SDPS-A", 401, 0)).correlation()).isNull();
+        Decision d = decider.decide(rev, new TrapReceived(raisedN("RAD-N", 101, CRITICAL)), t0);
+
+        assertThat(d.events()).filteredOn(AlarmEvent.class::isInstance).map(AlarmEvent.class::cast)
+                .extracting(AlarmEvent::type, e -> e.alarm().key(), AlarmEvent::via)
+                .containsExactly(tuple(ALARM_RAISED, new AlarmKey("RAD-N", 101, 0), Via.TRAP),
+                        tuple(ALARM_UPDATED, new AlarmKey("SDPS-A", 401, 0), Via.CORRELATION));
+        rev = merged(rev, d);
+        Alarm cause2 = rev.board().openAlarms().get(new AlarmKey("RAD-N", 101, 0));
+        assertThat(rev.board().openAlarms().get(new AlarmKey("SDPS-A", 401, 0)).correlation())
+                .isEqualTo(new Correlation(cause2.id(), "RAD-N", 101, CorrelationRule.SENSOR_INPUT));
+    }
+
+    @Test
+    void aResyncRaiseIsCorrelated() {
+        LiveBoard lb = allOperational();
+        var table = List.of(
+                new DeviceAlarm(101, 0, "", CRITICAL, "Transmitter fault", t0.minusSeconds(20)),
+                new DeviceAlarm(201, 0, "", MINOR, "Fault 201", t0.minusSeconds(10)),
+                new DeviceAlarm(202, 0, "", MINOR, "Fault 202", t0.minusSeconds(10)));
+
+        Decision d = decider.decide(lb, new PollSucceeded(obs("RAD-N", OPERATIONAL, table), lb.generation("RAD-N")),
+                t0);
+
+        Map<AlarmKey, Alarm> after = merged(lb, d).board().openAlarms();
+        String causeId = after.get(new AlarmKey("RAD-N", 101, 0)).id();
+        assertThat(after.get(new AlarmKey("RAD-N", 101, 0)).correlation()).isNull();
+        for (int code : new int[] {201, 202}) {
+            assertThat(after.get(new AlarmKey("RAD-N", code, 0)).correlation())
+                    .isEqualTo(new Correlation(causeId, "RAD-N", 101, CorrelationRule.SAME_UNIT));
+        }
+    }
+
+    @Test
+    void aResyncChangeKeepsALinkMadeEarlierInTheSameDecision() {
+        LiveBoard lb = allOperational();
+        lb = merged(lb, decider.decide(lb, new TrapReceived(raisedN("RAD-N", 201, MINOR)), t0));
+        var table = List.of(
+                new DeviceAlarm(101, 0, "", CRITICAL, "Transmitter fault", t0.minusSeconds(20)),
+                new DeviceAlarm(201, 0, "", Severity.MAJOR, "Transmitter fault", t0.minusSeconds(10)));
+
+        Decision d = decider.decide(lb, new PollSucceeded(obs("RAD-N", OPERATIONAL, table), lb.generation("RAD-N")),
+                t0.plusSeconds(5));
+
+        Map<AlarmKey, Alarm> after = merged(lb, d).board().openAlarms();
+        Alarm a201 = after.get(new AlarmKey("RAD-N", 201, 0));
+        assertThat(a201.severity()).isEqualTo(Severity.MAJOR);
+        assertThat(a201.correlation()).isEqualTo(
+                new Correlation(after.get(new AlarmKey("RAD-N", 101, 0)).id(), "RAD-N", 101,
+                        CorrelationRule.SAME_UNIT));
     }
 
     // ---- traps and acknowledgements

@@ -6,6 +6,7 @@ import io.github.selvitopu.atmsup.supervisor.alarms.Alarm;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.AlarmDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.BoardDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ContactDto;
+import io.github.selvitopu.atmsup.supervisor.api.Dtos.CorrelationDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.EquipmentDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.ServiceDto;
 import io.github.selvitopu.atmsup.supervisor.api.Dtos.TelemetryDto;
@@ -75,7 +76,10 @@ public class DtoMapper {
         boolean unconfirmed = eq != null && eq.health() == Health.UNKNOWN;
         return new AlarmDto(a.id(), a.key().equipmentId(), a.key().code(), a.key().instance(), a.instanceName(),
                 a.severity().name(), a.text(), a.source().name(), a.state().name(), a.suppressed(), unconfirmed,
-                a.raisedAt(), a.ackedAt(), a.ackedBy(), a.ackComment(), a.clearedAt());
+                a.raisedAt(), a.ackedAt(), a.ackedBy(), a.ackComment(), a.clearedAt(),
+                a.correlation() == null ? null : new CorrelationDto(a.correlation().causeId(),
+                        a.correlation().causeEquipmentId(), a.correlation().causeCode(),
+                        a.correlation().rule().name()));
     }
 
     public ServiceDto service(ServiceState s) {

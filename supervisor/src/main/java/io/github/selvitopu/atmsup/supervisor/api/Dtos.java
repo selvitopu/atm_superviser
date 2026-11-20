@@ -36,7 +36,11 @@ public final class Dtos {
     public record AlarmDto(String id, String equipmentId, int code, int instance, String instanceName,
                            String severity, String text, String source, String state, boolean suppressed,
                            boolean unconfirmed, Instant raisedAt, Instant ackedAt, String ackedBy,
-                           String ackComment, Instant clearedAt) {
+                           String ackComment, Instant clearedAt, CorrelationDto correlation) {
+    }
+
+    /** The cause an alarm is correlated to, as stored when the link was made. */
+    public record CorrelationDto(String causeId, String causeEquipmentId, int causeCode, String rule) {
     }
 
     public record EquipmentDetailDto(EquipmentDto equipment, List<EventSummaryDto> recentEvents) {
