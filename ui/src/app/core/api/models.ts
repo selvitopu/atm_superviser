@@ -152,6 +152,9 @@ export interface ReplayBoardDto {
   at: string;
   noData: boolean;
   gapThresholdSeconds: number;
+  /** The newest non-sample event at or before {@code at}; null when there is none. */
+  lastRecordedAt: string | null;
+  lastRecordedType: string | null;
   board: BoardDto;
 }
 

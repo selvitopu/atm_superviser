@@ -280,6 +280,8 @@ class BoardHistoryIT {
         assertThat(history.boardAt(t(100)).noData()).as("a stop starts the gap at once").isTrue();
         ReplayBoard down = history.boardAt(t(300));
         assertThat(down.noData()).isTrue();
+        assertThat(down.lastRecordedAt()).isEqualTo(t(100));
+        assertThat(down.lastRecordedType()).isEqualTo("SUPERVISOR_STOPPING");
         assertThat(down.board()).as("the board as last recorded").isEqualTo(history.fold(t(100)));
         assertThat(history.boardAt(t(400)).noData()).isFalse();
         assertThat(history.boardAt(t(549)).noData()).isFalse();
@@ -317,6 +319,8 @@ class BoardHistoryIT {
         assertThat(before.board()).isEqualTo(Board.initial(HistoryTestBeans.INVENTORY, List.of()));
         assertThat(before.samples()).isEmpty();
         assertThat(before.noData()).isTrue();
+        assertThat(before.lastRecordedAt()).isNull();
+        assertThat(before.lastRecordedType()).isNull();
     }
 
     /**

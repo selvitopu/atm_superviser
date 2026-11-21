@@ -22,7 +22,8 @@ const APPLIED_KINDS = new Set(['equipment', 'service', 'alarm', 'flood', 'superv
  * A second {@link BoardSource}: loads the board at an instant from the recorded history and plays the events after it
  * forward on a virtual clock. Times are epoch milliseconds. It injects only the history API (HttpClient): it has no
  * dependency on the live stream or the live store, so a replay can never show, or be changed by, live data.
- * Provided by the Replay page only.
+ * Provided by the Replay page only. {@code previous()} steps to the newest event time seen in this window, or to the
+ * window start when none is known: the server has no previous-event endpoint.
  */
 @Injectable()
 export class ReplayStore extends BoardSource {
@@ -69,7 +70,6 @@ export class ReplayStore extends BoardSource {
   private seekNoData = false;
   private lastNonSampleAt: number | null = null;
   private lastWasStopping = false;
-  private seekedAt = 0;
 
   /** Times of every non-sample event seen in this window; "previous" walks back over them. */
   private knownTimes: number[] = [];
@@ -171,12 +171,11 @@ export class ReplayStore extends BoardSource {
         this.boardSignal.set(replay.board);
         this.thresholdMs = replay.gapThresholdSeconds * 1000;
         this.seekNoData = replay.noData;
-        this.lastNonSampleAt = null;
-        this.lastWasStopping = false;
+        this.lastNonSampleAt = replay.lastRecordedAt === null ? null : Date.parse(replay.lastRecordedAt);
+        this.lastWasStopping = replay.lastRecordedType === 'SUPERVISOR_STOPPING';
         this.noDataSignal.set(replay.noData);
         this.cursor = replay.board.lastEventId;
         this.fetchedThrough = at;
-        this.seekedAt = at;
         this.loading = false;
         this.lastTick = Date.now();
         this.prefetch();
@@ -256,16 +255,15 @@ export class ReplayStore extends BoardSource {
   }
 
   /**
-   * The gap rule: no data once the last non-sample event is a threshold old, or was the supervisor stopping. Until an
-   * event is applied the answer of the seek stands, and when it found data the seek instant counts as the last data.
+   * The gap rule: no data once the last non-sample event is a threshold old, or was the supervisor stopping. A seek
+   * seeds that event from the board's {@code lastRecorded*} fields; with none recorded the seek's answer stands.
    */
   private evaluateGap(): void {
-    const at = this.atSignal();
     if (this.lastNonSampleAt === null) {
-      this.noDataSignal.set(this.seekNoData || at - this.seekedAt >= this.thresholdMs);
+      this.noDataSignal.set(this.seekNoData);
       return;
     }
-    this.noDataSignal.set(this.lastWasStopping || at - this.lastNonSampleAt >= this.thresholdMs);
+    this.noDataSignal.set(this.lastWasStopping || this.atSignal() - this.lastNonSampleAt >= this.thresholdMs);
   }
 
   /** Keeps at least the next 60 s of virtual time loaded; {@code force} loads one page whatever the buffer holds. */

@@ -104,13 +104,16 @@ class ReplayControllerTest {
         units.put("RAD-N", radar);
         Board withRadar = new Board(units, board.services(), board.openAlarms(), 42);
         Sample sample = new Sample("RAD-N", T.minusSeconds(20), Map.of("plotsPerScan", 300L), Map.of());
-        given(history.boardAt(T)).willReturn(new ReplayBoard(T, withRadar, Map.of("RAD-N", sample), false));
+        given(history.boardAt(T)).willReturn(new ReplayBoard(T, withRadar, Map.of("RAD-N", sample), false,
+                T.minusSeconds(80), "SUPERVISOR_HEARTBEAT"));
 
         mvc.perform(get("/api/v1/history/board").param("at", "2026-01-01T10:00:00Z"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.at").value("2026-01-01T10:00:00Z"))
                 .andExpect(jsonPath("$.noData").value(false))
                 .andExpect(jsonPath("$.gapThresholdSeconds").value(90))
+                .andExpect(jsonPath("$.lastRecordedAt").value("2026-01-01T09:58:40Z"))
+                .andExpect(jsonPath("$.lastRecordedType").value("SUPERVISOR_HEARTBEAT"))
                 .andExpect(jsonPath("$.board.lastEventId").value(42))
                 .andExpect(jsonPath("$.board.equipment[?(@.id=='RAD-N')].health").value("FAILED"))
                 .andExpect(jsonPath("$.board.equipment[?(@.id=='RAD-N')].sampledAt").value("2026-01-01T09:59:40Z"))
@@ -277,7 +280,7 @@ class ReplayControllerTest {
     @Test
     @WithMockUser(roles = "VIEWER")
     void aViewerMayReplay() throws Exception {
-        given(history.boardAt(T)).willReturn(new ReplayBoard(T, Board.initial(inventory, List.of()), Map.of(), true));
+        given(history.boardAt(T)).willReturn(new ReplayBoard(T, Board.initial(inventory, List.of()), Map.of(), true, null, null));
         mvc.perform(get("/api/v1/history/board").param("at", "2026-01-01T10:00:00Z"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.noData").value(true));

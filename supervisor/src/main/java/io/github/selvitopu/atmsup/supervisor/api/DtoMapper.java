@@ -94,7 +94,8 @@ public class DtoMapper {
                     e.unknownReason(), e.maintenance(), e.role(), e.healthSince(), e.contact(), s.values(),
                     s.tables(), s.observedAt());
         }, new Board(Map.of(), Map.of(), Map.of(), 0));
-        return new ReplayBoardDto(rb.at(), rb.noData(), gapThresholdSeconds, board);
+        return new ReplayBoardDto(rb.at(), rb.noData(), gapThresholdSeconds, rb.lastRecordedAt(),
+                rb.lastRecordedType(), board);
     }
 
     public TelemetryDto telemetry(String equipmentId, Telemetry t, Instant serverTime) {

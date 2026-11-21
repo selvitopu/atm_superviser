@@ -67,7 +67,8 @@ public class BoardHistory {
                 events.findFirstByTypeNotAndOccurredAtLessThanEqualOrderByOccurredAtDescIdDesc(SAMPLED, t);
         boolean noData = gapRule.noDataAt(t, newest.map(EventLogEntity::getOccurredAt).orElse(null),
                 newest.map(EventLogEntity::getType).orElse(null));
-        return new ReplayBoard(t, foldAt(t), samplesAt(t), noData);
+        return new ReplayBoard(t, foldAt(t), samplesAt(t), noData,
+                newest.map(EventLogEntity::getOccurredAt).orElse(null), newest.map(EventLogEntity::getType).orElse(null));
     }
 
     /**

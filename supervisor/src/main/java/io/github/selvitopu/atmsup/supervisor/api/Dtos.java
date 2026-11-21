@@ -76,7 +76,8 @@ public final class Dtos {
      * The board at {@code at} for the Replay screen. {@code sampledAt} of each unit is when its values were sampled;
      * {@code gapThresholdSeconds} is the gap rule's threshold, for the browser to apply during play.
      */
-    public record ReplayBoardDto(Instant at, boolean noData, long gapThresholdSeconds, BoardDto board) {
+    public record ReplayBoardDto(Instant at, boolean noData, long gapThresholdSeconds, Instant lastRecordedAt,
+                                 String lastRecordedType, BoardDto board) {
     }
 
     /** One stored event for the replay feed; {@code message} is what the live stream would have carried. */

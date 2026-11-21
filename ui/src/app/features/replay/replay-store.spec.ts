@@ -17,7 +17,7 @@ const t = (secondsAfterFrom: number) => FROM + secondsAfterFrom * 1000;
 
 function boardAt(over: Partial<ReplayBoardDto> = {}, b: Partial<BoardDto> = {}): ReplayBoardDto {
   return {
-    at: iso(FROM), noData: false, gapThresholdSeconds: 90,
+    at: iso(FROM), noData: false, gapThresholdSeconds: 90, lastRecordedAt: iso(FROM), lastRecordedType: 'SUPERVISOR_HEARTBEAT',
     board: board({ lastEventId: 10, equipment: [eq('RAD-N', { values: { plots: 1 } })], ...b }), ...over,
   };
 }
@@ -160,6 +160,24 @@ describe('ReplayStore', () => {
     expect(store.noData()).toBe(false);
     vi.advanceTimersByTime(1000);
     expect(store.at()).toBe(t(100));
+    expect(store.noData()).toBe(true);
+  });
+
+  it('afterASeekTheGapStartsOneThresholdAfterTheLastRecordedEvent', () => {
+    openWith([], false, FROM, { lastRecordedAt: iso(FROM - 80_000) });
+    expect(store.noData()).toBe(false);
+    store.play();
+    vi.advanceTimersByTime(9_000);
+    expect(store.noData()).toBe(false);
+    vi.advanceTimersByTime(1_000);
+    expect(store.at()).toBe(t(10));
+    expect(store.noData()).toBe(true);
+  });
+
+  it('aStopRecordedBeforeTheSeekKeepsNoDataOn', () => {
+    openWith([], false, FROM, { lastRecordedType: 'SUPERVISOR_STOPPING' });
+    store.play();
+    vi.advanceTimersByTime(500);
     expect(store.noData()).toBe(true);
   });
 
