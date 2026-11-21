@@ -8,7 +8,7 @@ export function eq(id: string, over: Partial<EquipmentDto> = {}): EquipmentDto {
       reachable: true, lastContactAt: '2026-11-13T14:00:00Z', lostAt: null,
       lastPollAt: '2026-11-13T14:00:00Z', consecutiveFailures: 0, pollIntervalMs: 5000,
     },
-    values: {}, tables: {}, ...over,
+    values: {}, tables: {}, sampledAt: null, ...over,
   };
 }
 

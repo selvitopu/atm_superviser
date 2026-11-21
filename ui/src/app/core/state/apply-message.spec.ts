@@ -22,6 +22,14 @@ describe('applyMessage', () => {
     expect(out.equipment[0].contact.consecutiveFailures).toBe(2);
   });
 
+  it('anEquipmentMessageKeepsSampledAt', () => {
+    const current = eq('RAD-N', { sampledAt: '2026-11-13T14:00:20Z' });
+    const out = applyMessage(board({ equipment: [current], lastEventId: 1 }),
+      { kind: 'equipment', id: 2, data: eq('RAD-N', { health: 'FAILED', sampledAt: null }) });
+    expect(out.equipment[0].health).toBe('FAILED');
+    expect(out.equipment[0].sampledAt).toBe('2026-11-13T14:00:20Z');
+  });
+
   it('ignores events already contained in the board', () => {
     const b = board({ lastEventId: 20 });
     expect(applyMessage(b, { kind: 'service', id: 20, data: svc('SURV', 'FAILED') })).toBe(b);

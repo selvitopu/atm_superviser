@@ -1,4 +1,4 @@
-import { AlarmDto, BoardDto, EquipmentDto, Severity, StreamMessage } from '../api/models';
+import { AlarmDto, BoardDto, EquipmentDto, SampleDto, Severity, StreamMessage } from '../api/models';
 
 const SEVERITY_RANK: Record<Severity, number> = {
   CRITICAL: 0, MAJOR: 1, MINOR: 2, WARNING: 3, INDETERMINATE: 4, CLEARED: 5,
@@ -17,6 +17,7 @@ function applyEquipment(board: BoardDto, incoming: EquipmentDto): BoardDto['equi
     ...incoming,
     values: current.values,
     tables: current.tables,
+    sampledAt: current.sampledAt,
     contact: {
       ...incoming.contact,
       lastPollAt: current.contact.lastPollAt,
@@ -66,4 +67,28 @@ export function applyMessage(board: BoardDto, msg: StreamMessage): BoardDto {
   }
   const next = applyContent(board, msg);
   return id === null ? next : { ...next, lastEventId: Math.max(board.lastEventId, id) };
+}
+
+/** What the replay store folds in: the live messages plus the replay-only {@code sample}. */
+export type ReplayStreamMessage = StreamMessage | { kind: 'sample'; id: number; data: SampleDto };
+
+/**
+ * Applies one replay message. Only the replay store calls this: {@code sample} is not a live kind, so
+ * {@link applyMessage} and the live path never see it. A sample sets the unit's values and {@code sampledAt}.
+ */
+export function applyReplayMessage(board: BoardDto, msg: ReplayStreamMessage): BoardDto {
+  if (msg.kind !== 'sample') {
+    return applyMessage(board, msg);
+  }
+  if (msg.id <= board.lastEventId) {
+    return board;
+  }
+  const s = msg.data;
+  const equipment = board.equipment.map(e => e.id !== s.equipmentId ? e : {
+    ...e,
+    values: { ...e.values, ...s.values },
+    tables: { ...e.tables, ...s.tables },
+    sampledAt: s.observedAt,
+  });
+  return { ...board, equipment, lastEventId: msg.id };
 }

@@ -47,6 +47,8 @@ export interface EquipmentDto {
   contact: ContactDto;
   values: Values;
   tables: Tables;
+  /** When the shown values were sampled; set on the replay board only, null live. */
+  sampledAt: string | null;
 }
 
 export interface ContactDto {
@@ -143,6 +145,44 @@ export type StreamMessage =
   | { kind: 'resync' }
   | { kind: 'open' }
   | { kind: 'error' };
+
+// --- replay (history module) ------------------------------------------------------------------------------------
+
+export interface ReplayBoardDto {
+  at: string;
+  noData: boolean;
+  gapThresholdSeconds: number;
+  board: BoardDto;
+}
+
+/** The replay-only message kind {@code sample}; the live stream never carries it. */
+export interface SampleDto {
+  equipmentId: string;
+  observedAt: string;
+  values: Values;
+  tables: Tables;
+}
+
+/** {@code kind} is a live kind, or the replay-only {@code sample} or {@code command}. */
+export interface ReplayMessageDto {
+  kind: string;
+  data: unknown;
+}
+
+export interface ReplayEventDto {
+  id: number;
+  occurredAt: string;
+  type: string;
+  equipmentId: string | null;
+  actor: string | null;
+  summary: string;
+  message: ReplayMessageDto;
+}
+
+export interface ReplayEventsDto {
+  events: ReplayEventDto[];
+  more: boolean;
+}
 
 // --- sign-in and accounts (security module) ---------------------------------------------------------------------
 
