@@ -76,9 +76,14 @@ public record IncidentSummary(Map<String, Integer> alarmsBySeverity, int suppres
     public record Cause(String alarmId, String equipmentId, String severity, String text, int correlated) {
     }
 
-    /** A period in which a service was not OK; {@code end} is null while it lasted to the end of the window. */
+    /**
+     * A period in which a service was not OK; {@code end} is null while it lasted to the end of the window. A period
+     * already open at the window's start has {@code start} = the window's start and {@code startedBeforeFrom} true:
+     * the board only knows when the service took its current status, not when it first left OK. The duration is the
+     * time inside the window.
+     */
     public record Degradation(String service, String label, Instant start, Instant end, String worst,
-                              long durationSeconds, boolean endedByRestart) {
+                              long durationSeconds, boolean endedByRestart, boolean startedBeforeFrom) {
     }
 
     /** One command; the outcome is {@code NOT_RECORDED} for an intent nothing answered. */
@@ -135,7 +140,7 @@ public record IncidentSummary(Map<String, Integer> alarmsBySeverity, int suppres
         List<CommandRow> commands = new ArrayList<>();
         Map<String, Integer> commandCounts = commands(events, commands);
         return new IncidentSummary(bySeverity, suppressed, causes(causeAlarms, latestPerAlarm),
-                degradations(to, atFrom, forState, restarts), commands, commandCounts,
+                degradations(from, to, atFrom, forState, restarts), commands, commandCounts,
                 floods(timeline), contactLosses(from, atFrom, forState, restarts), timeline.gaps(), restarts,
                 open(atTo, false), open(atTo, true));
     }
@@ -216,16 +221,16 @@ public record IncidentSummary(Map<String, Integer> alarmsBySeverity, int suppres
         };
     }
 
-    private record OpenPeriod(Instant start, ServiceStatus worst) {
+    private record OpenPeriod(Instant start, ServiceStatus worst, boolean beforeFrom) {
     }
 
-    private static List<Degradation> degradations(Instant to, Board atFrom, List<DomainEvent> events,
+    private static List<Degradation> degradations(Instant from, Instant to, Board atFrom, List<DomainEvent> events,
                                                   List<Instant> restarts) {
         Map<ServiceId, OpenPeriod> open = new EnumMap<>(ServiceId.class);
         List<Degradation> done = new ArrayList<>();
         for (ServiceState s : atFrom.services().values()) {
             if (s.status() != ServiceStatus.OK) {
-                open.put(s.id(), new OpenPeriod(s.since(), s.status()));
+                open.put(s.id(), new OpenPeriod(from, s.status(), true));
             }
         }
         for (DomainEvent e : events) {
@@ -238,9 +243,9 @@ public record IncidentSummary(Map<String, Integer> alarmsBySeverity, int suppres
                         open.remove(s.id());
                     }
                 } else if (p == null) {
-                    open.put(s.id(), new OpenPeriod(se.occurredAt(), s.status()));
+                    open.put(s.id(), new OpenPeriod(se.occurredAt(), s.status(), false));
                 } else if (rank(s.status()) > rank(p.worst())) {
-                    open.put(s.id(), new OpenPeriod(p.start(), s.status()));
+                    open.put(s.id(), new OpenPeriod(p.start(), s.status(), p.beforeFrom()));
                 }
             } else if (isRestart(e)) {
                 open.forEach((id, p) -> done.add(degradation(id, p, e.occurredAt(), to, restarts)));
@@ -256,7 +261,7 @@ public record IncidentSummary(Map<String, Integer> alarmsBySeverity, int suppres
                                            List<Instant> restarts) {
         long seconds = Duration.between(p.start(), end != null ? end : to).toSeconds();
         return new Degradation(id.name(), id.label(), p.start(), end, p.worst().name(), Math.max(0, seconds),
-                end != null && restarts.contains(end));
+                end != null && restarts.contains(end), p.beforeFrom());
     }
 
     private static List<ContactLoss> contactLosses(Instant from, Board atFrom, List<DomainEvent> events,

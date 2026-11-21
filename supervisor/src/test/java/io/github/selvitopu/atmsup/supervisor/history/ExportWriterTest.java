@@ -22,7 +22,7 @@ class ExportWriterTest {
     private static IncidentSummary summary() {
         return new IncidentSummary(Map.of("CRITICAL", 2, "MAJOR", 0), 1,
                 List.of(new IncidentSummary.Cause("c1", "RAD-N", "CRITICAL", "Radar failure", 4)),
-                List.of(new IncidentSummary.Degradation("SURV", "Surveillance", FROM, null, "FAILED", 7200, false)),
+                List.of(new IncidentSummary.Degradation("SURV", "Surveillance", FROM, null, "FAILED", 7200, false, true)),
                 List.of(new IncidentSummary.CommandRow(FROM, "RAD-N", "RESTART", "supervisor1", "DONE", "c-1")),
                 Map.of("DONE", 1),
                 List.of(new IncidentSummary.Flood(FROM, TO, true)),
@@ -57,7 +57,7 @@ class ExportWriterTest {
                 .contains("# generated_by: supervisor1\r\n")
                 .contains("# alarms_critical: 2\r\n").contains("# alarms_suppressed: 1\r\n")
                 .contains("# cause: RAD-N 101")
-                .contains("# degradation: ").contains("# command: ").contains("# flood: ")
+                .contains("# degradation: SURV from before 2026-01-01T10:00:00Z").contains("# command: ").contains("# flood: ")
                 .contains("# contact_loss: ").contains("# gap: ").contains("# restart: 2026-01-01T12:30:00Z");
         int header = java.util.Arrays.asList(lines).indexOf("id,occurred_at,type,equipment,actor,summary");
         assertThat(header).isPositive();

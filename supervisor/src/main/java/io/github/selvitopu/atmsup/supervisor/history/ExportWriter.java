@@ -52,7 +52,7 @@ public class ExportWriter {
         comment(out, "alarms_suppressed", s.suppressedAlarms());
         s.causes().forEach(c -> comment(out, "cause", c.equipmentId() + " 101 " + c.text() + " [" + c.severity()
                 + "] alarm " + c.alarmId() + ", correlated alarms " + c.correlated()));
-        s.degradations().forEach(g -> comment(out, "degradation", g.service() + " from " + g.start() + " to "
+        s.degradations().forEach(g -> comment(out, "degradation", g.service() + " from " + (g.startedBeforeFrom() ? "before " : "") + g.start() + " to "
                 + (g.end() == null ? "still" : g.end()) + ", worst " + g.worst() + ", " + g.durationSeconds() + " s"
                 + (g.endedByRestart() ? ", ended by supervisor restart" : "")));
         s.commands().forEach(c -> comment(out, "command", c.at() + " " + c.equipmentId() + " " + c.command() + " by "

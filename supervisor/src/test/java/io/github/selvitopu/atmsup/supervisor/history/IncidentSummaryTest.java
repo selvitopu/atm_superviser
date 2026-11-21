@@ -163,10 +163,11 @@ class IncidentSummaryTest {
         assertThat(s.degradations()).hasSize(3);
         IncidentSummary.Degradation surv = s.degradations().getFirst();
         assertThat(surv.service()).isEqualTo("SURV");
-        assertThat(surv.start()).isEqualTo(FROM.minusSeconds(600));
+        assertThat(surv.start()).isEqualTo(FROM);
+        assertThat(surv.startedBeforeFrom()).isTrue();
         assertThat(surv.end()).isEqualTo(at(20));
         assertThat(surv.worst()).isEqualTo("FAILED");
-        assertThat(surv.durationSeconds()).isEqualTo(600 + 20 * 60);
+        assertThat(surv.durationSeconds()).isEqualTo(20 * 60);
         assertThat(surv.endedByRestart()).isFalse();
         IncidentSummary.Degradation fd = s.degradations().get(1);
         assertThat(fd).extracting(IncidentSummary.Degradation::service, IncidentSummary.Degradation::start,
@@ -281,16 +282,33 @@ class IncidentSummaryTest {
     }
 
     @Test
+    void aPeriodOpenAtFromStartsAtFromAndSaysSo() {
+        // DEGRADED at 09:00 then FAILED at 09:50: the board only knows the 09:50 change, so the start is not claimed
+        ServiceState failedSince0950 = new ServiceState(ServiceId.SURV, ServiceStatus.FAILED, null, false, false,
+                List.of(), FROM.minusSeconds(600));
+        Board atFrom = board(5, Map.of(ServiceId.SURV, failedSince0950), Map.of(), List.of());
+
+        IncidentSummary s = summarise(atFrom, empty(), List.of(stored(service(at(30), ServiceId.SURV,
+                ServiceStatus.OK))), NO_MARKS);
+
+        assertThat(s.degradations()).singleElement().satisfies(d -> {
+            assertThat(d.start()).isEqualTo(FROM);
+            assertThat(d.startedBeforeFrom()).isTrue();
+            assertThat(d.worst()).isEqualTo("FAILED");
+            assertThat(d.durationSeconds()).isEqualTo(30 * 60);
+        });
+    }
+
+    @Test
     void eventsAlreadyFoldedIntoTheStateAtFromDoNotOpenASecondPeriod() {
-        ServiceState degraded = new ServiceState(ServiceId.SURV, ServiceStatus.DEGRADED, null, false, false,
-                List.of(), FROM);
-        Board atFrom = board(100, Map.of(ServiceId.SURV, degraded), Map.of(), List.of());
-        // id 100 is the event at FROM that the board at FROM already holds
-        List<StoredEvent> events = List.of(stored(service(FROM, ServiceId.SURV, ServiceStatus.DEGRADED)));
+        // ids 100 and 101 are at FROM and already folded into the board at FROM, where SURV is OK again
+        Board atFrom = board(101, Map.of(ServiceId.SURV, new ServiceState(ServiceId.SURV, ServiceStatus.OK, null,
+                false, false, List.of(), FROM)), Map.of(), List.of());
+        List<StoredEvent> events = List.of(stored(service(FROM, ServiceId.SURV, ServiceStatus.DEGRADED)),
+                stored(service(FROM, ServiceId.SURV, ServiceStatus.OK)));
 
         IncidentSummary s = summarise(atFrom, empty(), events, NO_MARKS);
 
-        assertThat(s.degradations()).singleElement().extracting(IncidentSummary.Degradation::start)
-                .isEqualTo(FROM);
+        assertThat(s.degradations()).isEmpty();
     }
 }
