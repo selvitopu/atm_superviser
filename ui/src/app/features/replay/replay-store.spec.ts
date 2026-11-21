@@ -181,6 +181,51 @@ describe('ReplayStore', () => {
     expect(store.noData()).toBe(true);
   });
 
+  it('theClockWaitsForTheNextPage', () => {
+    openWith([heartbeat(11, 3600 - 110)], true, TO - 120_000);
+    const second = eventsReq(); // the next page stays pending
+    store.setSpeed(60);
+    store.play();
+    vi.advanceTimersByTime(2000);
+    expect(store.at()).toBe(TO - 110_000);
+    expect(store.playing()).toBe(true);
+    second.flush({ events: [failed(12, 3600 - 10)], more: false });
+    vi.advanceTimersByTime(5000);
+    expect(store.at()).toBe(TO);
+    expect(store.playing()).toBe(false);
+    expect(store.board()?.equipment[0].health).toBe('FAILED');
+    expect(store.noData()).toBe(false);
+  });
+
+  it('aPageErrorPausesInsteadOfRetrying', () => {
+    openWith([heartbeat(11, 10)], true);
+    eventsReq().error(new ProgressEvent('error'));
+    store.play();
+    eventsReq().error(new ProgressEvent('error'));
+    expect(store.playing()).toBe(false);
+    expect(store.error()).toBe(true);
+    vi.advanceTimersByTime(5000);
+    http.expectNone(r => r.url === '/api/v1/history/events');
+  });
+
+  it('aFailedSeekBlocksPlaybackUntilTheNextSuccessfulSeek', () => {
+    openWith([heartbeat(11, 10)]);
+    store.play();
+    store.seek(t(30));
+    boardReq().error(new ProgressEvent('error'));
+    expect(store.error()).toBe(true);
+    expect(store.playing()).toBe(false);
+    store.play();
+    store.next();
+    vi.advanceTimersByTime(5000);
+    expect(store.playing()).toBe(false);
+    http.expectNone(r => r.url.startsWith('/api/v1/history/'));
+    store.seek(t(40));
+    boardReq().flush(boardAt({ at: iso(t(40)) }));
+    expect(store.error()).toBe(false);
+    eventsReq().flush({ events: [], more: false });
+  });
+
   it('aStopTurnsNoDataOnAtOnce', () => {
     openWith([stopping(11, 10)]);
     store.play();
@@ -189,7 +234,7 @@ describe('ReplayStore', () => {
   });
 
   it('noDataAfterASeekIsTheBoardsValue', () => {
-    openWith([], false, FROM, { noData: true });
+    openWith([], false, FROM, { noData: true, lastRecordedAt: null, lastRecordedType: null });
     expect(store.noData()).toBe(true);
   });
 

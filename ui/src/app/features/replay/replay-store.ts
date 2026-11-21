@@ -52,6 +52,8 @@ export class ReplayStore extends BoardSource {
 
   private generation = 0;
   private loading = false;
+  /** The last board load failed: nothing plays until the next successful seek. */
+  private boardFailed = false;
   private timer?: ReturnType<typeof setInterval>;
   private lastTick = 0;
   private boardSub?: Subscription;
@@ -93,12 +95,14 @@ export class ReplayStore extends BoardSource {
   }
 
   play(): void {
-    if (this.playing() || this.atSignal() >= this.windowSignal().to) {
+    if (this.playing() || this.boardFailed || this.atSignal() >= this.windowSignal().to) {
       return;
     }
+    this.errorSignal.set(false);
     this.playingSignal.set(true);
     this.lastTick = Date.now();
     this.timer = setInterval(() => this.tick(), TICK_MS);
+    this.prefetch(); // an explicit play retries a page that failed
   }
 
   pause(): void {
@@ -154,6 +158,7 @@ export class ReplayStore extends BoardSource {
     this.cancelFetches();
     const generation = ++this.generation;
     this.loading = true;
+    this.boardFailed = false;
     this.errorSignal.set(false);
     this.atSignal.set(at);
     if (!keepTicker) {
@@ -182,7 +187,9 @@ export class ReplayStore extends BoardSource {
       },
       error: () => {
         if (generation === this.generation) {
-          this.loading = false;
+          // loading stays true: tick, prefetch and next wait for the next successful seek
+          this.boardFailed = true;
+          this.pause();
           this.errorSignal.set(true);
         }
       },
@@ -198,7 +205,9 @@ export class ReplayStore extends BoardSource {
     const elapsed = now - this.lastTick;
     this.lastTick = now;
     const { to } = this.windowSignal();
-    const at = Math.min(this.atSignal() + elapsed * this.speedSignal(), to);
+    // The clock waits for the next page rather than run past what is loaded.
+    const limit = this.more ? Math.min(to, Math.max(this.fetchedThrough, this.atSignal())) : to;
+    const at = Math.min(this.atSignal() + elapsed * this.speedSignal(), limit);
     this.atSignal.set(at);
     this.applyDue(at);
     if (this.loading) {
@@ -206,7 +215,7 @@ export class ReplayStore extends BoardSource {
     }
     this.evaluateGap();
     this.prefetch();
-    if (at >= to) {
+    if (at >= to && !this.more) {
       this.pause();
     }
   }
@@ -292,11 +301,14 @@ export class ReplayStore extends BoardSource {
         const waiting = this.afterFetch;
         this.afterFetch = [];
         waiting.forEach(fn => fn());
+        this.applyDue(this.atSignal());
+        this.evaluateGap();
         this.prefetch();
       },
       error: () => {
         if (generation === this.generation) {
           this.fetching = false;
+          this.pause();
           this.errorSignal.set(true);
         }
       },
