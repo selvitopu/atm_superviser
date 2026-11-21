@@ -71,6 +71,9 @@ public interface EventLogRepository extends JpaRepository<EventLogEntity, Long> 
     List<EventLogEntity> findByTypeInAndOccurredAtBetweenOrderByOccurredAtAscIdAsc(Collection<String> types,
                                                                                   Instant from, Instant to);
 
+    /** The rows that are not of {@code type} and occurred in [{@code from}, {@code to}], in id order. */
+    List<EventLogEntity> findByTypeNotAndOccurredAtBetweenOrderByIdAsc(String type, Instant from, Instant to);
+
     /** The newest event of one of the types that occurred before {@code before}. */
     Optional<EventLogEntity> findFirstByTypeInAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(
             Collection<String> types, Instant before);

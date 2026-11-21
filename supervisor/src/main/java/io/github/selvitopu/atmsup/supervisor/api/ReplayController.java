@@ -17,15 +17,23 @@ import io.github.selvitopu.atmsup.supervisor.history.BoardHistory;
 import io.github.selvitopu.atmsup.supervisor.history.EventCodec;
 import io.github.selvitopu.atmsup.supervisor.history.EventLogEntity;
 import io.github.selvitopu.atmsup.supervisor.history.EventLogRepository;
+import io.github.selvitopu.atmsup.supervisor.history.ExportWriter;
+import io.github.selvitopu.atmsup.supervisor.history.IncidentSummary;
 import io.github.selvitopu.atmsup.supervisor.history.Timeline;
 import io.github.selvitopu.atmsup.supervisor.history.TimelineQuery;
 import java.time.Duration;
+import java.security.Principal;
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,6 +53,7 @@ public class ReplayController {
     static final int DEFAULT_LIMIT = 500;
     static final int MAX_LIMIT = 1000;
     static final Duration MAX_TIMELINE_WINDOW = Duration.ofDays(7);
+    static final Duration MAX_EXPORT_WINDOW = Duration.ofDays(7);
 
     private final BoardHistory history;
     private final EventLogRepository events;
@@ -53,9 +62,12 @@ public class ReplayController {
     private final DtoMapper mapper;
     private final StreamMessages messages;
     private final Inventory inventory;
+    private final ExportWriter exports;
+    private final InstantSource clock;
 
     public ReplayController(BoardHistory history, EventLogRepository events, EventCodec codec,
-                            TimelineQuery timeline, DtoMapper mapper, StreamMessages messages, Inventory inventory) {
+                            TimelineQuery timeline, DtoMapper mapper, StreamMessages messages, Inventory inventory,
+                            ExportWriter exports, InstantSource clock) {
         this.history = history;
         this.events = events;
         this.codec = codec;
@@ -63,6 +75,8 @@ public class ReplayController {
         this.mapper = mapper;
         this.messages = messages;
         this.inventory = inventory;
+        this.exports = exports;
+        this.clock = clock;
     }
 
     @GetMapping("/board")
@@ -99,6 +113,42 @@ public class ReplayController {
             throw badRequest("The timeline window is at most 7 days");
         }
         return timeline.timeline(from, to);
+    }
+
+    /**
+     * The incident report of a window, as a download: the summary, then the window's events without telemetry samples.
+     * The summary takes its floods, gaps and restarts from the same timeline the Replay screen shows.
+     */
+    @GetMapping("/export")
+    public ResponseEntity<String> export(@RequestParam("from") Instant from, @RequestParam("to") Instant to,
+                                         @RequestParam("format") String format, Principal principal) {
+        boolean csv = "csv".equals(format);
+        if (!csv && !"json".equals(format)) {
+            throw badRequest("The format must be csv or json");
+        }
+        if (!from.isBefore(to)) {
+            throw badRequest("The export window must start before it ends");
+        }
+        if (Duration.between(from, to).compareTo(MAX_EXPORT_WINDOW) > 0) {
+            throw badRequest("The export window is at most 7 days");
+        }
+        List<StoredEvent> window = events.findByTypeNotAndOccurredAtBetweenOrderByIdAsc(
+                EventType.TELEMETRY_SAMPLED.name(), from, to).stream()
+                .map(row -> new StoredEvent(row.getId(), codec.decode(row))).toList();
+        IncidentSummary summary = IncidentSummary.of(from, to, history.fold(from), history.fold(to), window,
+                timeline.timeline(from, to));
+        List<ExportWriter.Row> rows = window.stream().map(e -> new ExportWriter.Row(e.id(), e.event().occurredAt(),
+                e.event().type().name(), equipmentId(e.event()), actor(e.event()), EventSummaries.describe(e)))
+                .toList();
+        ExportWriter.Document document = new ExportWriter.Document(inventory.centre(), from, to, clock.instant(),
+                principal.getName(), summary, rows);
+        String name = ExportWriter.fileName(from, to, format);
+        return ResponseEntity.ok()
+                .contentType(csv ? new MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8)
+                        : MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(name).build()
+                        .toString())
+                .body(csv ? exports.csv(document) : exports.json(document));
     }
 
     /** When the supervisor stored the newest raise of the alarm; a resync raise carries an earlier device time. */

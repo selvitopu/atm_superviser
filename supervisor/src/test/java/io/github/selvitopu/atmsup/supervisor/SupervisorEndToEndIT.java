@@ -108,6 +108,9 @@ class SupervisorEndToEndIT {
     private static long floodResumeFrom;
     /** After RAD-N failed and before RAD-E was failed. */
     private static Instant betweenRadarFailures;
+    /** The window around the first scenario: just before RAD-N failed, and after the scenario's last check. */
+    private static Instant scenarioFrom;
+    private static Instant scenarioTo;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -288,6 +291,7 @@ class SupervisorEndToEndIT {
         await().atMost(ofSeconds(20)).until(this::allOperational);
         long resumeFrom = board().lastEventId();
         floodResumeFrom = resumeFrom;
+        scenarioFrom = Instant.now();
         try (SseRecorder sse = SseRecorder.open(baseUrl() + "/api/v1/stream?lastEventId=" + resumeFrom)) {
             fixture.centre().applyFault("RAD-N", new FaultRequest(FAIL, null));
             // null-safe assertions: an alarm that is not raised yet must fail the attempt, not the await
@@ -354,6 +358,7 @@ class SupervisorEndToEndIT {
                 await().atMost(ofSeconds(5)).until(() -> again.ids().size() >= ids.size());
                 assertThat(again.ids()).startsWith(ids.toArray(Long[]::new));
             }
+            scenarioTo = Instant.now();
         }
     }
 
@@ -379,6 +384,24 @@ class SupervisorEndToEndIT {
                 .extracting(EquipmentDto::health).isEqualTo("FAILED");
         assertThat(replay.board().equipment()).filteredOn(e -> e.id().equals("RAD-E")).singleElement()
                 .extracting(EquipmentDto::health).isEqualTo("OPERATIONAL");
+    }
+
+    @Test
+    @Order(15)
+    void theExportSummarisesTheRadarFailures() {
+        HttpResponse<String> response = get(baseUrl() + "/api/v1/history/export?from=" + scenarioFrom + "&to="
+                + scenarioTo + "&format=json");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Content-Disposition")).get().asString()
+                .startsWith("attachment; filename=\"incident-").endsWith(".json\"");
+        tools.jackson.databind.JsonNode summary = json.readTree(response.body()).get("summary");
+        assertThat(summary.get("alarmsBySeverity").get("CRITICAL").asInt()).isGreaterThanOrEqualTo(2);
+        java.util.Map<String, Integer> correlated = new java.util.HashMap<>();
+        summary.get("causes").forEach(c -> correlated.put(c.get("equipmentId").asString(),
+                c.get("correlated").asInt()));
+        assertThat(correlated).containsEntry("RAD-N", 4).containsEntry("RAD-E", 4);
+        assertThat(json.readTree(response.body()).get("events").size()).isPositive();
     }
 
     // --- sign-in and roles over the real server; each test leaves signed out, so the next one signs in again ------

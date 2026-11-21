@@ -24,6 +24,7 @@ import io.github.selvitopu.atmsup.supervisor.history.BoardHistory;
 import io.github.selvitopu.atmsup.supervisor.history.EventCodec;
 import io.github.selvitopu.atmsup.supervisor.history.EventLogEntity;
 import io.github.selvitopu.atmsup.supervisor.history.EventLogRepository;
+import io.github.selvitopu.atmsup.supervisor.history.ExportWriter;
 import io.github.selvitopu.atmsup.supervisor.history.GapRule;
 import io.github.selvitopu.atmsup.supervisor.history.ReplayBoard;
 import io.github.selvitopu.atmsup.supervisor.history.Sample;
@@ -49,7 +50,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(ReplayController.class)
-@Import({ReplayControllerTest.Beans.class, SecurityConfig.class, DtoMapper.class, StreamMessages.class})
+@Import({ReplayControllerTest.Beans.class, SecurityConfig.class, DtoMapper.class, StreamMessages.class,
+        ExportWriter.class})
 class ReplayControllerTest {
 
     private static final Instant T = Instant.parse("2026-01-01T10:00:00Z");
@@ -59,6 +61,11 @@ class ReplayControllerTest {
         @Bean
         Inventory inventory() {
             return Inventory.from(TestInventories.v01(16101, 10162));
+        }
+
+        @Bean
+        java.time.InstantSource clock() {
+            return java.time.InstantSource.fixed(Instant.parse("2026-01-02T00:00:00Z"));
         }
     }
 
@@ -199,6 +206,62 @@ class ReplayControllerTest {
     }
 
     @Test
+    @WithMockUser(username = "supervisor1", roles = "VIEWER")
+    void exportIsAnAttachmentWithTheDocumentedName() throws Exception {
+        Instant from = T;
+        Instant to = T.plus(Duration.ofMinutes(90));
+        given(history.fold(from)).willReturn(Board.initial(inventory, List.of()));
+        given(history.fold(to)).willReturn(Board.initial(inventory, List.of()));
+        given(timeline.timeline(from, to)).willReturn(new Timeline(List.of(), false, List.of(), List.of(), List.of()));
+        EventLogEntity raisedRow = row(5, new SupervisorEvent(EventType.SUPERVISOR_STARTED, T.plusSeconds(1), null));
+        EventLogEntity commandRow = row(6, new CommandEvent(T.plusSeconds(2), "RAD-N", "RESTART", "supervisor1",
+                "ISSUED", "c-1"));
+        given(events.findByTypeNotAndOccurredAtBetweenOrderByIdAsc("TELEMETRY_SAMPLED", from, to))
+                .willReturn(List.of(raisedRow, commandRow));
+
+        mvc.perform(get("/api/v1/history/export").param("from", "2026-01-01T10:00:00Z")
+                        .param("to", "2026-01-01T11:30:00Z").param("format", "json"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Content-Disposition",
+                                "attachment; filename=\"incident-20260101T1000Z-20260101T1130Z.json\""))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith("application/json"))
+                .andExpect(jsonPath("$.centre").value(inventory.centre()))
+                .andExpect(jsonPath("$.generatedBy").value("supervisor1"))
+                .andExpect(jsonPath("$.generatedAt").value("2026-01-02T00:00:00Z"))
+                .andExpect(jsonPath("$.events.length()").value(2))
+                .andExpect(jsonPath("$.events[1].actor").value("supervisor1"))
+                .andExpect(jsonPath("$.summary.commands[0].outcome").value("NOT_RECORDED"));
+
+        mvc.perform(get("/api/v1/history/export").param("from", "2026-01-01T10:00:00Z")
+                        .param("to", "2026-01-01T11:30:00Z").param("format", "csv"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Content-Disposition",
+                                "attachment; filename=\"incident-20260101T1000Z-20260101T1130Z.csv\""))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith("text/csv"));
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    void exportOverSevenDaysIs400() throws Exception {
+        mvc.perform(get("/api/v1/history/export").param("from", "2026-01-01T00:00:00Z")
+                        .param("to", "2026-01-08T00:00:01Z").param("format", "csv"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("The export window is at most 7 days"));
+        mvc.perform(get("/api/v1/history/export").param("from", "2026-01-01T11:00:00Z")
+                .param("to", "2026-01-01T11:00:00Z").param("format", "csv")).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/history/export").param("from", "2026-01-01T10:00:00Z")
+                .param("to", "2026-01-01T11:00:00Z").param("format", "pdf")).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/history/export").param("from", "2026-01-01T10:00:00Z")
+                .param("to", "2026-01-01T11:00:00Z")).andExpect(status().isBadRequest());
+        verifyNoInteractions(timeline);
+        verifyNoInteractions(events);
+    }
+
+    @Test
     void anonymousIs401() throws Exception {
         mvc.perform(get("/api/v1/history/board").param("at", "2026-01-01T10:00:00Z"))
                 .andExpect(status().isUnauthorized());
@@ -206,6 +269,8 @@ class ReplayControllerTest {
         mvc.perform(get("/api/v1/history/timeline").param("from", "2026-01-01T10:00:00Z")
                 .param("to", "2026-01-01T11:00:00Z")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/history/alarms/a1/raised")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/history/export").param("from", "2026-01-01T10:00:00Z")
+                .param("to", "2026-01-01T11:00:00Z").param("format", "csv")).andExpect(status().isUnauthorized());
         verifyNoInteractions(history, events, timeline);
     }
 
