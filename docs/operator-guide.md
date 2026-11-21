@@ -271,6 +271,8 @@ maintenance. It reruns the same service rules the board uses, so it can never di
 forward, so a review of an incident starts from what the System Controller saw, not from today's rules. It is built so that it
 cannot pass for the live board, and nothing on it controls equipment.
 
+![The Replay screen after a supervisor restart, with RAD-N and RAD-E failed: the amber band reads REPLAY · 09:42:49Z · NOT LIVE · values ≤30 s · no freshness ages, each tile shows its sampled time, the timeline shades the time before the supervisor started, marks the radar alarms and the flood that the restart ended, and the ticker lists the restart's events](images/replay.png)
+
 * **Open it** from **Replay** in the header, or from the **Replay** link on an Alarm history row. From the header
   the window is the last hour and the play head is at its start. From an alarm row the window is 15 minutes before to
   45 minutes after the alarm was raised, and the play head starts 1 minute before it. A window is at most 7 days. The

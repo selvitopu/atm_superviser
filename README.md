@@ -220,6 +220,8 @@ and what a planned maintenance leaves, and administrators manage accounts on **U
 
 ![The board during an alarm flood with RAD-N and RAD-E failed: the header shows the ALARM FLOOD chip, the alarm bar says ALARM FLOOD since 10:22:38Z, each radar's Equipment failed alarm is one row with +4 correlated · 4 unack, and the RAD-N group is expanded to show its two channel alarms and the two SDPS sensor input alarms](docs/images/alarm-flood.png)
 
+![The Replay screen after a supervisor restart, with RAD-N and RAD-E failed: the amber band reads REPLAY · 09:42:49Z · NOT LIVE · values ≤30 s · no freshness ages, each tile shows its sampled time, the timeline shades the time before the supervisor started, marks the radar alarms and the flood that the restart ended, and the ticker lists the restart's events](docs/images/replay.png)
+
 Stop the stack with `docker compose -f deploy/docker-compose.yml down` (add `-v` to drop the data volumes).
 
 ### Signing in
