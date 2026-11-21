@@ -1,6 +1,6 @@
 # System Architecture
 
-This document describes the architecture of **ATM Supervisor** as implemented in **v0.1.1**, together with how the planned phases (`v0.2`–`v1.0`) fit into the same module boundaries. For the full target specification see the [design document](design/2026-11-13-atm-supervisor-design.md) and the [architecture review decisions](refactor/ATM-Supervisor-Architecture-Review-Decisions.md).
+This document describes the architecture of **ATM Supervisor**, together with how the planned phases (`v0.2`–`v1.0`) fit into the same module boundaries. For the full target specification see the [design document](design/2026-11-13-atm-supervisor-design.md) and the [Architecture Decision Records](adr/README.md).
 
 ---
 

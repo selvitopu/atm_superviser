@@ -12,7 +12,7 @@ Furthermore, a naive push implementation that writes to browser sockets synchron
 
 ## Decision Drivers
 
-* **Decouple [`BoardWriter`] from network I/O ([Amendment §4](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md)):** The board writer must never block on client socket writes.
+* **Decouple [`BoardWriter`] from network I/O:** The board writer must never block on client socket writes.
 * **Never silently drop a durable event:** A slow client must either receive every durable event in order or be explicitly disconnected and resynchronised.
 * **Standard HTTP semantics for mutations:** Alarm acknowledgements and commands benefit from standard REST endpoints, status codes, and RFC 9457 `ProblemDetail` responses ([`ApiExceptionHandler`]).
 

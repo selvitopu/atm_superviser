@@ -69,7 +69,7 @@ import org.springframework.security.web.session.HttpSessionDestroyedEvent;
 import org.springframework.security.web.session.HttpSessionIdChangedEvent;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** Review focus 5 (amendment §4): ring filled with ids 101..1100; test emitters record what each client sends. */
+/** Ring filled with ids 101..1100; test emitters record what each client sends. */
 class SseBroadcasterTest {
 
     private static final Instant T0 = Instant.parse("2026-01-01T10:00:00Z");
@@ -323,7 +323,7 @@ class SseBroadcasterTest {
     // --- delivery -----------------------------------------------------------------------------------------------
 
     @Test
-    void slowClientDoesNotDelayOthers() {                                                      // amendment §4
+    void slowClientDoesNotDelayOthers() {
         TestEmitter slow = blockedClient();
         TestEmitter fast = normalClient();
         broadcaster.onCommitted(committed(stored(1101, alarmEvent())));

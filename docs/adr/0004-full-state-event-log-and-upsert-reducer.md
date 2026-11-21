@@ -16,7 +16,7 @@ At the same time, storing a durable event row on every 5-second poll just becaus
 
 * **Replay must show what operators actually saw at the time:** Re-running today's service rules or alarm logic during historical replay could produce a different picture if rules evolve.
 * **Browser and server state must never drift:** The Java board fold and the Angular store delta handler should apply events identically without duplicating domain rules in TypeScript.
-* **Bounded telemetry storage without fake precision ([Amendment §5](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md)):** Durable operational events must be 100% faithful, while numerical telemetry should be sampled at a fixed 30 s interval with no deadband and no fabricated values.
+* **Bounded telemetry storage without fake precision:** Durable operational events must be 100% faithful, while numerical telemetry should be sampled at a fixed 30 s interval with no deadband and no fabricated values.
 
 ## Considered Options
 

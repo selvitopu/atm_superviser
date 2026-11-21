@@ -4,7 +4,7 @@ A scripted tour of Demo ACC. Every step has the command, what the board shows an
 Faults are injected from the Simulator screen, which the supervisor forwards to the simulator. The timings below were measured on a
 running stack; they are typical, not guaranteed. Section links point to the
 [design](design/2026-11-13-atm-supervisor-design.md) (§) and to the
-[architecture review amendment](refactor/ATM-Supervisor-Architecture-Review-Decisions.md) (amendment §).
+[Architecture Decision Records](adr/README.md).
 
 Sign in as `supervisor1` and open two windows: the board, and the **Simulator** screen from the header. Each
 fault step below names the button to click in a device's row on the Simulator screen.
@@ -29,7 +29,7 @@ start. SDPS-A and FDPS-A are ACTIVE, SDPS-B and FDPS-B are STANDBY.
 
 Talking point: every device is polled over SNMPv3 authPriv (SHA-256 and AES-128) every 5 s, and a
 lightweight probe runs on its own schedule that the circuit breaker never gates, so a tripped breaker
-cannot hide a recovered device (amendment §1, design §6.1).
+cannot hide a recovered device ([ADR-0008](adr/0008-independent-probes-two-generations-and-crash-safe-commands.md), design §6.1).
 
 ## 2. RAD-N fails
 
@@ -116,7 +116,7 @@ UNKNOWN) for a fraction of a second and then returns to OPERATIONAL. FD returns 
 becomes CLEARED-UNACK. Acknowledge it and it leaves the list.
 
 Talking point: a recovered probe triggers one immediate verification poll instead of waiting for the
-breaker timer, so recovery takes seconds, not about 30 s (amendment §1).
+breaker timer, so recovery takes seconds, not about 30 s ([ADR-0008](adr/0008-independent-probes-two-generations-and-crash-safe-commands.md)).
 
 ## 8. Ask Impact what one more failure would cost
 
@@ -171,14 +171,14 @@ board next time, run `scripts/demo-preflight.sh --fresh`.
 ## If asked
 
 - **Why does the breaker never gate probes?** A breaker that blocks the only way to see a device would hide
-  its recovery. Probes run apart from it and a rejected call is not a contact attempt (amendment §1).
+  its recovery. Probes run apart from it and a rejected call is not a contact attempt ([ADR-0008](adr/0008-independent-probes-two-generations-and-crash-safe-commands.md)).
 - **What are the two generations?** The status generation (bumped by traps and contact changes) guards full
   polls; the contact generation (bumped by contact changes only) guards probes. A trap therefore cannot
-  discard a probe result and mask a lost contact (amendment §2, design §8.1).
+  discard a probe result and mask a lost contact ([ADR-0008](adr/0008-independent-probes-two-generations-and-crash-safe-commands.md), design §8.1).
 - **What happens to a slow SSE client?** Each client has a bounded queue. When it overflows the client is
-  dropped and reconnects; the writer never blocks on delivery (amendment §4, design §8.1).
+  dropped and reconnects; the writer never blocks on delivery ([ADR-0005](adr/0005-sse-with-bounded-queues-over-websocket.md), design §8.1).
 - **Why does the UI refetch `/board` on reconnect?** A reconnect may have missed events beyond the ring
   buffer, so the UI loads the whole board before it resumes the stream instead of trusting a partial
-  history (amendment §4, design §8.5).
+  history ([ADR-0005](adr/0005-sse-with-bounded-queues-over-websocket.md), design §8.5).
 - **If every poll reconciles alarms, why still use traps?** Traps raise alarms at once, a poll is up to 5 s
   away. Resync catches whatever a trap lost (§6.1, §8.2).

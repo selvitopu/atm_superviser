@@ -32,7 +32,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * Streams the board to SSE subscribers without ever blocking the board writer (amendment §4). The listeners and the
+ * Streams the board to SSE subscribers without ever blocking the board writer. The listeners and the
  * heartbeat only enqueue into each client's own bounded queue and return at once, whatever the clients are doing.
  * Durable messages keep their order and carry {@code id = event_log.id}; a client whose queue is full is
  * disconnected rather than left to miss one, and its browser resumes from the ring of the last {@code ringSize}

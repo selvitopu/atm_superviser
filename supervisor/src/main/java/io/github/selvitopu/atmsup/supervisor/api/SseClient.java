@@ -18,7 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter.SseEventBuilder;
 
 /**
- * One SSE subscriber (amendment §4). Producers only enqueue and never block: durable messages go into a bounded FIFO
+ * One SSE subscriber. Producers only enqueue and never block: durable messages go into a bounded FIFO
  * queue, volatile ones into a latest-only map keyed by equipment id (or {@code heartbeat}), so a slow client only
  * ever gets the newest sample. One virtual thread per client does all the writing: the queued durable messages in
  * order, then the volatile snapshot. A volatile message is sent only while no durable one is waiting, so it never

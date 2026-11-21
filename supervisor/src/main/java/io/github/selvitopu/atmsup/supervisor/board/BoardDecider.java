@@ -196,7 +196,7 @@ public final class BoardDecider {
         return a != null && (a.state() == AlarmState.ACTIVE_UNACK || a.state() == AlarmState.ACTIVE_ACK);
     }
 
-    /** No deadband: a stable value is sampled too (amendment §5). */
+    /** No deadband: a stable value is sampled too. */
     private boolean sampleDue(Telemetry tel, Instant now) {
         return tel.lastSampleAt() == null || Duration.between(tel.lastSampleAt(), now).compareTo(sampleInterval) >= 0;
     }

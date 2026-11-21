@@ -10,8 +10,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 
 /**
- * One Resilience4j circuit breaker per device, guarding its full-status polls only; probes never go through it
- * (amendment §1). Breaker state is kept apart from device health, and is published as Micrometer metrics
+ * One Resilience4j circuit breaker per device, guarding its full-status polls only; probes never go through it.
+ * Breaker state is kept apart from device health, and is published as Micrometer metrics
  * ({@code resilience4j.circuitbreaker.*}, tag {@code name} = equipment id).
  */
 public final class DeviceBreakers {

@@ -199,7 +199,7 @@ public final class AlarmEngine {
         return List.of(new AlarmChange(AlarmEventType.UPDATED, updated, via, null));
     }
 
-    /** A CLEARED_UNACK alarm active again under its own id (Task 12), raised at {@code raisedAt}. */
+    /** A CLEARED_UNACK alarm active again under its own id, raised at {@code raisedAt}. */
     private static AlarmChange reRaised(Alarm old, String instanceName, Severity severity, String text,
                                         AlarmSource source, Via via, boolean maintenance, Instant raisedAt) {
         var alarm = new Alarm(old.id(), old.key(), instanceName, severity, text, source, AlarmState.ACTIVE_UNACK,

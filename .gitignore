@@ -1,6 +1,4 @@
 .DS_Store
-.worktrees/
-.superpowers/
 target/
 .idea/
 *.iml
@@ -9,5 +7,3 @@ node_modules/
 data/
 .env
 
-# Implementation plans are local working notes and are not published.
-docs/plans/

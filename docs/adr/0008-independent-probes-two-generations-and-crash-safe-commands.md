@@ -6,7 +6,7 @@
 
 ## Context and Problem Statement
 
-Two rounds of architectural review ([`ATM-Supervisor-Architecture-Review-Decisions.md`](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md) and the `v0.1.1` hardening review) exposed five subtle failure modes in polling, state derivation, and control:
+Architectural reviews of `v0.1` and `v0.1.1` exposed five subtle failure modes in polling, state derivation, and control:
 
 1. **Circuit breaker masking contact or delaying recovery ([Hazard H3](../safety/hazard-log.md#h3-circuit-breaker-state-masks-contact-loss)):** If a per-device circuit breaker gates reachability checks, its fast-failures look like lost contact; and when a device recovers while its full-poll breaker is `OPEN`, waiting out the breaker timer leaves the device stuck in `UNKNOWN (AWAITING_STATUS)` for 30 s.
 2. **Stale full polls overwriting newer state ([Hazard H1](../safety/hazard-log.md#h1-stale-observations-shown-as-current)):** A slow full poll started before a trap or contact loss can finish after it and overwrite the newer state.

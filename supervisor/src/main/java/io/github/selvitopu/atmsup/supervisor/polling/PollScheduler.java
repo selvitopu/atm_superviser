@@ -39,7 +39,7 @@ import org.springframework.context.SmartLifecycle;
 import org.springframework.context.event.EventListener;
 
 /**
- * Polls every inventory device with two independent loops (amendments §1 and §2):
+ * Polls every inventory device with two independent loops:
  * <ul>
  *   <li>a lightweight <b>probe</b> ({@code sysUpTime.0}) that never goes through the circuit breaker, so contact state
  *       is always driven by real attempts;</li>
@@ -173,7 +173,7 @@ public final class PollScheduler implements SmartLifecycle {
     }
 
     /**
-     * A trap, or a probe that restored contact, asked for a prompt full poll (amendment §1). After CONTACT_RESTORED
+     * A trap, or a probe that restored contact, asked for a prompt full poll. After CONTACT_RESTORED
      * the device's breaker is usually still OPEN from the failed polls, but a probe has proved the device reachable,
      * so exactly one HALF_OPEN full poll verifies its health, and only that poll's success closes the breaker. A trap
      * leaves an OPEN breaker alone. Runs on the board writer thread and does not block: it only enqueues.

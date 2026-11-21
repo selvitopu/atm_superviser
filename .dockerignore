@@ -3,6 +3,5 @@
 .git
 **/data
 ui/.angular
-.superpowers
-.worktrees
 .idea
+

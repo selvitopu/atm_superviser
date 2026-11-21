@@ -497,7 +497,7 @@ class BoardDeciderTest {
         assertThat(d.events()).extracting(DomainEvent::type).containsExactly(TELEMETRY_SAMPLED);
     }
 
-    // ---- telemetry samples (amendment §5)
+    // ---- telemetry samples
 
     @Test
     void stableTelemetryIsSampledEvery30Seconds() {

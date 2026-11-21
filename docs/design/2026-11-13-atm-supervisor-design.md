@@ -4,9 +4,7 @@
 
 Status: approved 2026-11-13 · Date: 2026-11-13
 
-> **Target architecture, not the current release.** This document designs every phase from v0.1 to v1.0. Its sections on ADS-B, voice, radio, recording, network switches, control commands, security, snapshots, replay and Prometheus/Grafana describe planned work. What exists today is listed in the [README](../../README.md#status), and the [hazard log](../safety/hazard-log.md) records the mitigations that are implemented.
-
-> **Amended by** [`docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md`](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md) (2026-11-13). It adds a per-device circuit breaker with independent probes, single-flight polling with generation checks, crash-safe idempotent commands, SSE backpressure, and 30-second telemetry sampling. **Where this document and the amendment conflict, the amendment wins.**
+> **Target architecture, not the current release.** This document designs every phase from v0.1 to v1.0. Its sections on ADS-B, voice, radio, recording, network switches, control commands, security, snapshots, replay and Prometheus/Grafana describe planned work. What exists today is listed in the [README](../../README.md#status), the [Architecture Decision Records](../adr/README.md) record the design decisions as built, and the [hazard log](../safety/hazard-log.md) records the mitigations that are implemented.
 
 ---
 
@@ -391,7 +389,7 @@ This has three consequences:
 - **Equipment, service and values:**
   - `EQUIPMENT_STATE_CHANGED`
   - `SERVICE_STATE_CHANGED`
-  - `TELEMETRY_SAMPLED`: a timed sample, stored only (amendment §5). See the telemetry channel below.
+  - `TELEMETRY_SAMPLED`: a timed sample, stored only. See the telemetry channel below.
 - **Contact:** `CONTACT_LOST`, `CONTACT_RESTORED`
 - **Alarms:** `ALARM_RAISED`, `ALARM_UPDATED` (severity or text changed), `ALARM_ACKNOWLEDGED`, `ALARM_CLEARED`, `ALARM_CLOSED`
 - **Commands:** `COMMAND_ISSUED`, `COMMAND_COMPLETED`
@@ -415,11 +413,11 @@ The replay fidelity test (§11) uses exactly this sequence.
 
 **Live telemetry is not stored.** Every successful poll produces a `telemetry` SSE message: `{equipmentId, lastPollAt, values, serverTime}`. It has **no SSE id**, so it does not move `Last-Event-ID`, and it is not written to `event_log`.
 - **Live board:** values and freshness come from telemetry at poll rate. The UI ticks freshness every second using `lastPollAt`, corrected by the client/server clock offset taken from `serverTime`.
-- **Stored log:** gets one `TELEMETRY_SAMPLED` event per device every 30 s while successful observations are available. There is **no deadband**, so stable values are sampled too (amendment §5). Missed polls produce no sample, and nothing is ever fabricated.
+- **Stored log:** gets one `TELEMETRY_SAMPLED` event per device every 30 s while successful observations are available. There is **no deadband**, so stable values are sampled too. Missed polls produce no sample, and nothing is ever fabricated.
 - **What replay shows:** statuses, alarms and commands exactly. For values, it shows the most recent real sample at or before T, together with that sample's own timestamp and age, and never interpolates. The replay UI says so.
 - **Not affected:** health, `UNKNOWN` and lost contact are never coalesced. They are stored events.
 
-**Probes, full polls, generations and the circuit breaker.** Each device has two kinds of poll ([amendment](../refactor/ATM-Supervisor-Architecture-Review-Decisions.md) §1 and §2).
+**Probes, full polls, generations and the circuit breaker.** Each device has two kinds of poll ([ADR-0008](../adr/0008-independent-probes-two-generations-and-crash-safe-commands.md)).
 - **Probes** read `sysUpTime.0` at the poll cadence and never go through the circuit breaker.
 - **Full polls** run through the per-device breaker: a count-based window of 5, at least 3 calls, a 50 % failure rate, 30 s in OPEN and one permitted call in HALF_OPEN. There is no time-based move from OPEN to HALF_OPEN.
 - **Recovery:** when a probe restores contact, an OPEN breaker moves to HALF_OPEN and one verification poll runs at once. If it succeeds, the breaker closes and health is set from it. If it fails, the breaker reopens and the device stays `UNKNOWN`.
@@ -428,7 +426,6 @@ The replay fidelity test (§11) uses exactly this sequence.
   - the **contact generation** is bumped by contact changes only, and probes are checked against it.
   - **Why two:** a probe carries no subsystem state, so a trap cannot invalidate contact evidence. With one shared generation, a trap could discard a probe result and mask a lost contact.
   - **Failed commits:** a failed commit still bumps the generations its decision invalidates (a trap bumps the status generation; a contact change bumps both), so the results it made stale are never accepted afterwards.
-  - **Reading of the amendment:** the split into two generations is this project's reading of amendment §2 (stale-result protection).
 - **Known trade-off:** under a trap flood that outpaces a full poll's round trip, full polls are discarded as stale. The device then goes `UNKNOWN` with `STATUS_UNAVAILABLE` after 3 poll intervals, through the probe path.
 
 **On supervisor restart**, it writes `SUPERVISOR_STARTED`, which marks every device `UNKNOWN`. It then rebuilds open alarms from the `alarm` table and resyncs each device on its first successful poll: the alarm table walk for custom-MIB devices, the `ifTable` for the switches. Last-known maintenance and role are taken from the newest stored equipment event of each device; health is `UNKNOWN` (`SUPERVISOR_RESTARTED`) until the first poll.
@@ -548,7 +545,7 @@ The commands are `SWITCHOVER`, `MAINTENANCE_ON`, `MAINTENANCE_OFF`, `RESTART` an
 
 Results:
 - **Inside the window:** a match gives `COMPLETED`.
-- **Window expires:** after `noError` the status becomes `TIMED_OUT`. After `UNCERTAIN` it **stays `UNCERTAIN` (unknown outcome)**: the device's command exclusion is kept until an audited manual resolution releases it (amendment §3).
+- **Window expires:** after `noError` the status becomes `TIMED_OUT`. After `UNCERTAIN` it **stays `UNCERTAIN` (unknown outcome)**: the device's command exclusion is kept until an audited manual resolution releases it.
 - **Restart:** when `RESTART` is accepted, the supervisor immediately sets the device's health to `UNKNOWN` with reason `RESTARTING`. Failed polls inside the 30 s window are expected and do not count toward lost contact. The first successful poll then sets real health. A restarting device is therefore never shown with its old, pre-restart state.
 
 ### 8.4 Persistence (PostgreSQL, Liquibase)

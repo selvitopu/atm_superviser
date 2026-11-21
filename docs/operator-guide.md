@@ -1,6 +1,6 @@
 # User and Operator Guide
 
-This manual is a practical, hands-on guide to starting, reading, operating, and troubleshooting **ATM Supervisor** (`v0.1.1`). It covers every part of the operator screen, step-by-step operational playbooks, the supervisor and simulator REST APIs, direct SNMPv3 commands, and common troubleshooting checks.
+This manual is a practical, hands-on guide to starting, reading, operating, and troubleshooting **ATM Supervisor**. It covers every screen of the operator console (the live board, alarm history, impact analysis, incident replay, simulator fault injection, and user management), step-by-step operational playbooks, the REST APIs, and common troubleshooting checks.
 
 For domain background on technical supervision in an Area Control Centre, see the [domain primer](domain.md). For a scripted tour of v0.1, see the [demo walkthrough](demo-v0.1.md).
 
@@ -465,6 +465,11 @@ needs the `X-XSRF-TOKEN` header with the value of the `XSRF-TOKEN` cookie. Refus
 | `GET /api/v1/equipment/{id}` | VIEWER | The equipment state and its last 50 events (`recentEvents`); `404` for an unknown ID. |
 | `GET /api/v1/alarms` | VIEWER | Alarm search. Params: `state` (`open` \| `all`, default `open`), `severity`, `equipment`, `from` and `to` (ISO-8601 UTC), `page` (`0`), `size` (`1..500`, default `50`). |
 | `GET /api/v1/impact?maintenance=<id>` | VIEWER | Read-only impact analysis of the live board. Repeat `maintenance` for each planned unit (none is allowed, duplicates are ignored). Returns `asOf`, `basis`, the `plan` (`units`, `verdict`, `unconfirmed`, each service's `before` and `after`, `notes`), `singlePoints`, `outOfService` and `unknownUnits`. `400` for an id that is not in the inventory. Verdicts are `NO_SERVICE_IMPACT`, `REDUCED_MARGIN` and `SERVICE_LOSS`. |
+| `GET /api/v1/history/board?at=<ISO>` | VIEWER | Reconstructed board at instant `at` (`at`, `noData`, `gapThresholdSeconds`, `lastRecordedAt`, `lastRecordedType`, and `board` with each unit's latest 30 s sample and `sampledAt`). |
+| `GET /api/v1/history/events?after=<id>&until=<ISO>&limit=<1..1000>` | VIEWER | Paged historical events (`{events, more}`) in id order after `after` up to `until`, mapped to the same message shapes as the live stream plus `sample` and `command`. |
+| `GET /api/v1/history/timeline?from=<ISO>&to=<ISO>` | VIEWER | Timeline markers (`ALARM_RAISED`, up to 2,000 newest), alarm `floods`, no-data `gaps`, and supervisor `restarts` for a window of at most 7 days. |
+| `GET /api/v1/history/alarms/{id}/raised` | VIEWER | The `occurredAt` timestamp of the newest `ALARM_RAISED` event for alarm `id` (`404` if none), used by the Alarm history **Replay** link. |
+| `GET /api/v1/history/export?from=<ISO>&to=<ISO>&format=csv\|json` | VIEWER | Downloads the incident report (`incident-<from>-<to>.csv` or `.json`) containing the incident summary followed by every non-sample event in the window (at most 7 days). |
 | `GET /api/v1/stream` | VIEWER | Server-Sent Events (`equipment`, `service`, `alarm`, `flood`, `supervisor` with `id`, plus volatile `telemetry` and `heartbeat`); accepts `Last-Event-ID`. |
 | `POST /api/v1/alarms/{id}/ack` | SUPERVISOR | Acknowledges one alarm; optional body `{"comment":"..."}`. |
 | `POST /api/v1/alarms/ack` | SUPERVISOR | Acknowledges several alarms; body `{"ids":["..."],"comment":"..."}`. |

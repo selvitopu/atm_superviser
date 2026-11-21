@@ -337,8 +337,7 @@ cd mib && ./lint.sh                            # lint the MIB with smilint (fall
   session sign-in with roles, impact analysis over the live service rules, alarm correlation, and replay
   from snapshots and the event log
 - [Demo walkthrough](docs/demo-v0.1.md): a scripted tour of v0.1, including a replay of the failure
-- [Design](docs/design/2026-11-13-atm-supervisor-design.md): the target architecture for every phase,
-  amended by the [architecture review decisions](docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md)
+- [Design](docs/design/2026-11-13-atm-supervisor-design.md): the target architecture for every phase
 
 ## Licence
 

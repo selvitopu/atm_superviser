@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Runs SNMP jobs (probes and full polls together) on virtual threads, at most {@code maxConcurrent} at a time, so a
- * trap flood or many unreachable devices cannot start unbounded work (amendment §2). Waiting jobs are taken by
+ * trap flood or many unreachable devices cannot start unbounded work. Waiting jobs are taken by
  * priority, then in submission order. A job that throws is logged and still frees its slot.
  */
 public final class PollDispatcher implements AutoCloseable {
