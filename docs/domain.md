@@ -208,6 +208,31 @@ end threshold is this project's own choice: the gap between 10 and 5 stops the i
 of a device in maintenance are hidden by default and do not count; correlated alarms do, because the rate measures
 what arrives. During a flood, read the cause rows first and expect more alarms.
 
+## Replay shows samples, and shows gaps
+
+After an incident the question is what the board showed at a given moment. The supervisor answers it from its event
+log, which stores every state change in order. The board at 14:02 is rebuilt by taking a stored copy of the board
+(one every 5 minutes, and one at every start) and applying the events after it, with the same rules the live board
+uses. Replay therefore cannot disagree with what the System Controller saw.
+
+Three things are different from live, and the Replay screen says so:
+
+- **Values are samples.** Telemetry is stored every 30 seconds, not at every 5-second poll, so a replayed value is the
+  newest sample at or before the instant, shown with the time it was taken. Nothing is interpolated or filled in, and
+  there is no freshness age, because the screen has no "now". Health is not sampled: it comes from the recorded
+  events.
+- **A gap is not a healthy board.** The supervisor records a heartbeat every 60 seconds. If an instant has no recorded
+  event (other than a sample) in the 90 seconds before it, or the last one is a supervisor stop, or it is before the
+  first record, nothing was being supervised, and replay says `No recorded data: supervisor not running`. Silence is
+  never shown as `OK`.
+- **A restart is a boundary.** A supervisor restart turns every unit `UNKNOWN (SUPERVISOR_RESTARTED)` at that instant.
+  Because the board at start-up is itself rebuilt from the log, a unit keeps the time it became `UNKNOWN` and its last
+  contact across a restart, and live and replay agree.
+
+A command is recorded twice, as an intent and then as an outcome, under one command id. In an incident report the two
+are shown as one command, and an intent whose outcome was never recorded (the supervisor stopped in between) shows as
+`outcome not recorded`, never as success and never dropped.
+
 ## What is simplified
 
 - **No real data.** Radar plots, tracks and flight plans appear only as counters and rates. Nothing
@@ -218,7 +243,7 @@ what arrives. During a flood, read the cause rows first and expect more alarms.
   yet degrade its service.
 - **Three roles.** A VIEWER watches the board and the alarm history. A SUPERVISOR also acknowledges
   alarms, sends equipment commands (maintenance, restart, make active) and, in the demo centre,
-  injects training faults. An ADMIN can do all of that and manages the accounts; replay is planned.
+  injects training faults. An ADMIN can do all of that and manages the accounts. Every role can replay history and export an incident report.
 - **One supervisor.** The supervisor itself is not redundant.
 - **Illustrative values.** Alarm codes, severities, thresholds and timings are plausible defaults,
   not taken from any real system.
@@ -236,6 +261,8 @@ what arrives. During a flood, read the cause rows first and expect more alarms.
 | Correlated alarm | An alarm that a known failure explains, linked to that failure's alarm (its cause) by a topology rule and listed under it. |
 | Degraded mode | Operation with reduced capability or without redundancy. |
 | FDPS | Flight data processing system. |
+| Gap | A period with no recorded event other than a telemetry sample for more than 1.5 heartbeats (90 s by default): the supervisor was not running. Replay shows `No recorded data`. |
 | Mode S | A secondary surveillance radar mode that interrogates aircraft selectively. |
+| Replay | The board as it was at a past instant, rebuilt from the event log and played forward, with samples marked and gaps shown. |
 | SDPS | Surveillance data processing system: the multi-sensor tracker. |
 | System Controller | The person at the technical supervision position. |

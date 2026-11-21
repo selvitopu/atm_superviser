@@ -24,12 +24,13 @@ Status values:
 | [H8](#h8-database-or-writer-overload) | Database or writer overload | Partly mitigated |
 | [H9](#h9-an-alarm-flood-hides-a-critical-alarm) | An alarm flood hides a critical alarm | Mitigated |
 | [H10](#h10-v3-traps-rejected-after-an-agent-restart) | SNMPv3 traps rejected after an agent restart | Mitigated |
-| [H11](#h11-hazards-of-planned-features) | Replay mistaken for live, unsafe commands, unnoticed authentication failures | Not applicable yet |
+| [H11](#h11-hazards-of-planned-features) | Unsafe commands, unnoticed authentication failures, a restarted device shown with its old state | Not applicable yet |
 | [H12](#h12-an-alarm-acknowledged-by-someone-not-entitled-to) | An alarm acknowledged by someone not entitled to | Mitigated |
 | [H13](#h13-a-command-sent-to-the-wrong-unit-or-at-the-wrong-time) | A command sent to the wrong unit or at the wrong time | Mitigated |
 | [H14](#h14-a-training-fault-reaches-a-live-centre) | A training fault reaches a live centre | Mitigated |
 | [H15](#h15-a-what-if-verdict-taken-as-clearance-or-used-when-stale) | A what-if verdict taken as clearance or used when stale | Mitigated |
 | [H16](#h16-correlation-hides-or-misstates-an-alarm) | Correlation hides or misstates an alarm | Mitigated |
+| [H17](#h17-replay-mistaken-for-live) | Replay mistaken for live | Mitigated |
 
 ## H1 Stale observations shown as current
 
@@ -142,9 +143,10 @@ Status values:
 - **Mitigation:**
   - Every state change is stored as an event, together with the alarm rows, in one PostgreSQL transaction
     ([JpaBoardStore]).
-  - On start the supervisor reloads open alarms, restores each device's last known maintenance flag
-    and role, and marks every device `UNKNOWN (SUPERVISOR_RESTARTED)` until its first poll
-    ([BoardWriter]). That poll reconciles the alarms.
+  - On start the supervisor rebuilds its board from the log: the newest board snapshot plus a fold of every later
+    event, or a fold of the whole log when there is no snapshot ([BoardWriter], [BoardHistory]). That keeps open
+    alarms, each device's last known maintenance flag and role, and its last contact time. Then it marks every device
+    `UNKNOWN (SUPERVISOR_RESTARTED)` since the restart until its first poll. That poll reconciles the alarms.
   - A heartbeat event every 60 s and a stop event on graceful shutdown record when supervision ran.
 - **Verified by:** [BoardWriterTest] (`restartLoadsOpenAlarmsAndMarksSupervisorRestarted`,
   `restartKeepsLastKnownMaintenanceAndRole`, `heartbeatTicksAreCommitted`), [ReplayFidelityIT]
@@ -207,10 +209,8 @@ Status values:
 ## H11 Hazards of planned features
 
 These come from the [target design](../design/2026-11-13-atm-supervisor-design.md) and apply once
-the features exist:
+the features exist. "Replay mistaken for live" is built and now has its own entry, [H17](#h17-replay-mistaken-for-live):
 
-- **Replay mistaken for live:** a separate replay store with no live stream, a fixed replay band,
-  commands disabled in replay, and `NO_DATA` for periods when the supervisor was not running.
 - **Unintended or unsafe control command:** roles, a confirm step, SETs without retries and an uncertain outcome
   are in place (H13), and **Maintenance on** shows an impact preview computed by the same service evaluator, which
   informs and never blocks (H15). Still planned: a mandatory reason, interlocks, and an impact preview for the other
@@ -350,6 +350,38 @@ the features exist:
   `selectingACollapsedGroupAcknowledgesTheWholeGroup`, `ackAllVisibleIncludesCollapsedCorrelatedAlarms`).
 - **Status:** mitigated. The rules cover radars, SDPS and FDPS only; they grow with the device types.
 
+## H17 Replay mistaken for live
+
+- **Cause:** a past board is read as the present, or something live leaks into the replay screen.
+- **Consequence:** wrong decisions, or a live alarm missed because the screen shown was history.
+- **Mitigation:**
+  - Replay has a store of its own that reads only the history API. Nothing it uses injects the live stream or the live
+    board store, and a live message arriving during replay changes nothing ([ReplayStore]).
+  - A band at the top of the page cannot be dismissed. It reads `REPLAY · <HH:MM:SSZ> · NOT LIVE · values ≤30 s · no
+    freshness ages`, with the date when the window spans more than one UTC day.
+  - The page has no controls: no acknowledgement, no equipment command, no live header and no link to a control
+    screen. The detail panel does not fetch the equipment's live data.
+  - A period when the supervisor was not running shows `No recorded data: supervisor not running`, never a quiet green
+    board. One gap rule, 1.5 × the heartbeat interval, is used by the seek, the timeline, the summary and playback
+    ([GapRule]).
+  - Values are marked as samples (`sampled HH:MM:SSZ`), are never interpolated, and carry no freshness age. A sample
+    from before a restart is not shown after it.
+  - The playback clock never runs past the events that have been loaded: it waits for the next page, and it stops on a
+    failed load instead of showing a board it has not rebuilt.
+  - The board at an instant is the fold of the same events with the same reducer as live, so replay cannot show a
+    board that live did not show ([ReplayFidelityIT]).
+- **Verified by:** [replay-store.spec.ts] (`liveStreamMessagesChangeNothingInReplay`, `theClockWaitsForTheNextPage`,
+  `aFailedSeekBlocksPlaybackUntilTheNextSuccessfulSeek`, `aGapLongerThanTheThresholdTurnsNoDataOn`,
+  `afterASeekTheGapStartsOneThresholdAfterTheLastRecordedEvent`, `aStopTurnsNoDataOnAtOnce`,
+  `aSupervisorStartedMessageReloadsTheBoardAtThatInstant`), [replay-page.spec.ts] (`rendersNoAppHeaderAndNoControlLinks`,
+  `theAlarmListIsReadOnly`, `theDetailPanelHasNoEquipmentControl`, `theGapOverlayShowsTheExactCopy`),
+  [replay-band.spec.ts] (`showsTheExactBandCopy`, `cannotBeDismissed`), [GapRuleTest]
+  (`exactlyTheThresholdIsNoData`, `aStopStartsTheGapAtOnce`), [BoardHistoryIT] (`boardAtDuringDowntimeIsNoData`,
+  `aSampleBeforeTheRestartIsNotShownAfterIt`) and [ReplayFidelityIT] (`theLiveBoardEqualsBoardAtNowAndTheFoldFromTheStart`,
+  `aRestartRebuildsTheSameBoardFromTheLog`).
+- **Status:** mitigated. Nothing stops a person from reading the band wrongly or leaving the page open for hours;
+  the band stays on screen for that reason, and a shared replay link opens under the same band.
+
 [CommandController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/CommandController.java
 [EquipmentControl]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/control/EquipmentControl.java
 [SimulatorConsoleController]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/simconsole/SimulatorConsoleController.java
@@ -407,3 +439,11 @@ the features exist:
 [BoardReducerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardReducerTest.java
 [EventCodecTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/EventCodecTest.java
 [app-header.spec.ts]: ../../ui/src/app/features/board/app-header/app-header.spec.ts
+[BoardHistory]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/BoardHistory.java
+[GapRule]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/GapRule.java
+[GapRuleTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/GapRuleTest.java
+[BoardHistoryIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/BoardHistoryIT.java
+[ReplayStore]: ../../ui/src/app/features/replay/replay-store.ts
+[replay-store.spec.ts]: ../../ui/src/app/features/replay/replay-store.spec.ts
+[replay-page.spec.ts]: ../../ui/src/app/features/replay/replay-page/replay-page.spec.ts
+[replay-band.spec.ts]: ../../ui/src/app/features/replay/replay-band/replay-band.spec.ts

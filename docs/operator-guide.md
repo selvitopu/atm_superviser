@@ -116,7 +116,7 @@ Each equipment tile (`RAD-N`, `RAD-E`, `RAD-S`, `SDPS-A`, `SDPS-B`, `FDPS-A`, `F
      * `awaiting status` — contact just returned on a probe, waiting for the immediate verification full poll.
      * `status unavailable` — lightweight probes succeed, but full polls have failed for `> 3×` the poll interval.
      * `not yet polled` — before the first poll on a fresh start.
-     * `supervisor restarted` — after a supervisor restart before the first poll completes.
+     * `supervisor restarted` — after a supervisor restart before the first poll completes. The tile reads `UNKNOWN (SUPERVISOR_RESTARTED) since <restart>` and keeps `last contact <HH:MM:SSZ>`, the last time the supervisor had heard from the unit before it restarted.
    * While `UNKNOWN`, the tile's numerical summary values (`Plots/scan`, `Rotation ms`, `Tracks`, `Latency ms`, `Plans`, `Queue`) are **dimmed (`40%` opacity)** so they are never read as current measurements.
 4. **Amber Stale-Poll Age (`N s ago`):**
    * Under normal polling (every 5 s), tiles stay uncluttered. If more than **2× the poll interval (> 10 s)** passes since `lastPollAt` before the device reaches `LOST_CONTACT`, an amber **`11 s ago`** warning appears on the tile.
@@ -207,7 +207,8 @@ explains the three rules.
 `Open`), severity, equipment (or the service `SURV` or `FD`, for the supervisor's alarms `903` and `904`), and a
 **From/To** range in UTC, then click **Search**. Each row shows when the alarm was raised, who acknowledged it and
 when, when it cleared, and the cause it was correlated to, if any. **Previous** and **Next** page through 50 alarms at a time of the search you last
-submitted, even while you edit the filters. If the server refuses a search, the page shows its reason.
+submitted, even while you edit the filters. If the server refuses a search, the page shows its reason. Every row has a
+**Replay** link that opens the [Replay screen](#211-replay-see-the-board-as-it-was) around that alarm.
 
 ### 2.8 Simulator (Demo Centre Only)
 
@@ -263,6 +264,52 @@ maintenance. It reruns the same service rules the board uses, so it can never di
 * **Basis:** every result ends with `Derived from the supervised equipment and the service rules; not a safety
   assessment`. The analysis counts available units only: it does not model the brief interruption of a switchover or
   a radar's coverage. The verdict informs a decision and never blocks a command.
+
+### 2.11 Replay (See the Board as It Was)
+
+**Replay** in the header is open to every role. It shows the board as it was at a past instant and plays the events
+forward, so a review of an incident starts from what the System Controller saw, not from today's rules. It is built so that it
+cannot pass for the live board, and nothing on it controls equipment.
+
+* **Open it** from **Replay** in the header, or from the **Replay** link on an Alarm history row. From the header
+  the window is the last hour and the play head is at its start. From an alarm row the window is 15 minutes before to
+  45 minutes after the alarm was raised, and the play head starts 1 minute before it. A window is at most 7 days. The
+  address of the page holds the window, the instant and the selected unit (`from`, `to`, `at`, `unit`), so you can
+  send it to a colleague and they see the same moment.
+* **The band.** A striped amber band stays at the top and cannot be dismissed:
+  `REPLAY · <HH:MM:SSZ> · NOT LIVE · values ≤30 s · no freshness ages`. The time is the play head. When the window
+  spans more than one UTC day, the date shows before the time. The band has **Back to live**, which returns to the
+  board. The page has no header with links, no acknowledge buttons and no equipment controls.
+* **Play, pause and speed.** **Play** advances the clock at 1×, 4×, 16× or 60× real time, and **Pause** holds it.
+  Playback stops at the end of the window. If events cannot be loaded, playback pauses and says so.
+* **Step.** **Next event** applies the next event and moves the clock to it. **Previous event** steps to the previous
+  event this session has already seen, or else to the start of the window.
+* **Seek.** Click the timeline to jump to that instant. The timeline marks each alarm raised (its accessible name
+  carries the time, unit and text), shades the periods of an alarm flood and of no recorded data, and shows the play
+  head. Past 2,000 alarms it says `Too many alarms to mark; showing the newest 2,000`.
+* **The ticker** lists the last 20 events, newest first, as `HH:MM:SSZ · <what happened>`.
+* **Tiles show samples.** Values on a tile are the supervisor's 30-second samples, shown with `sampled HH:MM:SSZ`. They
+  are never averaged or filled in, and a tile shows no freshness age, because there is no "now" to measure from.
+  Health comes from the recorded events. A unit's value from before a supervisor restart is not shown after it.
+* **The gap overlay.** `No recorded data: supervisor not running` covers the board when nothing was recorded around
+  the play head: no event other than a sample in the last 90 seconds (1.5 times the 60-second heartbeat), the newest
+  event is a supervisor stop, or the instant is before the first record. A gap is never shown as a healthy board.
+* **Select a unit** to see its state and values in the detail panel. The panel has no commands and loads nothing live.
+  The alarm list is read-only: it lists the alarms open at the play head with their state and correlation.
+* **Across a supervisor restart** playback reloads the board at the restart, so every unit shows
+  `UNKNOWN (SUPERVISOR_RESTARTED)` at that moment, exactly as live showed.
+* **Export incident report.** Choose **CSV** or **JSON** to download the report for the window on the page. It starts
+  with a summary, then lists every recorded event of the window except the samples. The file is named
+  `incident-<from>-<to>`, for example `incident-20261120T1400Z-20261120T1500Z.csv`. The summary has:
+  * alarms raised by severity, with suppressed alarms counted apart;
+  * the causes and how many alarms each one explained;
+  * each period in which a service was not `OK`, with its start, end, worst state and duration. A period already open at
+    the start of the window shows `before <from>` and counts its duration inside the window;
+  * each command with its time, unit, who sent it and its outcome. An intent whose outcome was never recorded shows as
+    `outcome not recorded`;
+  * alarm floods, lost contacts, gaps with no recorded data and supervisor restarts. A restart ends an open flood, lost
+    contact or degradation, marked `ended by supervisor restart`;
+  * the alarms still open at the end of the window, split into unacknowledged and acknowledged.
 
 ---
 
@@ -381,11 +428,32 @@ not sent: it could not be recorded*.
 5. **Reset:** click **Reset all** on the **Simulator** screen and confirm. The alarms clear. The flood ends once
    fewer than 5 alarms have been raised in the last 10 minutes, so the chip stays for a while.
 
+### Playbook 8: Review an Incident with Replay
+
+Run [Playbook 7](#playbook-7-read-a-flood-of-alarms-from-two-failed-radars) first, or use any earlier incident.
+
+1. **Find the alarm:** open **Alarm history**, set the equipment to `RAD-N` and click **Search**. Click **Replay** on the
+   `RAD-N Equipment failed` row.
+   * **What you see:** the Replay screen under its band, with the play head one minute before the failure. `RAD-N` is
+     `OPERATIONAL` and both services are `OK`. The timeline shows the alarm markers and, shaded, the flood.
+2. **Step through the failure:** click **Next event** repeatedly.
+   * **What you see:** the ticker fills as `RAD-N` goes `FAILED`, the alarms are raised, `SURV` stays `OK`, then `RAD-E`
+     fails and `SURV` turns `DEGRADED`. The play head and the band time follow each step.
+3. **Play it at speed:** pick `16×` and click **Play**, then **Pause** at any moment. Click a point on the timeline to
+   jump there.
+4. **Look at one unit:** click the `RAD-N` tile. The detail panel shows its state and values with `sampled …Z`, and no
+   command.
+5. **Check for gaps:** shaded spans on the timeline are periods with no recorded data, for example while the stack was
+   stopped. If there is one in the window, click inside it to see `No recorded data: supervisor not running`.
+6. **Export:** open **Export incident report** and choose **CSV**. Open the file: the summary lines come first, then one
+   row per event.
+7. **Return:** click **Back to live**.
+
 ---
 
 ## 4. REST API Reference
 
-Every user action has a screen; this reference is for integrators. The interactive OpenAPI page is at
+Every user action has a screen; this reference is for integrators. The read-only history endpoints behind Replay and the incident export are listed in the [architecture](architecture.md#26-replay-and-the-incident-export). The interactive OpenAPI page is at
 <http://localhost:8080/api/v1/docs>. Every call needs a signed-in session cookie, and every `POST` and `PATCH` also
 needs the `X-XSRF-TOKEN` header with the value of the `XSRF-TOKEN` cookie. Refusals are RFC 9457 problem details.
 

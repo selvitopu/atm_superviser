@@ -1,4 +1,4 @@
-# Demo walkthrough, v0.1 (6 to 8 minutes)
+# Demo walkthrough, v0.1 (7 to 9 minutes)
 
 A scripted tour of Demo ACC. Every step has the command, what the board shows and a talking point.
 Faults are injected from the Simulator screen, which the supervisor forwards to the simulator. The timings below were measured on a
@@ -65,7 +65,25 @@ hide a live failure. Ten new alarms in 10 minutes is the usual alarm-management 
 EEMUA 191); the supervisor ends it below 5, so it does not flicker. Grouping never hides an alarm: a correlated
 alarm sits under its cause only while the cause is active, and is never more severe than it.
 
-## 4. SDPS-A fails
+## 4. Replay the failure
+
+Open **Alarm history** from the header, set the equipment to `RAD-N` and click **Search**. Click **Replay** on the
+`RAD-N Equipment failed` row.
+
+Shows: the Replay screen under its striped band, `REPLAY · <time> · NOT LIVE · values ≤30 s · no freshness ages`,
+with the play head one minute before the failure. `RAD-N` is `OPERATIONAL` and both services are `OK`. The timeline
+marks the alarms and shades the flood. Click **Next event** a few times: `RAD-N` goes `FAILED`, its alarms appear in the
+list and in the ticker, and later `RAD-E` fails and `SURV` turns `DEGRADED`. Pick `16×` and **Play**, then **Pause**. Click
+the `RAD-N` tile: the detail panel shows its values as `sampled …Z` and offers no command. Open **Export incident
+report** and choose **CSV**. The file starts with the summary (alarms by severity, `RAD-N` and `RAD-E` as causes with
+four correlated alarms each, the service degradation, the flood) and then lists the events. Click **Back to live**.
+
+Talking point: the board at that instant is rebuilt from the same events with the same reducer as the live board, so it
+shows what the System Controller saw, not what today's rules would say. Values are 30-second samples and are labelled as
+such, a stretch with no supervisor running would show `No recorded data` instead of a green board, and the page has no
+control a person could press by mistake.
+
+## 5. SDPS-A fails
 
 On the Simulator screen: **Fail** on `SDPS-A`.
 
@@ -77,7 +95,7 @@ raises alarm 104 "Switchover occurred" (WARNING).
 Talking point: the simulated pair switches over by itself and the supervisor reports the change of role
 and the lost redundancy, because failover does not mean the service is still redundant (§5.2, §8.2).
 
-## 5. FDPS-B becomes unreachable
+## 6. FDPS-B becomes unreachable
 
 On the Simulator screen: **Unreachable** on `FDPS-B`.
 
@@ -89,7 +107,7 @@ Talking point: the board never shows green for something it cannot see. The "?" 
 a device whose state is unconfirmed, and "at best OK" tells the operator the best case if the unit is in
 fact fine (§5.1).
 
-## 6. FDPS-B recovers
+## 7. FDPS-B recovers
 
 On the Simulator screen: **Recover** on `FDPS-B`.
 
@@ -100,7 +118,7 @@ becomes CLEARED-UNACK. Acknowledge it and it leaves the list.
 Talking point: a recovered probe triggers one immediate verification poll instead of waiting for the
 breaker timer, so recovery takes seconds, not about 30 s (amendment §1).
 
-## 7. Ask Impact what one more failure would cost
+## 8. Ask Impact what one more failure would cost
 
 Command: none. Open **Impact** in the header, with RAD-N, RAD-E and SDPS-A still failed from steps 2 to 4.
 
@@ -115,7 +133,7 @@ Talking point: the screen reruns the board's own service rules with chosen units
 the board. It says what the rules count and nothing else, shows its basis and the time of its answer, and never
 blocks a command: the supervisor decides.
 
-## 8. RAD-S loses its traps, then fails
+## 9. RAD-S loses its traps, then fails
 
 On the Simulator screen: **Drop traps** on `RAD-S`, then **Fail** on `RAD-S`.
 
@@ -127,7 +145,7 @@ RAD-N and RAD-E alarms were `via TRAP`.
 Talking point: polling is the source of truth and traps are only hints that make the board faster
 (§6.1, §8.2). A lost trap delays an alarm by at most one poll; it cannot hide the failure.
 
-## 9. Ask the agent directly
+## 10. Ask the agent directly
 
 The macOS `snmpget` is too old, so use the README's container command (the network name is
 `<compose project>_default`, `atm-supervisor_default` for the demo stack):
@@ -141,7 +159,7 @@ once, to install the package.
 
 Talking point: the agents are real SNMPv3 agents, not a mock; the supervisor uses the same protocol (§6.1).
 
-## 10. Reset
+## 11. Reset
 
 On the Simulator screen, click **Reset all**, then **Confirm**.
 

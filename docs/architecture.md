@@ -80,10 +80,11 @@ flowchart TB
     subgraph history["history module"]
         JSTORE["JpaBoardStore & EventCodec"]
         EQUER["EventQueries"]
+        BHIST["BoardHistory, GapRule,<br/>JpaSnapshotStore, IncidentSummary"]
     end
 
     subgraph api["api module"]
-        CTRL["BoardController, AlarmController,<br/>StreamController"]
+        CTRL["BoardController, AlarmController,<br/>StreamController, ReplayController"]
         SSEB["SseBroadcaster & SseClient<br/>(1000-Event Ring Buffer +<br/>Bounded 256-Event Client Queues)"]
     end
 
@@ -101,6 +102,7 @@ flowchart TB
     BDEC --> AENG
     AENG --> ACAT
     BWR -->|"1. Commit in one Tx"| JSTORE
+    CTRL -->|"board at T, events, export"| BHIST
     BWR -->|"2. Fold committed events"| BRED
     BWR -->|"3. Non-blocking publish"| SSEB
     BWR -.->|"RepollRequested<br/>(TRAP / CONTACT_RESTORED)"| PSCHED
@@ -157,6 +159,8 @@ sequenceDiagram
     end
 ```
 
+At start-up the writer does not load the alarm table and the last equipment events. It asks `BoardStore.foldedBoard()` for the board, which [`BoardHistory`] folds from the newest snapshot plus the later events (or from the whole log when there is no snapshot), and then commits `SUPERVISOR_STARTED` on top. After applying a commit it also takes a board snapshot (below), at start-up and then at most once per `atm.history.snapshot-interval`, outside the commit's transaction.
+
 ### 2.3 Two-Pass Service Evaluation & Confirmed Facts (`ServiceEvaluator`)
 
 [`ServiceEvaluator`] runs every [`ServiceRule`] ([`SurveillanceRule`], [`FlightDataRule`]) twice:
@@ -189,19 +193,42 @@ Every alarm change passes through [`AlarmCorrelator`](../supervisor/src/main/jav
 
 The window must be positive, `start` at least 1, and `end` between 0 and `start`.
 
+### 2.6 Replay and the Incident Export
+
+Replay is a read path over the same event log. The server rebuilds the board at an instant, and the browser plays the later events forward.
+
+**The board at T ([`BoardHistory`]).** Take the newest `board_snapshot` with `taken_at` at or before T (or `Board.initial` with no alarms when there is none), fold the events after the snapshot's `last_event_id` with `occurred_at` up to T using [`BoardReducer`], and add each unit's newest `TELEMETRY_SAMPLED` that is newer than the newest `SUPERVISOR_STARTED` at or before T. An instant in the future is answered as now. `noData` follows [`GapRule`]: no event other than a sample in `(T - threshold, T]`, or the newest such event is `SUPERVISOR_STOPPING`, or T is before the first event. The threshold is 1.5 x `atm.supervisor.heartbeat-interval`, 90 s at the default 60 s.
+
+**Snapshots.** The `SnapshotStore` port lives in `board` and its implementation in `history`, so `board` gains no dependency on `history`. `board_snapshot` holds the durable board (equipment, services, open alarms, flood, last event id) as versioned JSON, never telemetry or generations. [`BoardWriter`] writes one at start-up and then at most once per `atm.history.snapshot-interval` (default `5m`). A failed write is logged and counted in `atm_snapshot_failures_total`, and never affects the live board. Nothing is purged.
+
+**Endpoints.** All are read-only, under `/api/v1/history`, open to every signed-in role. Refusals are problem details (`400`; `404` for an unknown alarm).
+
+| Method & Path | Description |
+|---|---|
+| `GET /board?at=<ISO instant>` | `ReplayBoardDto`: `at`, `noData`, `gapThresholdSeconds`, `lastRecordedAt`, `lastRecordedType` (the newest non-sample event at or before `at`) and the `board` in the live shape. Each equipment has the sample's `values`, `tables` and `sampledAt`; `contact.lastPollAt` is null and `consecutiveFailures` is 0. |
+| `GET /events?after=<id>&until=<ISO>&limit=<1..1000, default 500>` | `{events, more}` in id order, `id > after` and `occurred_at <= until`. Each event has `id`, `occurredAt`, `type`, `equipmentId`, `actor`, `summary` and `message {kind, data}`. The kinds are the live stream's (`equipment`, `service`, `alarm`, `flood`, `supervisor`) plus the replay-only `sample` and `command`; [`StreamMessages`] maps both so the shapes cannot drift. |
+| `GET /timeline?from&to` | `markers` (each `ALARM_RAISED`: time, unit, code, severity, text, suppressed; the newest 2,000, with `truncated: true` past that), `floods`, `gaps` and `restarts`. It reads with type filters and never scans samples. The window is at most 7 days. |
+| `GET /alarms/{id}/raised` | `occurredAt` of the newest `ALARM_RAISED` event for that alarm id; `404` when there is none. The Alarm history **Replay** link resolves through it, because a resync raise stores the device's own `raisedAt`, which can be hours before the supervisor recorded it. |
+| `GET /export?from&to&format=csv\|json` | An attachment named `incident-<yyyyMMdd'T'HHmm'Z'>-<...>.<csv\|json>`. The window is at most 7 days with `from < to`, otherwise `400`. JSON is `{centre, from, to, generatedAt, generatedBy, summary, events}`. CSV is the summary as `# key: value` lines, then the header `id,occurred_at,type,equipment,actor,summary` and one RFC 4180 row per event. Telemetry samples are left out. |
+
+**The incident summary ([`IncidentSummary`]).** A pure function of the window, the board at `from` and at `to`, the events and the timeline. It reports alarms raised by severity with suppressed ones counted apart; causes (`DEVICE` 101) with their correlated counts; service degradations, where a period open at `from` takes its true start and counts its duration inside the window; commands paired by `commandId`, with an intent that has no outcome as `NOT_RECORDED`; floods, contact losses, gaps and restarts, where a `SUPERVISOR_STARTED` ends an open flood, contact loss or degradation (`endedByRestart`); and the alarms still open at `to`.
+
+**The browser.** `/replay` has its own `ReplayStore`, which depends only on the history API client and never on the live stream or the live board store. It loads the board at the seek instant, prefetches event pages ahead of the play head, applies each event up to the virtual clock with the same upsert as the live board, and applies the gap rule with the server's threshold. On a `SUPERVISOR_STARTED` it reloads the board at that instant. The page shows no live header, no acknowledgement and no equipment control.
+
 ---
 
 ## 3. Persistence Schema (Liquibase changelog)
 
-The schema is created by the Liquibase changelog [`db.changelog-master.yaml`](../supervisor/src/main/resources/db/changelog/db.changelog-master.yaml), whose SQL changesets live in [`changes/`](../supervisor/src/main/resources/db/changelog/changes). Changeset `003` loads the demo accounts only in demo mode ([ADR-0009](adr/0009-postgresql-and-liquibase.md)), and `004` adds the alarm correlation columns.
+The schema is created by the Liquibase changelog [`db.changelog-master.yaml`](../supervisor/src/main/resources/db/changelog/db.changelog-master.yaml), whose SQL changesets live in [`changes/`](../supervisor/src/main/resources/db/changelog/changes). Changeset `003` loads the demo accounts only in demo mode ([ADR-0009](adr/0009-postgresql-and-liquibase.md)), `004` adds the alarm correlation columns, and `005` adds the replay snapshots.
 
 | Table | Purpose | Key Columns & Constraints |
 |---|---|---|
 | `event_log` | Append-only log of all equipment, service, alarm, supervisor lifecycle, and 30 s `TELEMETRY_SAMPLED` events. | `id bigint generated always as identity`, `occurred_at` and `recorded_at` (`timestamptz(3)`), `type`, `entity_kind`, `entity_id`, `equipment_id`, `actor`, `payload jsonb` (full new entity state + `schemaVersion`; alarm events also record `via` and their `correlation`; `ALARM_FLOOD_STARTED` and `ALARM_FLOOD_ENDED` have entity kind `FLOOD`). Indexed on `(occurred_at)`, `(equipment_id, occurred_at)` and `(type, occurred_at)`. |
 | `alarm` | Open and closed alarm records. | `id`, `equipment_id`, `code`, `instance`, `instance_name`, `severity`, `text`, `source`, `state`, `suppressed`, `raised_at`, `acked_at`, `acked_by`, `ack_comment`, `cleared_at`, and the correlation: `cause_id`, `cause_equipment_id`, `cause_code` and `correlation_rule`, all null or all set, with no foreign key because retention may purge a cause. The partial unique index `uk_alarm_open` on `(equipment_id, code, instance) where state <> 'CLOSED'` allows one open alarm per identity. |
 | `role`, `app_user`, `user_role` | Roles (`VIEWER`, `SUPERVISOR`, `ADMIN`) and accounts. | Usernames are unique and lower case; passwords are stored as `{bcrypt}` hashes. In demo mode, `admin1`, `supervisor1` and `demo1` are created with one role each. |
+| `board_snapshot` | The durable board at a point in the log, so replay folds only the events after it. | `id bigint generated always as identity`, `taken_at timestamptz(3)`, `last_event_id`, `schema_version`, `board jsonb`. Indexed on `(taken_at)`. A snapshot equals the fold of every event up to `last_event_id`. |
 
-*(Planned for `v0.3`: `command`, `active_command(equipment_id PRIMARY KEY)` for crash-safe command exclusion, and `snapshot` for 5-minute replay checkpoints.)*
+*(Planned for `v0.3`: `command` and `active_command(equipment_id PRIMARY KEY)` for crash-safe command exclusion.)*
 
 [ModularityTest]: ../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/ModularityTest.java
 [PollScheduler]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/PollScheduler.java
@@ -223,6 +250,11 @@ The schema is created by the Liquibase changelog [`db.changelog-master.yaml`](..
 [SseClient]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/SseClient.java
 [`AlarmEngine`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java
 [`BoardDecider`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardDecider.java
+[`BoardHistory`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/BoardHistory.java
+[`GapRule`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/GapRule.java
+[`IncidentSummary`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/IncidentSummary.java
+[`StreamMessages`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/api/StreamMessages.java
+[`BoardReducer`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardReducer.java
 [`BoardWriter`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java
 [`DeviceBreakers`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/DeviceBreakers.java
 [`FlightDataRule`]: ../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/FlightDataRule.java

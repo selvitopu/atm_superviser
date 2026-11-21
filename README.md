@@ -40,6 +40,10 @@ because the answer depends on SDPS-A, and its open alarms are marked unconfirmed
   LOSS, and nothing is blocked. With units in `UNKNOWN` state, a verdict is the worst over every possible state of
   those units, marked unconfirmed when the states disagree. It is exact up to 10 such units, and beyond that a
   conservative bound that can only overstate.
+- **Replay is rebuilt from the log, and never passes for live.** The board at any past instant is the newest stored
+  snapshot plus the later events, folded with the live reducer. The Replay screen sits under a band that cannot be
+  dismissed, has no controls, marks every value as a 30-second sample, and shows `No recorded data` when the
+  supervisor was not running instead of a green board. An incident report exports as CSV or JSON.
 - **Telemetry is sampled, never invented.** Values are stored every 30 s while polls succeed, and a
   missed poll produces no sample.
 
@@ -71,7 +75,10 @@ The [design](docs/design/2026-11-13-atm-supervisor-design.md) describes the full
 | Control commands with interlocks, a mandatory reason and outcome tracking | Planned (v0.3) |
 | Sign-in, registration and roles (VIEWER, SUPERVISOR, ADMIN) | Implemented |
 | Impact analysis: single points of failure and a what-if maintenance planner, with a preview on Maintenance on | Implemented |
-| Replay, snapshots, export and retention | Planned (v0.3) |
+| Board snapshots every 5 minutes, and a live board at start-up that is the fold of the log | Implemented |
+| Replay screen: the board at any past instant, played at 1×, 4×, 16× or 60× with step and seek, and gaps shown as no data | Implemented |
+| Incident report export (CSV or JSON, up to 7 days) with a summary of alarms, causes, degradations, commands and gaps | Implemented |
+| Retention | Planned (v0.3) |
 | Prometheus, `snmp_exporter` and Grafana | Planned (v1.0); Actuator metrics exist today |
 | Browser end-to-end tests | Planned (v1.0) |
 
@@ -82,7 +89,7 @@ The [design](docs/design/2026-11-13-atm-supervisor-design.md) describes the full
 - **Database outage.** The board keeps its last persisted state and the tiles turn stale, but there is
   no explicit storage-down signal yet. The writer queue and the number of SSE clients are not bounded yet.
 - **One supervisor instance.** While it is down, nothing is supervised; on restart every device is
-  `UNKNOWN` until its first poll.
+  `UNKNOWN` until its first poll, keeping its last contact time.
 - **One slow recovery path.** If contact returns while a half-open trial poll is still running, the
   device can stay `UNKNOWN` for up to about 30 s.
 
@@ -313,19 +320,21 @@ cd mib && ./lint.sh                            # lint the MIB with smilint (fall
 - [Architecture](docs/architecture.md): C4 context, container and component views, Spring Modulith
   boundaries, and the polling, board-writer and SSE pipelines
 - [Domain primer](docs/domain.md): technical supervision, the supervised systems, health versus
-  service state, N-1 and single points of failure, and the alarm lifecycle
+  service state, N-1 and single points of failure, the alarm lifecycle, and replay
+  fidelity
 - [Operator guide](docs/operator-guide.md): how to read the board, `UNKNOWN` reasons, maintenance
-  badges, freshness ages and alarm handling
+  badges, freshness ages, alarm handling, and reviewing an incident with Replay
 - [MIB guide](docs/mib.md): the custom MIB, the SNMPv3 users and `snmpwalk` examples
 - [Hazard log](docs/safety/hazard-log.md): what can mislead an operator, and the code and tests that
   prevent it
 - [Change request CR-001](docs/safety/CR-001-auto-switchover-visibility.md): automatic 3 s A/B
   switchover visibility and confirmed service redundancy alarms
-- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0012 covering the
+- [Architecture Decision Records (`docs/adr/`)](docs/adr/README.md): ADRs 0001–0014 covering the
   modular monolith, SNMPv3/engine boots, full-poll alarm resync, full-state event log, bounded SSE,
   shared inventory, restart context preservation, two-generation polling, PostgreSQL with Liquibase,
-  session sign-in with roles, and impact analysis over the live service rules
-- [Demo walkthrough](docs/demo-v0.1.md): a scripted tour of v0.1
+  session sign-in with roles, impact analysis over the live service rules, alarm correlation, and replay
+  from snapshots and the event log
+- [Demo walkthrough](docs/demo-v0.1.md): a scripted tour of v0.1, including a replay of the failure
 - [Design](docs/design/2026-11-13-atm-supervisor-design.md): the target architecture for every phase,
   amended by the [architecture review decisions](docs/refactor/ATM-Supervisor-Architecture-Review-Decisions.md)
 

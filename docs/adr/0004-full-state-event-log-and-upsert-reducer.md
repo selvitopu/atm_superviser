@@ -43,7 +43,7 @@ Chosen option: **Option 1.**
 ### Consequences
 
 * **Good:** The live board is by construction the fold of `event_log` in `id` order.
-* **Good:** On supervisor restart (`v0.1.1`), [`JpaBoardStore.loadLastEquipmentStates`] decodes the newest equipment event per device so [`Board.initial`] preserves each device's last-known `maintenance` flag and `role` while setting health to `UNKNOWN (SUPERVISOR_RESTARTED)`.
+* **Good:** On supervisor restart, the start-up board is the fold of the log (see the amendment below), so each device keeps its last-known `maintenance` flag and `role` while its health becomes `UNKNOWN (SUPERVISOR_RESTARTED)`.
 * **Bad / Trade-off:** Replay values (`v0.3`) have $\le 30\text{ s}$ granularity rather than 5 s poll granularity; the replay UI explicitly labels sample timestamps and ages rather than interpolating.
 
 ### Amendment: The Start-Up Board Is the Fold of the Log
@@ -67,7 +67,6 @@ Since replay was added (after `v0.1.1`), [`BoardWriter`] no longer builds its st
 [ServiceEvaluator]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluator.java
 [AlarmEngine]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/alarms/AlarmEngine.java
 [EventCodec]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/EventCodec.java
-[JpaBoardStore.loadLastEquipmentStates]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [BoardReducerTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardReducerTest.java
 [EventCodecTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/EventCodecTest.java
 [BoardDeciderTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardDeciderTest.java
@@ -88,7 +87,6 @@ Since replay was added (after `v0.1.1`), [`BoardWriter`] no longer builds its st
 [`DomainEvent`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/DomainEvent.java
 [`EventCodecTest`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/EventCodecTest.java
 [`EventCodec`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/EventCodec.java
-[`JpaBoardStore.loadLastEquipmentStates`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [`JpaBoardStoreIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStoreIT.java
 [`ServiceEvaluator`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/ServiceEvaluator.java
 [`ReplayFidelityIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/ReplayFidelityIT.java

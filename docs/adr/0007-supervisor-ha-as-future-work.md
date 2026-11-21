@@ -1,6 +1,6 @@
 # ADR-0007: Single Supervisor Instance with State-Preserving Restart; Active/Standby Supervisor HA Left as Future Work
 
-* **Status:** Accepted — Implemented in `v0.1.1`
+* **Status:** Accepted — Implemented in `v0.1.1`; start-up board from the log after `v0.1.1`
 * **Date:** 2026-11-13 (revised 2026-11-15 for `v0.1.1` restart state preservation)
 * **Deciders:** Project maintainers
 
@@ -28,17 +28,16 @@ Chosen option: **Option 1.**
 
 ### How Restart & Lifecycle Supervision Work in `v0.1.1`
 
-1. **Reloading Open Alarms & Last-Known Equipment Context ([`BoardWriter.start`], [`JpaBoardStore`]):**
-   * On startup, [`BoardWriter.start`] queries [`JpaBoardStore.loadOpenAlarms`] to restore all non-closed alarms (`ACTIVE_UNACK`, `ACTIVE_ACK`, `CLEARED_UNACK`).
-   * On any non-first start (when `event_log` is non-empty), [`JpaBoardStore.loadLastEquipmentStates`] queries the newest `EQUIPMENT_STATE_CHANGED`, `CONTACT_LOST`, or `CONTACT_RESTORED` event per device ([`EventLogRepository`]) and passes those states to [`Board.initial`].
-   * [`Board.initial`] preserves each device's last-known `maintenance` flag and `role` (`active`, `standby`, `standalone`) while ignoring any removed device IDs and defaulting new devices.
+1. **Rebuilding the Board from the Log ([`BoardWriter.start`], [`BoardHistory`]):**
+   * On startup, [`BoardWriter.start`] asks [`JpaBoardStore.foldedBoard`] for the board. [`BoardHistory`] builds it from the newest board snapshot plus a fold of every later event, or from [`Board.initial`] over the whole log when no snapshot exists yet. The open alarms come out of that fold, because the `alarm` table is a projection of the same events.
+   * The fold keeps each device's last-known `maintenance` flag and `role` (`active`, `standby`, `standalone`), ignores removed device IDs and starts new devices as `UNKNOWN (NOT_YET_POLLED)`. See the [ADR-0004 amendment](0004-full-state-event-log-and-upsert-reducer.md#amendment-the-start-up-board-is-the-fold-of-the-log) and [ADR-0014](0014-replay-from-snapshots-and-the-event-log.md).
 2. **Setting Health to `UNKNOWN (SUPERVISOR_RESTARTED)`:**
-   * [`BoardWriter.start`] commits and folds `SUPERVISOR_STARTED`, which sets every device's health to `UNKNOWN` with `unknownReason = SUPERVISOR_RESTARTED`.
+   * [`BoardWriter.start`] commits and folds `SUPERVISOR_STARTED`, which sets every device's health to `UNKNOWN` with `unknownReason = SUPERVISOR_RESTARTED`. A device keeps its "since" (the restart) and its last contact time, as in any fold of the log.
    * Because `maintenance` and `role` were preserved, a pair with one unit in maintenance immediately evaluates its service as `UNKNOWN · at best DEGRADED` rather than falsely claiming `at best OK` before the first poll.
    * Each device's first successful full poll then confirms live health and reconciles its alarm table (`via RESYNC`).
 3. **Lifecycle Heartbeats for Replay Down-Gap Detection:**
    * [`BoardWriter`] commits a `SUPERVISOR_HEARTBEAT` event every 60 seconds and a `SUPERVISOR_STOPPING` event on graceful shutdown.
-   * When historical replay (`v0.3`) reconstructs the board for timestamp `T` and finds no event or heartbeat in the 90 s before `T`, it marks the board `NO_DATA` (*"No recorded data: supervisor not running"*).
+   * When historical replay reconstructs the board for timestamp `T` and finds no event other than a telemetry sample in the 90 s before `T` (1.5 × the heartbeat interval), or finds that the newest one is `SUPERVISOR_STOPPING`, it marks the board `NO_DATA` (*"No recorded data: supervisor not running"*).
 
 ### Consequences
 
@@ -56,18 +55,16 @@ Chosen option: **Option 1.**
 [Board.initial]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/Board.java
 [PollScheduler]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/PollScheduler.java
 [JpaBoardStore]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
-[JpaBoardStore.loadOpenAlarms]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
-[JpaBoardStore.loadLastEquipmentStates]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [EventLogRepository]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/EventLogRepository.java
 [BoardWriterTest]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriterTest.java
 [ReplayFidelityIT]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/ReplayFidelityIT.java
 [`Board.initial`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/Board.java
 [`BoardWriter.start`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java
+[`JpaBoardStore.foldedBoard`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
+[`BoardHistory`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/BoardHistory.java
 [`BoardWriterTest`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriterTest.java
 [`BoardWriter`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/board/BoardWriter.java
 [`EventLogRepository`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/EventLogRepository.java
-[`JpaBoardStore.loadLastEquipmentStates`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
-[`JpaBoardStore.loadOpenAlarms`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [`JpaBoardStore`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/history/JpaBoardStore.java
 [`PollScheduler`]: ../../supervisor/src/main/java/io/github/selvitopu/atmsup/supervisor/polling/PollScheduler.java
 [`ReplayFidelityIT`]: ../../supervisor/src/test/java/io/github/selvitopu/atmsup/supervisor/history/ReplayFidelityIT.java
