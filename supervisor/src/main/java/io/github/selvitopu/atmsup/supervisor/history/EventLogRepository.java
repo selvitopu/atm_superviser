@@ -75,13 +75,23 @@ public interface EventLogRepository extends JpaRepository<EventLogEntity, Long> 
     Optional<EventLogEntity> findFirstByTypeInAndOccurredAtLessThanOrderByOccurredAtDescIdDesc(
             Collection<String> types, Instant before);
 
-    /** Every event but those of {@code type} that occurred in ({@code after}, {@code to}], oldest first. */
+    /** The time and type of the events of the given types that occurred in ({@code after}, {@code to}], oldest first. */
     @Query("""
-            select e from EventLogEntity e
-            where e.type <> :type and e.occurredAt > :after and e.occurredAt <= :to
+            select new io.github.selvitopu.atmsup.supervisor.history.EventStamp(e.occurredAt, e.type)
+            from EventLogEntity e
+            where e.type in :types and e.occurredAt > :after and e.occurredAt <= :to
             order by e.occurredAt, e.id""")
-    List<EventLogEntity> findNonSampleAfterUpTo(@Param("type") String type, @Param("after") Instant after,
-                                                @Param("to") Instant to);
+    List<EventStamp> findStampsAfterUpTo(@Param("types") Collection<String> types, @Param("after") Instant after,
+                                         @Param("to") Instant to);
+
+    /** The newest event of the given types at or before {@code at}; the page holds one. */
+    @Query("""
+            select new io.github.selvitopu.atmsup.supervisor.history.EventStamp(e.occurredAt, e.type)
+            from EventLogEntity e
+            where e.type in :types and e.occurredAt <= :at
+            order by e.occurredAt desc, e.id desc""")
+    List<EventStamp> findNewestStampAtOrBefore(@Param("types") Collection<String> types, @Param("at") Instant at,
+                                               Pageable page);
 
     /** The newest stored row of {@code type} for the entity, by id. */
     Optional<EventLogEntity> findFirstByTypeAndEntityIdOrderByIdDesc(String type, String entityId);

@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import org.springframework.stereotype.Component;
 
 /** Maps the board and its entities to the API's DTOs. Stateless apart from the inventory. */
@@ -45,14 +46,22 @@ public class DtoMapper {
 
     /** Equipment in inventory order, services in enum order, alarms by severity then newest first. */
     public BoardDto board(LiveBoard lb, String centre, Instant now) {
-        Board b = lb.board();
+        return board(lb.board(), centre, now, d -> equipment(lb, d.id()), lb.board());
+    }
+
+    /**
+     * One layout for both boards: {@code unit} maps a device, and {@code alarmContext} is the board against which an
+     * alarm is flagged unconfirmed.
+     */
+    private BoardDto board(Board b, String centre, Instant serverTime, Function<Device, EquipmentDto> unit,
+                           Board alarmContext) {
         List<ServiceDto> services = b.services().values().stream()
                 .sorted(Comparator.comparing(s -> s.id().ordinal()))
                 .map(this::service).toList();
-        List<EquipmentDto> equipment = inventory.devices().stream().map(d -> equipment(lb, d.id())).toList();
+        List<EquipmentDto> equipment = inventory.devices().stream().map(unit).toList();
         List<AlarmDto> alarms = b.openAlarms().values().stream().sorted(MOST_SEVERE_THEN_NEWEST)
-                .map(a -> alarm(a, b)).toList();
-        return new BoardDto(centre, now, b.lastEventId(), services, equipment, alarms,
+                .map(a -> alarm(a, alarmContext)).toList();
+        return new BoardDto(centre, serverTime, b.lastEventId(), services, equipment, alarms,
                 new FloodDto(b.flood().active(), b.flood().since()));
     }
 
@@ -78,21 +87,13 @@ public class DtoMapper {
      */
     public ReplayBoardDto replayBoard(ReplayBoard rb, String centre, long gapThresholdSeconds) {
         Board b = rb.board();
-        List<ServiceDto> services = b.services().values().stream()
-                .sorted(Comparator.comparing(s -> s.id().ordinal()))
-                .map(this::service).toList();
-        List<EquipmentDto> equipment = inventory.devices().stream().map(d -> {
+        BoardDto board = board(b, centre, rb.at(), d -> {
             EquipmentDto e = equipment(b.equipment().get(d.id()), Telemetry.EMPTY);
             Sample s = rb.samples().get(d.id());
             return s == null ? e : new EquipmentDto(e.id(), e.name(), e.type(), e.group(), e.pair(), e.health(),
                     e.unknownReason(), e.maintenance(), e.role(), e.healthSince(), e.contact(), s.values(),
                     s.tables(), s.observedAt());
-        }).toList();
-        Board noUnits = new Board(Map.of(), Map.of(), Map.of(), 0);
-        List<AlarmDto> alarms = b.openAlarms().values().stream().sorted(MOST_SEVERE_THEN_NEWEST)
-                .map(a -> alarm(a, noUnits)).toList();
-        BoardDto board = new BoardDto(centre, rb.at(), b.lastEventId(), services, equipment, alarms,
-                new FloodDto(b.flood().active(), b.flood().since()));
+        }, new Board(Map.of(), Map.of(), Map.of(), 0));
         return new ReplayBoardDto(rb.at(), rb.noData(), gapThresholdSeconds, board);
     }
 

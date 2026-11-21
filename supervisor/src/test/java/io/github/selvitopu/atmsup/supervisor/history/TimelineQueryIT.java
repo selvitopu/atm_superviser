@@ -63,6 +63,10 @@ class TimelineQueryIT {
     private TimelineQuery query;
     @Autowired
     private EventLogRepository events;
+    @Autowired
+    private EventCodec codec;
+    @Autowired
+    private BoardHistory history;
 
     private static Instant at(int minute, int second) {
         return T.plusSeconds(minute * 60L + second);
@@ -107,11 +111,11 @@ class TimelineQueryIT {
                 new Span(at(16, 30), null));
         assertThat(all.restarts()).containsExactly(at(0, 0), at(10, 0));
 
-        // a window that starts inside the stop gap is clipped to its start, and a flood open at its start is kept
+        // a window that starts inside the stop gap reports the gap with its true start, before the window
         Timeline later = query.timeline(at(5, 0), at(11, 0));
         assertThat(later.markers()).isEmpty();
         assertThat(later.floods()).isEmpty();
-        assertThat(later.gaps()).containsExactly(new Span(at(5, 0), at(10, 0)));
+        assertThat(later.gaps()).containsExactly(new Span(at(2, 10), at(10, 0)));
         assertThat(later.restarts()).containsExactly(at(10, 0));
 
         Timeline midFlood = query.timeline(at(1, 45), at(1, 55));
@@ -147,5 +151,44 @@ class TimelineQueryIT {
         assertThat(events.findFirstByTypeAndEntityIdOrderByIdDesc("ALARM_RAISED", "a2"))
                 .get().extracting(EventLogEntity::getOccurredAt).isEqualTo(at(0, 15));
         assertThat(events.findFirstByTypeAndEntityIdOrderByIdDesc("ALARM_RAISED", "none")).isEmpty();
+    }
+
+    @Test
+    void aRestartEndsTheFloodItInterrupted() {
+        store.commit(List.<DomainEvent>of(
+                supervisor(EventType.SUPERVISOR_STARTED, at(0, 0)),
+                new AlarmFloodEvent(EventType.ALARM_FLOOD_STARTED, at(1, 0), 5),
+                supervisor(EventType.SUPERVISOR_STOPPING, at(2, 0)),
+                supervisor(EventType.SUPERVISOR_STARTED, at(3, 0)),
+                new AlarmFloodEvent(EventType.ALARM_FLOOD_STARTED, at(4, 0), 5),
+                new AlarmFloodEvent(EventType.ALARM_FLOOD_ENDED, at(5, 0), 0)));
+
+        assertThat(query.timeline(at(0, 0), at(6, 0)).floods())
+                .containsExactly(new Span(at(1, 0), at(3, 0)), new Span(at(4, 0), at(5, 0)));
+        // a later window does not see the interrupted flood as still open
+        assertThat(query.timeline(at(3, 30), at(3, 50)).floods()).isEmpty();
+    }
+
+    @Test
+    void gapsAreJudgedOnlyUpToNow() {
+        store.commit(List.<DomainEvent>of(
+                supervisor(EventType.SUPERVISOR_STARTED, at(0, 0)),
+                supervisor(EventType.SUPERVISOR_HEARTBEAT, at(1, 0))));
+        TimelineQuery running = new TimelineQuery(events, codec, history, InstantSource.fixed(at(1, 30)));
+        TimelineQuery stopped = new TimelineQuery(events, codec, history, InstantSource.fixed(at(5, 0)));
+
+        assertThat(running.timeline(at(0, 0), at(0, 0).plus(Duration.ofHours(1))).gaps()).isEmpty();
+        assertThat(stopped.timeline(at(0, 0), at(0, 0).plus(Duration.ofHours(1))).gaps())
+                .containsExactly(new Span(at(2, 30), null));
+    }
+
+    @Test
+    void aGapKeepsItsTrueStartBeforeTheWindow() {
+        store.commit(List.<DomainEvent>of(
+                supervisor(EventType.SUPERVISOR_STARTED, at(0, 0)),
+                supervisor(EventType.SUPERVISOR_STOPPING, at(1, 0)),
+                supervisor(EventType.SUPERVISOR_STARTED, at(30, 0))));
+
+        assertThat(query.timeline(at(10, 0), at(31, 0)).gaps()).containsExactly(new Span(at(1, 0), at(30, 0)));
     }
 }

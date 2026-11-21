@@ -23,7 +23,10 @@ public record Timeline(List<Marker> markers, boolean truncated, List<Span> flood
     public record Marker(Instant at, String equipmentId, int code, String severity, String text, boolean suppressed) {
     }
 
-    /** A stretch of time; {@code end} is null when it had not ended by the end of the window. */
+    /**
+     * A stretch of time; {@code end} is null when it had not ended by the end of the window. A span that began before
+     * the window is reported with its true start, not clipped to it: the screen clips when it draws.
+     */
     public record Span(Instant start, Instant end) {
     }
 }
