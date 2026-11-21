@@ -120,7 +120,7 @@ breaker timer, so recovery takes seconds, not about 30 s (amendment §1).
 
 ## 8. Ask Impact what one more failure would cost
 
-Command: none. Open **Impact** in the header, with RAD-N, RAD-E and SDPS-A still failed from steps 2 to 4.
+Command: none. Open **Impact** in the header, with RAD-N, RAD-E and SDPS-A still failed from steps 2, 3 and 5.
 
 Shows: the table of single points of failure lists SDPS-B and RAD-S as `✕ SERVICE LOSS`, because losing either
 leaves Surveillance with no SDPS unit or no radar, and FDPS-A and FDPS-B as `▲ REDUCED MARGIN`. The three failed

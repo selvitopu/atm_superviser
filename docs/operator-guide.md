@@ -315,7 +315,7 @@ cannot pass for the live board, and nothing on it controls equipment.
 
 ## 3. Hands-On Operational Playbooks
 
-You can run these seven workflows against the live stack to see how the board responds to faults, acknowledgements,
+You can run these eight workflows against the live stack to see how the board responds to faults, acknowledgements,
 switchovers, lost contact, and maintenance. Sign in as `supervisor1`, keep the board open in one browser window, and
 open the **Simulator** screen from the header in a second window, so you can inject a fault and watch the board react.
 **Reset all** on the Simulator screen clears every fault and restores the default roles.

@@ -371,7 +371,7 @@ the features exist. "Replay mistaken for live" is built and now has its own entr
   - The board at an instant is the fold of the same events with the same reducer as live, so replay cannot show a
     board that live did not show ([ReplayFidelityIT]).
 - **Verified by:** [replay-store.spec.ts] (`liveStreamMessagesChangeNothingInReplay`, `theClockWaitsForTheNextPage`,
-  `aFailedSeekBlocksPlaybackUntilTheNextSuccessfulSeek`, `aGapLongerThanTheThresholdTurnsNoDataOn`,
+  `aPageErrorPausesInsteadOfRetrying`, `aFailedSeekBlocksPlaybackUntilTheNextSuccessfulSeek`, `aGapLongerThanTheThresholdTurnsNoDataOn`,
   `afterASeekTheGapStartsOneThresholdAfterTheLastRecordedEvent`, `aStopTurnsNoDataOnAtOnce`,
   `aSupervisorStartedMessageReloadsTheBoardAtThatInstant`), [replay-page.spec.ts] (`rendersNoAppHeaderAndNoControlLinks`,
   `theAlarmListIsReadOnly`, `theDetailPanelHasNoEquipmentControl`, `theGapOverlayShowsTheExactCopy`),
