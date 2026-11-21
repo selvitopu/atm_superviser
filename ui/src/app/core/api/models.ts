@@ -187,6 +187,33 @@ export interface ReplayEventsDto {
   more: boolean;
 }
 
+export interface TimelineMarkerDto {
+  at: string;
+  equipmentId: string;
+  code: number;
+  severity: Severity;
+  text: string;
+  suppressed: boolean;
+}
+
+/** A span keeps its true start even when it began before the window; {@code end} is null while it is open. */
+export interface TimelineSpanDto {
+  start: string;
+  end: string | null;
+}
+
+export interface TimelineDto {
+  markers: TimelineMarkerDto[];
+  truncated: boolean;
+  floods: TimelineSpanDto[];
+  gaps: TimelineSpanDto[];
+  restarts: string[];
+}
+
+export interface RaisedDto {
+  occurredAt: string;
+}
+
 // --- sign-in and accounts (security module) ---------------------------------------------------------------------
 
 export interface UserDto {

@@ -1,7 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ReplayBoardDto, ReplayEventsDto } from './models';
+import { RaisedDto, ReplayBoardDto, ReplayEventsDto, TimelineDto } from './models';
 
 /** Reads the recorded history. It is separate from the live API on purpose and injects only {@code HttpClient}. */
 @Injectable({ providedIn: 'root' })
@@ -20,5 +20,15 @@ export class ReplayApi {
       params = params.set('until', until);
     }
     return this.http.get<ReplayEventsDto>('/api/v1/history/events', { params });
+  }
+
+  /** Markers, flood spans, gap spans and restarts of {@code [from, to]} (ISO-8601 UTC, at most 7 days). */
+  timeline(from: string, to: string): Observable<TimelineDto> {
+    return this.http.get<TimelineDto>('/api/v1/history/timeline', { params: new HttpParams().set('from', from).set('to', to) });
+  }
+
+  /** When the newest raise of this alarm was recorded; a 404 when none was. */
+  raised(alarmId: string): Observable<RaisedDto> {
+    return this.http.get<RaisedDto>(`/api/v1/history/alarms/${encodeURIComponent(alarmId)}/raised`);
   }
 }

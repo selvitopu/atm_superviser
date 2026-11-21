@@ -71,7 +71,7 @@ describe('AppHeader', () => {
   it('aViewerSeesImpact', () => {
     const f = setup('LIVE', new FakeAuth(['VIEWER'], 'Demo One', 'demo1'));
     expect(f.all('nav a').map(a => [a.textContent?.trim(), a.getAttribute('href')]))
-      .toEqual([['Board', '/board'], ['Alarm history', '/history'], ['Impact', '/impact']]);
+      .toEqual([['Board', '/board'], ['Alarm history', '/history'], ['Impact', '/impact'], ['Replay', '/replay']]);
   });
   it('aSupervisorSeesTheSimulatorOnlyInDemoMode', () => {
     const demo = { demoMode: true, registrationEnabled: true, demoAccounts: [] };
@@ -92,5 +92,13 @@ describe('AppHeader', () => {
     expect(admin.all('nav a').map(a => a.getAttribute('href'))).toContain('/admin/users');
     expect(setup('LIVE', new FakeAuth(['SUPERVISOR'])).all('nav a').map(a => a.getAttribute('href')))
       .not.toContain('/admin/users');
+  });
+
+  it('everyRoleSeesTheReplayLink', () => {
+    for (const role of ['VIEWER', 'SUPERVISOR', 'ADMIN']) {
+      const f = setup('LIVE', new FakeAuth([role]));
+      const link = f.all('nav a').find(a => a.textContent?.trim() === 'Replay');
+      expect(link?.getAttribute('href')).toBe('/replay');
+    }
   });
 });

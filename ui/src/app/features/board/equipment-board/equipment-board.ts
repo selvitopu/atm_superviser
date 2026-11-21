@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { EquipmentDto } from '../../../core/api/models';
 import { BoardSource } from '../../../core/state/board-source';
 import { EquipmentTile } from '../equipment-tile/equipment-tile';
@@ -44,12 +44,12 @@ function cellsOf(items: EquipmentDto[]): Cell[] {
           @for (c of g.cells; track c.first.id) {
             @if (c.second; as second) {
               <div class="pair">
-                <app-equipment-tile [equipment]="c.first" />
+                <app-equipment-tile [equipment]="c.first" [replay]="replay()" />
                 <span class="link" aria-hidden="true">⇄</span>
-                <app-equipment-tile [equipment]="second" />
+                <app-equipment-tile [equipment]="second" [replay]="replay()" />
               </div>
             } @else {
-              <app-equipment-tile [equipment]="c.first" />
+              <app-equipment-tile [equipment]="c.first" [replay]="replay()" />
             }
           }
         </div>
@@ -65,6 +65,9 @@ function cellsOf(items: EquipmentDto[]): Cell[] {
   `,
 })
 export class EquipmentBoard {
+  /** In a replay the tiles link within it and show when they were sampled. */
+  readonly replay = input(false);
+
   private readonly source = inject(BoardSource);
 
   protected readonly groups = computed(() => {

@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, Injector, input, linkedSignal, signal } from '@angular/core';
 import { AlarmDto, AlarmState, Severity } from '../../../core/api/models';
 import { BoardSource } from '../../../core/state/board-source';
 import { LiveBoardStore } from '../../../core/state/live-board-store';
@@ -124,11 +124,15 @@ const isUnacked = (a: AlarmDto) => a.state === 'ACTIVE_UNACK' || a.state === 'CL
   `,
 })
 export class AlarmList {
+  /** A replay shows the alarms only: no checkboxes and no acknowledge buttons. */
+  readonly readOnly = input(false);
+
   private readonly auth = inject(AuthService);
   /** Acknowledging needs SUPERVISOR or ADMIN; the server enforces it too. */
-  protected readonly canAck = computed(() => this.auth.hasRole('SUPERVISOR'));
+  protected readonly canAck = computed(() => !this.readOnly() && this.auth.hasRole('SUPERVISOR'));
   private readonly source = inject(BoardSource);
-  private readonly store = inject(LiveBoardStore);
+  /** Resolved only when acknowledging, so a read-only list never touches the live store. */
+  private readonly injector = inject(Injector);
 
   protected readonly showSuppressed = signal(false);
   protected readonly failed = signal(false);
@@ -263,7 +267,7 @@ export class AlarmList {
       return;
     }
     this.failed.set(false);
-    this.store.ackSelected(ids).subscribe({
+    this.injector.get(LiveBoardStore).ackSelected(ids).subscribe({
       next: () => this.selected.set(new Set()),
       error: () => this.failed.set(true),
     });

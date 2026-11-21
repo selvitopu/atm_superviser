@@ -145,4 +145,13 @@ describe('HistoryPage', () => {
     refresh();
     expect(f.text()).toContain('Latest search');
   });
+
+  it('eachRowLinksToReplay', () => {
+    const { search, refresh, f } = setup();
+    search().flush(page([alarm('a-1'), alarm('a-2')]));
+    refresh();
+    const links = f.all('tbody a.replay');
+    expect(links.map(a => a.textContent?.trim())).toEqual(['Replay', 'Replay']);
+    expect(links.map(a => a.getAttribute('href'))).toEqual(['/replay?alarm=a-1', '/replay?alarm=a-2']);
+  });
 });

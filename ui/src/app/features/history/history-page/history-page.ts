@@ -1,5 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { AlarmQuery, AlarmSearch } from '../../../core/api/alarm-search';
 import { BoardApi } from '../../../core/api/board-api';
@@ -26,7 +27,7 @@ function utc(local: string): string {
 @Component({
   selector: 'app-history-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AppHeader],
+  imports: [AppHeader, RouterLink],
   template: `
     <app-app-header />
     <main>
@@ -62,7 +63,7 @@ function utc(local: string): string {
         <table>
           <thead>
             <tr><th>Raised</th><th>Sev</th><th>Equipment</th><th>Alarm</th><th>State</th><th>Acknowledged</th>
-              <th>Cleared</th><th>Correlated</th></tr>
+              <th>Cleared</th><th>Correlated</th><th>Replay</th></tr>
           </thead>
           <tbody>
             @for (a of rows(); track a.id) {
@@ -75,9 +76,11 @@ function utc(local: string): string {
                 <td class="mono">@if (a.ackedBy) {{{ a.ackedBy }} {{ time(a.ackedAt) }}}</td>
                 <td class="mono">{{ time(a.clearedAt) }}</td>
                 <td class="mono correlated">@if (a.correlation; as c) {{{ cell(c) }}}</td>
+                <td><a class="replay" [routerLink]="['/replay']" [queryParams]="{ alarm: a.id }"
+                  [attr.aria-label]="'Replay alarm ' + a.equipmentId + ' ' + a.text">Replay</a></td>
               </tr>
             } @empty {
-              @if (result()) { <tr><td colspan="8" class="empty">No alarms match</td></tr> }
+              @if (result()) { <tr><td colspan="9" class="empty">No alarms match</td></tr> }
             }
           </tbody>
         </table>
@@ -110,6 +113,7 @@ function utc(local: string): string {
     .sev { font-weight: 700; }
     .sev-critical .sev { color: var(--failed); }
     .sev-major .sev { color: var(--degraded); }
+    td a { color: var(--focus); }
     .empty { color: var(--muted); text-align: center; }
     .error { margin: 0; color: var(--failed); font-size: 12px; }
     .pager { display: flex; align-items: center; justify-content: flex-end; gap: 12px; font-size: 12px; }

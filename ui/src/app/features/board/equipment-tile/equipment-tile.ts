@@ -21,7 +21,8 @@ const SUMMARY: Record<string, [string, string][]> = {
   imports: [RouterLink, RouterLinkActive, StatusBadge],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <a class="tile" [class]="tileClass()" [routerLink]="['/board', equipment().id]" routerLinkActive="selected">
+    <a class="tile" [class]="tileClass()" [routerLink]="link()" [queryParams]="replay() ? { unit: equipment().id } : null"
+      [queryParamsHandling]="replay() ? 'merge' : ''" routerLinkActive="selected">
       <span class="top">
         <span class="id">{{ equipment().id }}</span>
         @if (roleLabel(); as role) {
@@ -39,7 +40,9 @@ const SUMMARY: Record<string, [string, string][]> = {
       } @else if (reasonLabel(); as reason) {
         <span class="note reason">{{ reason }}</span>
       }
-      @if (staleAgeSeconds() !== null) {
+      @if (replay()) {
+        <span class="age">sampled {{ sampled() }}</span>
+      } @else if (staleAgeSeconds() !== null) {
         <span class="age degraded">{{ staleAgeSeconds() }} s ago</span>
       }
       <span class="values" [class.dim]="dimmed()">
@@ -76,8 +79,12 @@ const SUMMARY: Record<string, [string, string][]> = {
 })
 export class EquipmentTile {
   readonly equipment = input.required<EquipmentDto>();
+  /** In a replay: link within it, show the sample time, and never a freshness age or stale mark. */
+  readonly replay = input(false);
   private readonly clock = inject(Clock);
 
+  protected readonly link = computed(() => this.replay() ? ['/replay'] : ['/board', this.equipment().id]);
+  protected readonly sampled = computed(() => formatUtc(this.equipment().sampledAt));
   protected readonly tileClass = computed(() => `tile h-${this.equipment().health.toLowerCase()}`);
   protected readonly roleLabel = computed(() => {
     const e = this.equipment();

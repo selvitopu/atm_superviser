@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, ParamMap } from '@angular/router';
 import { catchError, map, of, switchMap } from 'rxjs';
 import { BoardApi } from '../../../core/api/board-api';
 import { EquipmentDetailDto, EquipmentDto } from '../../../core/api/models';
@@ -38,7 +39,9 @@ const FIELDS: Record<string, [string, string][]> = {
         <dt>Role</dt><dd>{{ display(e.role) }}</dd>
         <dt>Maintenance</dt><dd>{{ e.maintenance ? 'MAINT' : 'no' }}</dd>
       </dl>
-      <app-equipment-control [equipment]="e" (commanded)="commands.update(n => n + 1)" />
+      @if (!readOnly()) {
+        <app-equipment-control [equipment]="e" (commanded)="commands.update(n => n + 1)" />
+      }
       <section class="values">
         @if (unknown()) {
           <h3>Last known values</h3>
@@ -61,6 +64,9 @@ const FIELDS: Record<string, [string, string][]> = {
           }
         </div>
       </section>
+      @if (readOnly()) {
+        <p class="poll mono">sampled {{ sampled() }}</p>
+      } @else {
       <p class="poll mono">Last poll {{ lastPoll() }}</p>
       <h3>Recent events</h3>
       <ul class="events">
@@ -76,8 +82,9 @@ const FIELDS: Record<string, [string, string][]> = {
           <li class="muted">Loading…</li>
         }
       </ul>
+      }
     } @else {
-      <p class="muted">{{ equipmentId() ? 'Loading ' + equipmentId() + '…' : 'Select equipment' }}</p>
+      <p class="muted">{{ id() ? 'Loading ' + id() + '…' : 'Select equipment' }}</p>
     }
   `,
   styles: `
@@ -105,22 +112,31 @@ const FIELDS: Record<string, [string, string][]> = {
 })
 export class DetailPanel {
   readonly equipmentId = input<string | null>(null);
+  /** A replay: no equipment control and no recent-events fetch; the unit is the {@code unit} query parameter. */
+  readonly readOnly = input(false);
 
   private readonly source = inject(BoardSource);
   private readonly api = inject(BoardApi);
   private readonly clock = inject(Clock);
+  private readonly unitParam = toSignal(
+    (inject(ActivatedRoute, { optional: true })?.queryParamMap ?? of(null as ParamMap | null)).pipe(
+      map((p: ParamMap | null) => p?.get('unit') ?? null)),
+    { initialValue: null as string | null });
+
+  /** The selected unit: the input on the board, the query parameter in a replay. */
+  protected readonly id = computed(() => this.readOnly() ? this.unitParam() : this.equipmentId());
 
   protected readonly display = display;
   protected readonly time = formatUtc;
 
-  private readonly live = computed(() => this.source.board()?.equipment.find(e => e.id === this.equipmentId()));
+  private readonly live = computed(() => this.source.board()?.equipment.find(e => e.id === this.id()));
 
   /** Answered commands: each is a new event of this unit, even when it changes no state. */
   protected readonly commands = signal(0);
 
   /** Primitive key: telemetry changes leave it equal, so only a real change refetches the detail. */
   private readonly refetchKey = computed(() => {
-    const id = this.equipmentId();
+    const id = this.id();
     if (!id) {
       return null;
     }
@@ -133,10 +149,10 @@ export class DetailPanel {
   private readonly fetched = toSignal(
     toObservable(this.refetchKey).pipe(
       switchMap(key => {
-        if (key === null) {
+        if (key === null || this.readOnly()) {
           return of(null);
         }
-        const id = this.equipmentId()!;
+        const id = this.id()!;
         return this.api.equipment(id).pipe(
           map(detail => ({ id, detail })),
           catchError(() => of({ id, detail: null })),
@@ -148,11 +164,11 @@ export class DetailPanel {
 
   protected readonly detail = computed(() => {
     const f = this.fetched();
-    return f && f.id === this.equipmentId() ? f.detail : null;
+    return f && f.id === this.id() ? f.detail : null;
   });
   protected readonly loadFailed = computed(() => {
     const f = this.fetched();
-    return !!f && f.id === this.equipmentId() && f.detail === null;
+    return !!f && f.id === this.id() && f.detail === null;
   });
 
   protected readonly equipment = computed<EquipmentDto | null>(() => this.live() ?? this.detail()?.equipment ?? null);
@@ -163,6 +179,7 @@ export class DetailPanel {
     const e = this.equipment();
     return e ? unknownReasonLabel(e) : null;
   });
+  protected readonly sampled = computed(() => formatUtc(this.equipment()?.sampledAt));
   protected readonly lastPoll = computed(() => {
     const c = this.equipment()?.contact;
     const f = c ? freshness(c.lastPollAt, c.pollIntervalMs, this.clock.serverNow()) : null;
