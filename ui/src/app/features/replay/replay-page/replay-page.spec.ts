@@ -43,6 +43,7 @@ async function ready(url = `/replay?from=${FROM}&to=${TO}&at=${FROM}`, board = r
   t.http.expectOne(r => r.url === '/api/v1/history/timeline').flush(empty);
   t.http.match(r => r.url === '/api/v1/history/events').forEach(r => r.flush({ events: [], more: false }));
   t.settle();
+  t.http.verify(); // any other request, such as a live one, fails the spec
   return t;
 }
 
@@ -66,12 +67,13 @@ describe('ReplayPage', () => {
   });
 
   it('theDetailPanelHasNoEquipmentControl', async () => {
-    const { el } = await ready(`/replay?from=${FROM}&to=${TO}&at=${FROM}&unit=RAD-N`);
+    const { el, http } = await ready(`/replay?from=${FROM}&to=${TO}&at=${FROM}&unit=RAD-N`);
     const panel = el.querySelector('app-detail-panel') as HTMLElement;
     expect(panel.textContent).toContain('RAD-N');
     expect(panel.querySelector('app-equipment-control')).toBeNull();
     expect(panel.textContent).not.toContain('Recent events');
     expect(panel.textContent).toContain('sampled 14:00:00Z');
+    http.expectNone(r => r.url.startsWith('/api/v1/equipment'));
   });
 
   it('tilesLinkWithinReplay', async () => {
